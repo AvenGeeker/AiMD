@@ -70,6 +70,7 @@ export function AuthView() {
                 <button
                   key={entry}
                   type="button"
+                  data-testid={`auth-mode-${entry}`}
                   onClick={() => setMode(entry)}
                   className={`flex-1 rounded px-2 py-1 ${
                     mode === entry ? 'bg-accent text-accent-foreground' : 'text-muted hover:bg-hover'

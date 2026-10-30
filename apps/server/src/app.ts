@@ -5,12 +5,12 @@ import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
-import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { MAX_ATTACHMENT_BYTES } from '@aimarkdown/shared';
 import type { ServerContext } from './context.js';
 import { corsOriginList } from './config.js';
 import { registerErrorHandler, registerNotFoundHandler } from './plugins/error-handler.js';
+import { hasSpaBundle, sendIndexHtml } from './plugins/spa.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerNoteRoutes } from './routes/notes.js';
 import { registerTreeRoutes } from './routes/tree.js';
@@ -132,16 +132,21 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // Serve the built web client when a bundle is present (production single-container mode).
   const webDist = config.WEB_DIST_DIR ? resolve(config.WEB_DIST_DIR) : '';
-  const serveSpa = Boolean(webDist) && existsSync(webDist);
+  const serveSpa = hasSpaBundle(webDist);
   if (serveSpa) {
-    await app.register(fastifyStatic, { root: webDist, prefix: '/', wildcard: false });
-    log.info({ webDist }, 'serving web client');
+    // `wildcard: true` is what actually registers the `/*` route that serves hashed assets; with
+    // it off, every /assets/*.js request falls through to the SPA handler and comes back as HTML
+    // with status 200, which fails module MIME checking and yields a blank page.
+    // `index: false` leaves `/` to the route below, which injects the runtime config.
+    await app.register(fastifyStatic, { root: webDist, prefix: '/', wildcard: true, index: false });
+    app.get('/', (_request, reply) => sendIndexHtml(reply, webDist, config.COLLAB_PUBLIC_URL));
+    log.info({ webDist, collabPublicUrl: config.COLLAB_PUBLIC_URL || '(same origin)' }, 'serving web client');
   } else if (webDist) {
-    log.warn({ webDist }, 'WEB_DIST_DIR is set but the directory does not exist; API-only mode');
+    log.warn({ webDist }, 'WEB_DIST_DIR is set but index.html is missing; API-only mode');
   }
 
   // Exactly one not-found handler: it owns both the API 404 contract and the SPA fallback.
-  registerNotFoundHandler(app, { spa: serveSpa });
+  registerNotFoundHandler(app, { spa: serveSpa, webDist, collabPublicUrl: config.COLLAB_PUBLIC_URL });
 
   return app;
 }

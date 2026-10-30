@@ -44,6 +44,8 @@ run_api() {
   export PUBLIC_URL="http://127.0.0.1:3000"
   export CORS_ORIGIN="http://127.0.0.1:5173,http://localhost:5173"
   export WEB_DIST_DIR=""
+  # Vite proxies /collab to the Hocuspocus port, so the browser can stay same-origin in dev.
+  export COLLAB_PUBLIC_URL=""
   export LOG_LEVEL=info
   set +a
   exec pnpm dev

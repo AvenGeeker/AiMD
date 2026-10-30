@@ -56,6 +56,9 @@ services:
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
       UPLOAD_DIR: /data/uploads
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Empty means "same origin": Caddy rewrites /collab to the Hocuspocus port. Set this only
+      # if you expose the app without that proxy.
+      COLLAB_PUBLIC_URL: ${COLLAB_PUBLIC_URL:-}
     volumes:
       - uploads:/data/uploads
     # Bound to the compose network only; Caddy is the sole ingress.

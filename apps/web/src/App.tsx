@@ -108,12 +108,27 @@ function Workspace() {
 
   /* ------------------------------- selection ------------------------------ */
 
-  // Keep a note open when possible; otherwise fall back to the top of the current list.
+  // Changing the filter clears the selection; the effect below then picks the first note of the
+  // *settled* result set.
+  const filterKey = `${selection.folderId ?? '*'}|${selection.rootOnly}|${selection.tagIds.join(',')}|${selection.q}|${selection.archived}`;
+  useEffect(() => {
+    setSelectedNoteId(null);
+  }, [filterKey]);
+
+  /**
+   * Auto-select the first note when nothing is selected.
+   *
+   * Two guards matter here. Waiting for `isFetching` to settle stops us picking from a partial
+   * list — otherwise a newly created note loses the selection race to whatever was already cached
+   * (the pinned inbox note sorts first). And never overriding an explicit `selectedNoteId` keeps
+   * the editor on the note the user actually opened, even if the current filter would hide it.
+   */
   useEffect(() => {
     if (inTrash) return;
-    if (selectedNoteId && notes.some((note) => note.id === selectedNoteId)) return;
+    if (selectedNoteId !== null) return;
+    if (notesQuery.isFetching) return;
     setSelectedNoteId(notes[0]?.id ?? null);
-  }, [notes, selectedNoteId, inTrash]);
+  }, [notes, selectedNoteId, inTrash, notesQuery.isFetching]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark);
@@ -285,10 +300,33 @@ function Workspace() {
     return meta.titleManual ? meta.title : deriveTitle(source, meta.title);
   }, [meta.title, meta.titleManual, selectedNoteId, source]);
 
+  /**
+   * Refresh the list and tree after the derived title settles.
+   *
+   * Titles live in the CRDT document, and the sidebar reads them from the Postgres mirror, which
+   * the server only updates on the debounced store hook. Without this, renaming a note (or typing
+   * the first heading of a new one) leaves the sidebar showing the stale title until something
+   * else happens to invalidate the query. Debounced so it does not refetch on every keystroke.
+   */
+  useEffect(() => {
+    if (!selectedNoteId || !displayTitle) return;
+    const timer = window.setTimeout(() => {
+      void queryClient.invalidateQueries({ queryKey: ['notes'] });
+      void queryClient.invalidateQueries({ queryKey: ['tree'] });
+    }, 1_500);
+    return () => window.clearTimeout(timer);
+  }, [selectedNoteId, displayTitle, queryClient]);
+
   if (!user) return null;
 
   return (
-    <div className="flex h-screen flex-col bg-background text-foreground" data-testid="workspace">
+    <div
+      className="flex h-screen flex-col bg-background text-foreground"
+      data-testid="workspace"
+      // Exposes the selection so tests do not have to infer it from list ordering (the inbox note
+      // is pinned and always sorts first, which makes `.first()` misleading).
+      data-active-note-id={selectedNoteId ?? ''}
+    >
       <TitleBar
         title={displayTitle}
         onTitleChange={handleTitleChange}
@@ -336,14 +374,18 @@ function Workspace() {
           loading={notesQuery.isFetching}
           onTogglePin={(note) => void updateNote.mutateAsync({ id: note.id, patch: { pinned: !note.pinned } })}
           onDelete={(id) =>
-            inTrash
-              ? void (async () => {
-                  if (!window.confirm('彻底删除该笔记？此操作不可撤销。')) return;
-                  await deleteNote.mutateAsync({ id, permanent: true });
-                })()
-              : void deleteNote.mutateAsync({ id })
+            void (async () => {
+              if (inTrash && !window.confirm('彻底删除该笔记？此操作不可撤销。')) return;
+              await deleteNote.mutateAsync({ id, permanent: inTrash });
+              if (id === selectedNoteId) setSelectedNoteId(null);
+            })()
           }
-          onRestore={(id) => void restoreNote.mutateAsync(id)}
+          onRestore={(id) =>
+            void (async () => {
+              await restoreNote.mutateAsync(id);
+              if (id === selectedNoteId) setSelectedNoteId(null);
+            })()
+          }
         />
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">

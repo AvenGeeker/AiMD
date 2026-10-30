@@ -102,7 +102,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
 
   useEffect(() => {
     const host = editorHostRef.current;
-    if (!host || !bodyText) return;
+    if (!host || !bodyText || mode === 'preview') return;
 
     const uploadAndInsert = async (file: File): Promise<void> => {
       try {
@@ -180,9 +180,13 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       view.destroy();
       viewRef.current = null;
     };
-    // Rebuilding the view on a font-size or theme change is cheap and far simpler than
+    // Rebuilding the view on a font-size, theme or *mode* change is cheap and far simpler than
     // reconfiguring compartments; the document itself is untouched because it lives in Yjs.
-  }, [bodyText, awareness, undoManager, dark, fontSize, noteId]);
+    //
+    // `mode` must be a dependency: preview-only unmounts the host element, so returning to
+    // split/edit mounts a *new* div that has no EditorView attached. Without it the editor pane
+    // comes back empty.
+  }, [bodyText, awareness, undoManager, dark, fontSize, noteId, mode]);
 
   /* ------------------------------ scroll sync ----------------------------- */
 
@@ -271,6 +275,10 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
             ref={editorHostRef}
             className="editor-host min-h-0 flex-1 overflow-hidden"
             data-testid="editor-host"
+            // Publishes which note the mounted CodeMirror instance is bound to. The view is torn
+            // down and rebuilt when the selection changes, so without this a caller (or a test)
+            // can type into the host while it is still showing the previous note's document.
+            data-note-id={noteId}
           />
         )}
         {mode === 'split' && <div className="w-px shrink-0 bg-border" />}

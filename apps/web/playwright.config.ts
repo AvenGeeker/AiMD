@@ -5,7 +5,8 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * Playwright starts the *built* server (not a mock) against a dedicated `aimarkdown_e2e`
  * database, so these tests exercise the real REST API, the real Hocuspocus WebSocket and the real
- * Postgres mirror. `globalSetup` creates that database if it does not exist yet.
+ * Postgres mirror. `e2e/ensure-db.mjs` creates that database first, because Playwright starts
+ * `webServer` before any `globalSetup` hook.
  *
  * Requires Docker: `make db-up` (Postgres on 127.0.0.1:5433).
  */
@@ -27,7 +28,6 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
-  globalSetup: './e2e/global-setup.ts',
   projects: [
     {
       name: 'chromium',
@@ -55,6 +55,9 @@ export default defineConfig({
       CORS_ORIGIN: '*',
       ALLOW_REGISTRATION: 'true',
       WEB_DIST_DIR: './dist',
+      // No reverse proxy in front of the E2E stack, so the browser must reach Hocuspocus
+      // directly instead of relying on a /collab path rewrite.
+      COLLAB_PUBLIC_URL: `ws://127.0.0.1:${COLLAB_PORT}`,
       LOG_LEVEL: 'warn',
       AUTH_RATE_LIMIT_MAX: '100000',
       API_RATE_LIMIT_MAX: '100000',

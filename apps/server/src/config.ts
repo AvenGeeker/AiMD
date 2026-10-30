@@ -67,6 +67,13 @@ const configSchema = z.object({
   /** Bounded wait for pending CRDT stores during shutdown, so SIGTERM cannot lose writes. */
   SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(1000).default(10000),
 
+  /**
+   * WebSocket URL the browser should use for collaboration, injected into index.html at request
+   * time. Leave empty when a reverse proxy maps `/collab` to the Hocuspocus port (the Compose
+   * deployment does); set it when Fastify serves the SPA directly, e.g. `ws://host:1234`.
+   */
+  COLLAB_PUBLIC_URL: z.preprocess(blankToUndefined, z.string().default('')),
+
   /** Absolute path to the SQL migrations directory. */
   MIGRATIONS_DIR: optionalString,
 

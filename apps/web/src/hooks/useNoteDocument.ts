@@ -47,13 +47,18 @@ export function useNoteDocument(noteId: string | null): {
 
 /** Observe a note document's `meta` map as reactive state. */
 export function useNoteMeta(doc: Y.Doc | null): NoteMetaMap {
-  const [, force] = useState(0);
+  // The version counter must be a memo dependency, not just a re-render trigger: the document
+  // starts empty and is filled in when the server state arrives, so a memo keyed on `doc` alone
+  // would cache the pre-sync values forever.
+  const [version, bump] = useState(0);
 
   useEffect(() => {
     if (!doc) return;
     const meta = doc.getMap(NOTE_KEYS.meta);
-    const observer = () => force((value) => value + 1);
+    const observer = () => bump((value) => value + 1);
     meta.observeDeep(observer);
+    // The map may already have been populated (local IndexedDB cache) before we subscribed.
+    bump((value) => value + 1);
     return () => meta.unobserveDeep(observer);
   }, [doc]);
 
@@ -82,7 +87,9 @@ export function useNoteMeta(doc: Y.Doc | null): NoteMetaMap {
       position: str('position', NOTE_META_DEFAULTS.position),
       createdAt: str('createdAt', NOTE_META_DEFAULTS.createdAt),
     };
-  }, [doc]);
+    // `version` is not referenced in the body; it is the observation signal that forces a
+    // recompute whenever the Y.Map changes.
+  }, [doc, version]);
 }
 
 /** Write note metadata into the CRDT document. */
@@ -103,13 +110,15 @@ export function writeNoteMeta(doc: Y.Doc | null, patch: Partial<NoteMetaMap>): v
 
 /** Observe a note document's `tagIds` Y.Array as reactive state. */
 export function useNoteTagIds(doc: Y.Doc | null): string[] {
-  const [, force] = useState(0);
+  // Same reasoning as useNoteMeta: the memo must depend on the observation counter.
+  const [version, bump] = useState(0);
 
   useEffect(() => {
     if (!doc) return;
     const array = doc.getArray<string>(NOTE_KEYS.tagIds);
-    const observer = () => force((value) => value + 1);
+    const observer = () => bump((value) => value + 1);
     array.observe(observer);
+    bump((value) => value + 1);
     return () => array.unobserve(observer);
   }, [doc]);
 
@@ -123,7 +132,8 @@ export function useNoteTagIds(doc: Y.Doc | null): string[] {
       out.push(id);
     }
     return out;
-  }, [doc]);
+    // `version` is the observation signal, as in useNoteMeta.
+  }, [doc, version]);
 }
 
 /** Replace the note's tag set in the CRDT document. */

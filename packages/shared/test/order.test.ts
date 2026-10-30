@@ -45,15 +45,37 @@ describe('fractional ordering', () => {
     expect(compareKeys(mid, b)).toBe(-1);
   });
 
-  it('keeps inserting between ever-closer neighbours', () => {
-    const a: string | null = null;
-    let b = keyAfter(a);
-    for (let i = 0; i < 50; i++) {
-      const mid = keyBetween(a, b);
-      expect(compareKeys(mid, b)).toBe(-1);
-      expect(compareKeys(a as string, mid)).toBe(-1);
+  it('keeps prepending before an ever-smaller key without running out of room', () => {
+    // Open lower bound: `a` stays null, so each iteration must produce a strictly smaller key.
+    let b = keyAfter(null);
+    for (let i = 0; i < 60; i++) {
+      const mid = keyBetween(null, b);
+      expect(compareKeys(mid, b), `iteration ${i}: ${mid} should precede ${b}`).toBe(-1);
       b = mid;
     }
+  });
+
+  it('keeps inserting between a fixed lower bound and an ever-closer upper bound', () => {
+    const lower = 'a0';
+    let upper = 'a1';
+    for (let i = 0; i < 60; i++) {
+      const mid = keyBetween(lower, upper);
+      expect(compareKeys(lower, mid), `iteration ${i}`).toBe(-1);
+      expect(compareKeys(mid, upper), `iteration ${i}`).toBe(-1);
+      upper = mid;
+    }
+  });
+
+  it('never produces duplicate keys under repeated insertion', () => {
+    const keys = new Set<string>();
+    let b = keyAfter(null);
+    keys.add(b);
+    for (let i = 0; i < 200; i++) {
+      b = keyBetween(null, b);
+      expect(keys.has(b), `duplicate key ${b} at iteration ${i}`).toBe(false);
+      keys.add(b);
+    }
+    expect(keys.size).toBe(201);
   });
 
   it('generates N ordered keys for a multi-item drop', () => {

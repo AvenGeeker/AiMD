@@ -10,7 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:unit": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "node e2e/ensure-db.mjs && playwright test"
   },
   "dependencies": {
     "@aimarkdown/markdown": "workspace:*",
@@ -48,6 +48,7 @@
     "tailwindcss": "^4.3.3",
     "typescript": "~5.9.3",
     "vite": "^8.3.5",
-    "vitest": "^5.0.5"
+    "vitest": "^5.0.5",
+    "postgres": "^4.0.0"
   }
 }

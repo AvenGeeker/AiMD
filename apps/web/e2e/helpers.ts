@@ -14,8 +14,9 @@ export async function registerThroughUi(page: Page, email = uniqueEmail()): Prom
   await page.getByTestId('auth-view').waitFor();
   await page.getByTestId('email').fill(email);
   await page.getByTestId('password').fill('password123');
-  // The form defaults to login; switch to the register tab.
-  await page.getByRole('button', { name: '注册' }).click();
+  // The form defaults to login; switch to the register tab. Targeted by test id because the tab
+  // and the submit button can share a visible label.
+  await page.getByTestId('auth-mode-register').click();
   await page.getByTestId('auth-submit').click();
   await expect(page.getByTestId('workspace')).toBeVisible();
   return email;
@@ -26,18 +27,52 @@ export async function loginThroughUi(page: Page, email: string, password = 'pass
   await page.getByTestId('auth-view').waitFor();
   await page.getByTestId('email').fill(email);
   await page.getByTestId('password').fill(password);
-  await page.getByRole('button', { name: '登录' }).click();
-  await expect(page.getByTestId('workspace')).toBeVisible();
+  await page.getByTestId('auth-mode-login').click();
+  await page.getByTestId('auth-submit').click();
+  await expect(page.getByTestId('workspace')).toBeVisible({ timeout: 20_000 });
 }
 
-/** Create a note through the UI and return its id (parsed from the selected list row). */
+/**
+ * Create a note through the UI and return its id.
+ *
+ * The id is read from the workspace's `data-active-note-id` attribute rather than inferred from the
+ * note list: the inbox note is pinned and always sorts first, and the list may not have finished
+ * loading when a test starts, so both "take the first row" and "diff the rows" are unreliable.
+ */
 export async function createNote(page: Page): Promise<string> {
+  const workspace = page.getByTestId('workspace');
+  const previous = (await workspace.getAttribute('data-active-note-id')) ?? '';
+
   await page.getByTestId('new-note').click();
-  // The new note is auto-selected; its list row carries the id in the test id.
-  const selected = page.locator('[data-testid^="note-item-"]').first();
-  await expect(selected).toBeVisible();
-  const testId = await selected.getAttribute('data-testid');
-  return (testId ?? '').replace('note-item-', '');
+
+  await expect
+    .poll(async () => (await workspace.getAttribute('data-active-note-id')) ?? '', {
+      timeout: 20_000,
+      message: 'a new note should become the active one',
+    })
+    .not.toBe(previous);
+
+  const id = (await workspace.getAttribute('data-active-note-id')) ?? '';
+  expect(id).toBeTruthy();
+  expect(id).not.toBe(previous);
+
+  await expect(page.locator(`[data-testid="note-item-${id}"]`)).toBeVisible();
+  await waitForEditorBound(page, id);
+  return id;
+}
+
+/**
+ * Wait until the mounted CodeMirror instance is bound to `noteId`.
+ *
+ * The editor view is destroyed and recreated when the selection changes. Until that has happened,
+ * `.cm-content` still belongs to the *previous* note, and typing would silently edit the wrong
+ * document — which looks exactly like a sync bug.
+ */
+export async function waitForEditorBound(page: Page, noteId: string): Promise<void> {
+  await expect(page.locator('.cm-content')).toBeVisible();
+  await expect(page.getByTestId('editor-host')).toHaveAttribute('data-note-id', noteId, {
+    timeout: 20_000,
+  });
 }
 
 /** Type into the CodeMirror editor. CodeMirror needs real key events, not fill(). */

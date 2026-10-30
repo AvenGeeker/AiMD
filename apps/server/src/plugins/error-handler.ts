@@ -1,5 +1,6 @@
 import type { FastifyError, FastifyInstance } from 'fastify';
 import { ApiError, ERROR_CODES, toApiErrorBody } from '@aimarkdown/shared';
+import { sendIndexHtml } from './spa.js';
 
 /**
  * Single error funnel.
@@ -56,12 +57,34 @@ export function registerErrorHandler(app: FastifyInstance): void {
  * fallback must live in the same function. `spa` is true only when a built web client is being
  * served from this instance.
  */
-export function registerNotFoundHandler(app: FastifyInstance, options: { spa: boolean }): void {
+/**
+ * Extensions that must never be answered with the SPA shell.
+ *
+ * Returning `index.html` (status 200, `text/html`) for a missing `/assets/app.js` is the failure
+ * mode that is hardest to diagnose: the browser rejects it as a module and renders a blank page
+ * with no server-side error at all. Answering 404 makes a broken asset path immediately visible.
+ */
+const STATIC_ASSET_RE = /\.(js|mjs|cjs|css|map|png|jpe?g|gif|svg|webp|avif|ico|woff2?|ttf|otf|eot|wasm|json|zip|md|txt)(\?|$)/i;
+
+export function registerNotFoundHandler(
+  app: FastifyInstance,
+  options: { spa: boolean; webDist?: string; collabPublicUrl?: string },
+): void {
   app.setNotFoundHandler((request, reply) => {
     const isApi = request.url.startsWith('/api');
-    // Client-side routes (e.g. /notes/abc) must return the shell, not a 404.
-    if (options.spa && !isApi && request.method === 'GET') {
-      return reply.sendFile('index.html');
+    const pathOnly = request.url.split('?')[0] ?? request.url;
+
+    // A missing static asset is a real 404, not a client-side route.
+    if (!isApi && STATIC_ASSET_RE.test(pathOnly)) {
+      return reply
+        .code(404)
+        .send(new ApiError(ERROR_CODES.NOT_FOUND, `静态资源不存在: ${pathOnly}`).toJSON());
+    }
+
+    // Client-side routes (e.g. /notes/abc) must return the shell, not a 404 — and the shell has
+    // to carry the same runtime config injection as `/`, so it cannot be a plain static send.
+    if (options.spa && !isApi && request.method === 'GET' && options.webDist) {
+      return sendIndexHtml(reply, options.webDist, options.collabPublicUrl ?? '');
     }
     return reply
       .code(404)
