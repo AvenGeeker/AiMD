@@ -47,22 +47,73 @@ make down            # 停止（保留数据卷）
 
 ---
 
-## 本地开发
+## 在 Mac 上编译运行
+
+### 前置
+
+```bash
+node -v      # 需要 >= 22（实测 v24.13.0）
+pnpm -v      # 需要 10.x（实测 10.6.5）
+docker -v    # 需要 Compose v2 插件
+```
+
+首次准备：
+
+```bash
+pnpm install     # 会自动批准 esbuild / @node-rs/argon2 / electron 的构建脚本
+make db-up       # 启动开发库(:5433) 与测试库(:5434)
+```
+
+### 方式 A：浏览器里跑（最快，改代码即时热更新）
+
+```bash
+make dev
+# → API  http://127.0.0.1:3000
+# → Web  http://127.0.0.1:5173   ← 打开这个
+```
+
+Vite 会把 `/api` 与 `/collab` 代理到本地服务端，所以浏览器只连 5173 一个源。
+
+### 方式 B：Electron 桌面端（含全局快捷键速记窗）
+
+保持方式 A 在跑，另开一个终端：
+
+```bash
+pnpm --filter @aimarkdown/desktop dev
+```
+
+脚本会自动探测 `http://127.0.0.1:5173`：探测到就用 Vite（编辑器热更新），否则加载已构建产物并提示你先 `pnpm --filter @aimarkdown/web build`。首次启动会让你填服务器地址，本地开发填 `http://127.0.0.1:3000`。
+
+启动后按 **⌥Space**（可在设置里改）唤出速记窗，`⌘Enter` 写入收集箱，`Esc` 关闭。
+
+> 如果被 Raycast / Alfred 占用，注册会失败——托盘菜单和设置页都会明确提示，改一个组合即可，不会静默失效。
+
+### 方式 C：打包成 .app / .dmg
+
+```bash
+pnpm --filter @aimarkdown/desktop dist:mac
+# 产物在 apps/desktop/release/：
+#   aiMarkdown-0.1.0.dmg          (x64，Intel)
+#   aiMarkdown-0.1.0-arm64.dmg    (Apple Silicon)
+```
+
+只想打本机架构、省一半时间：
+
+```bash
+cd apps/desktop && pnpm build && npx electron-builder --mac --x64
+```
+
+**产物未签名**（没有 Apple Developer ID），首次打开会被 Gatekeeper 拦：右键 → 打开，或到「系统设置 → 隐私与安全性」点「仍要打开」。要正式分发需要配置签名与公证，见 `apps/desktop/package.json` 的 `build.mac`（把 `identity: null` 换成你的证书并开启 `hardenedRuntime`）。
+
+> 打包前必须先构建 renderer：`pnpm build` 会按 `web 构建 → 主进程编译 → stage renderer` 的顺序做完。如果单独跑了 `electron-builder` 而没重新 stage，`copy-renderer.mjs` 会告警提示 bundle 可能过期。
+
+### 本地开发
 
 ```bash
 pnpm install
 make db-up      # 启动开发用 Postgres（:5433）与测试库（:5434）
 make dev        # 同时启动 API（:3000）与 Vite（:5173）
 ```
-
-桌面端另开一个终端：
-
-```bash
-pnpm --filter @aimarkdown/web build      # 或保持 Vite dev server 运行
-pnpm --filter @aimarkdown/desktop dev    # 启动 Electron 外壳
-```
-
-桌面端会自动探测 `http://127.0.0.1:5173`，有 Vite dev server 就用它（编辑器热更新），否则加载已构建的产物。
 
 ### 测试
 

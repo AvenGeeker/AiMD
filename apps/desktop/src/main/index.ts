@@ -12,6 +12,7 @@ import {
 import { createTray, destroyTray, setQuitHandler } from './tray.js';
 import { registerIpc } from './ipc.js';
 import { setQuitting } from './lifecycle.js';
+import { setLaunchAtLogin } from './login-item.js';
 
 /**
  * Desktop shell entrypoint.
@@ -34,7 +35,12 @@ if (!gotLock) {
   const bootstrap = (): void => {
     loadState();
     const state = getState();
-    app.setLoginItemSettings({ openAtLogin: state.launchAtLogin });
+    // Read-before-write: on macOS an unsigned/dev build cannot always change login items, and
+    // calling this unconditionally on every boot produces a spurious "Operation not permitted".
+    const loginItem = setLaunchAtLogin(state.launchAtLogin);
+    if (!loginItem.applied && state.launchAtLogin) {
+      console.warn(`[aiMarkdown] 无法设置登录时启动：${loginItem.error ?? '未知原因'}`);
+    }
 
     registerIpc({
       onHotkeyChange: () => toggleCaptureWindow(),

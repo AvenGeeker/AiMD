@@ -5,25 +5,23 @@
   "description": "aiMarkdown desktop shell: main window, tray and a global-hotkey quick-capture window.",
   "main": "dist/main/index.js",
   "scripts": {
-    "build": "pnpm build:main && pnpm build:renderer",
-    "build:main": "tsc -p tsconfig.json && node scripts/copy-renderer.mjs",
-    "build:renderer": "pnpm --filter @aimarkdown/web build && node scripts/copy-renderer.mjs",
-    "dev": "cross-env-shell \"node scripts/dev.mjs\"",
+    "build": "pnpm build:web && pnpm build:main && node scripts/copy-renderer.mjs",
+    "build:main": "tsc -p tsconfig.json",
+    "build:renderer": "pnpm build:web && node scripts/copy-renderer.mjs",
+    "dev": "node scripts/dev.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "echo 'desktop has no unit tests; see e2e in apps/web'",
     "start": "electron .",
     "dist": "pnpm build && electron-builder",
     "dist:mac": "pnpm build && electron-builder --mac --x64 --arm64",
-    "dist:win": "pnpm build && electron-builder --win --x64"
+    "dist:win": "pnpm build && electron-builder --win --x64",
+    "build:web": "pnpm --filter @aimarkdown/web build"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "electron": "^45.1.0",
     "electron-builder": "^26.18.0",
     "typescript": "~5.9.3"
-  },
-  "dependencies": {
-    "electron-updater": "^6.8.11"
   },
   "build": {
     "appId": "com.aimarkdown.desktop",
@@ -40,15 +38,34 @@
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] },
-        { "target": "zip", "arch": ["x64", "arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "identity": null,
       "hardenedRuntime": false,
       "gatekeeperAssess": false
     },
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "signAndEditExecutable": false
     },
     "nsis": {
@@ -57,7 +74,9 @@
       "perMachine": false
     },
     "linux": {
-      "target": ["AppImage"],
+      "target": [
+        "AppImage"
+      ],
       "category": "Utility"
     }
   }

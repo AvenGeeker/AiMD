@@ -87,9 +87,60 @@ async function main(): Promise<void> {
 
 }
 
-main().catch((error) => {
+/**
+ * Turn the failure modes that actually happen on a first run into something readable.
+ *
+ * A raw Node stack trace for `EADDRINUSE` tells a new operator nothing about which of the two
+ * ports this process owns is taken, or what to do about it.
+ */
+function reportStartupFailure(error: unknown): never {
+  // `listen` failures carry `port`/`address`, which are not on the base ErrnoException type.
+  const err = error as NodeJS.ErrnoException & {
+    code?: string;
+    port?: number | string;
+    address?: string;
+  };
+
+  if (err?.code === 'EADDRINUSE') {
+    const address = typeof err.address === 'string' ? err.address : '';
+    const port = err.port ?? (address ? '' : '');
+    console.error(
+      `[aiMarkdown] 端口 ${port ?? '(未知)'} 已被占用，无法启动。\n` +
+        `  查看占用者：lsof -nP -iTCP:${port} -sTCP:LISTEN\n` +
+        `  本服务使用两个端口：REST_PORT（默认 3000）与 COLLAB_PORT（默认 1234）。\n` +
+        `  用环境变量改掉其中之一即可，例如：COLLAB_PORT=1235 node dist/index.js`,
+    );
+    process.exit(1);
+  }
+
+  if (err?.name === 'ConfigError') {
+    console.error(`[aiMarkdown] 配置有误：\n${err.message}`);
+    process.exit(1);
+  }
+
+  if (/not reachable|ECONNREFUSED|getaddrinfo/i.test(err?.message ?? '')) {
+    console.error(
+      `[aiMarkdown] ${err.message}\n` +
+        '  本地开发请先启动数据库：make db-up\n' +
+        '  并确认 DATABASE_URL 指向正确的地址与凭据。',
+    );
+    process.exit(1);
+  }
+
   console.error('[aiMarkdown] failed to start:', error);
   process.exit(1);
+}
+
+/**
+ * A port clash surfaces as an `'error'` event on the underlying net server (Hocuspocus owns its
+ * own http.Server), so it never reaches `main().catch` — without this handler Node prints a raw
+ * stack trace and exits. Anything uncaught is fatal either way; we only make the common case
+ * readable rather than pretending the process can recover.
+ */
+process.on('uncaughtException', (error) => {
+  reportStartupFailure(error);
 });
+
+main().catch(reportStartupFailure);
 
 export type { CollabServer };

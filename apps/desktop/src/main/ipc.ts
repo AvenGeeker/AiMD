@@ -1,6 +1,7 @@
 import { app, ipcMain } from 'electron';
 import { clearTokens, getState, saveState } from './store.js';
 import { getHotkeyState, registerHotkey } from './hotkey.js';
+import { setLaunchAtLogin } from './login-item.js';
 import { hideCaptureWindow, showMainWindow } from './windows.js';
 import { setSyncLabel } from './tray.js';
 
@@ -113,9 +114,11 @@ export function registerIpc(deps: IpcDeps): void {
     if (typeof value.stampFormat === 'string') patch.stampFormat = value.stampFormat;
     if (typeof value.hideOnBlur === 'boolean') patch.hideOnBlur = value.hideOnBlur;
     if (typeof value.minimizeToTray === 'boolean') patch.minimizeToTray = value.minimizeToTray;
+    let loginItemError: string | undefined;
     if (typeof value.launchAtLogin === 'boolean') {
       patch.launchAtLogin = value.launchAtLogin;
-      app.setLoginItemSettings({ openAtLogin: value.launchAtLogin });
+      const result = setLaunchAtLogin(value.launchAtLogin);
+      if (!result.applied) loginItemError = result.error;
     }
 
     saveState(patch);
@@ -124,6 +127,7 @@ export function registerIpc(deps: IpcDeps): void {
     if (nextHotkey !== getHotkeyState().accelerator || !getHotkeyState().registered) {
       registerHotkey(nextHotkey, () => deps.onHotkeyChange(nextHotkey));
     }
-    return getHotkeyState();
+    // Surface a login-item failure to the settings dialog instead of swallowing it.
+    return { ...getHotkeyState(), ...(loginItemError ? { loginItemError } : {}) };
   });
 }

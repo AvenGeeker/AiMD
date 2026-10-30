@@ -15,7 +15,14 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    sourcemap: true,
+    /**
+     * Sourcemaps are opt-in (`VITE_SOURCEMAPS=1`).
+     *
+     * They are ~32MB of the 46MB bundle — mostly mermaid and shiki — so shipping them by default
+     * inflates every installer and hands out readable source. Turn them on when debugging a
+     * production report.
+     */
+    sourcemap: process.env.VITE_SOURCEMAPS === '1',
     // mermaid and shiki are large; split the heavy vendors so the initial paint does not wait
     // on them. Vite 8's rollup types only accept the function form of `manualChunks`.
     rollupOptions: {
@@ -35,6 +42,14 @@ export default defineConfig({
     },
   },
   server: {
+    /**
+     * Bind IPv4 explicitly.
+     *
+     * The default `localhost` resolves to `::1` on macOS, so the dev server listens on IPv6 only
+     * and `http://127.0.0.1:5173` refuses connections — which also makes the desktop shell's
+     * dev-server probe silently fall back to a stale staged bundle instead of hot reloading.
+     */
+    host: '127.0.0.1',
     port: 5173,
     proxy: {
       // Dev convenience: the Vite server forwards API calls to the local Fastify app.
