@@ -173,6 +173,9 @@ export const updateNoteInput = z.object({
   folderId: idSchema.nullable().optional(),
   pinned: z.boolean().optional(),
   archived: z.boolean().optional(),
+  /** Replaces the note's whole tag set; the server diffs it into the CRDT array. */
+  tagIds: z.array(idSchema).max(50).optional(),
+  title: z.string().trim().max(200).optional(),
   before: z.string().nullish(),
   after: z.string().nullish(),
 });

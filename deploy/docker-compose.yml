@@ -1,0 +1,96 @@
+# aiMarkdown production stack: Caddy (auto HTTPS) -> app (REST + CRDT) -> Postgres.
+#
+# Bring it up with ../scripts/deploy.sh, which generates .env with random secrets first.
+
+name: aimarkdown
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: aimarkdown-caddy
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      # Host ports are configurable so the stack can sit behind an existing reverse proxy or
+      # avoid a conflict with another service already bound to 80/443.
+      - '${HTTP_PORT:-80}:80'
+      - '${HTTPS_PORT:-443}:443'
+      # HTTP/3 (QUIC) — Caddy advertises it automatically once TLS is working.
+      - '${HTTPS_PORT:-443}:443/udp'
+    environment:
+      # The Caddyfile references these as {$PUBLIC_URL} / {$ACME_EMAIL}; without them here the
+      # site address expands to empty and Caddy refuses to start.
+      PUBLIC_URL: ${PUBLIC_URL}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [aimarkdown]
+
+  app:
+    # Set APP_IMAGE in .env to pull a prebuilt image instead of building on the server.
+    image: ${APP_IMAGE:-aimarkdown-app:local}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: aimarkdown-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      REST_PORT: 3000
+      COLLAB_PORT: 1234
+      DATABASE_URL: postgres://${POSTGRES_USER:-aimarkdown}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aimarkdown}
+      JWT_SECRET: ${JWT_SECRET}
+      PUBLIC_URL: ${PUBLIC_URL}
+      # Behind Caddy on the same origin; set to a comma-separated list if you serve the SPA elsewhere.
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      UPLOAD_DIR: /data/uploads
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - uploads:/data/uploads
+    # Bound to the compose network only; Caddy is the sole ingress.
+    expose:
+      - '3000'
+      - '1234'
+    networks: [aimarkdown]
+
+  postgres:
+    image: postgres:18-alpine
+    container_name: aimarkdown-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aimarkdown}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-aimarkdown}
+      # Chinese substring search relies on trigram matching; keep the collation deterministic.
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8'
+    volumes:
+      # Postgres 18 expects the mount at /var/lib/postgresql (data goes into a version-specific
+      # subdirectory) so pg_upgrade --link can cross a major-version boundary later.
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-aimarkdown} -d ${POSTGRES_DB:-aimarkdown}']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [aimarkdown]
+
+volumes:
+  pgdata:
+  uploads:
+  caddy_data:
+  caddy_config:
+
+networks:
+  aimarkdown:
+    driver: bridge

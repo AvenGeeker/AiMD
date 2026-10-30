@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { healthDto } from '@aimarkdown/shared';
 import { ping } from '../db/client.js';
+import { APP_VERSION } from '../version.js';
 import type { CollabServer } from '../collab/server.js';
 
 /** Liveness/readiness probe used by the deploy script and by container health checks. */
@@ -13,7 +14,8 @@ export function registerHealthRoutes(app: FastifyInstance, collab: () => CollabS
 
     const body = healthDto.parse({
       status: dbOk && collabOk ? 'ok' : 'degraded',
-      version: app.version ?? '0.1.0',
+      // `app.version` is Fastify's own version; report ours instead.
+      version: APP_VERSION,
       uptimeSeconds: Math.round((Date.now() - ctx.startedAt) / 1000),
       db: dbOk ? 'ok' : 'error',
       collab: collabOk ? 'ok' : 'error',

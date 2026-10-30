@@ -1,0 +1,107 @@
+@import 'tailwindcss';
+
+/* The app toggles `.dark` on <html> from the resolved theme setting. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #ffffff;
+  --surface: #f8f8f9;
+  --foreground: #1c1c1e;
+  --muted: #6b7280;
+  --border: #e6e6e9;
+  --hover: #f1f1f3;
+  --accent: #4f6df5;
+  --accent-foreground: #ffffff;
+  --danger: #dc2626;
+  --success: #16a34a;
+  --warning: #b45309;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+}
+
+.dark {
+  --background: #1a1a1c;
+  --surface: #212124;
+  --foreground: #e8e8ea;
+  --muted: #9b9ba1;
+  --border: #33333a;
+  --hover: #2a2a2f;
+  --accent: #7c93ff;
+  --accent-foreground: #14141a;
+  --danger: #f87171;
+  --success: #4ade80;
+  --warning: #fbbf24;
+}
+
+/* Maps the runtime palette onto Tailwind's color namespace so `bg-surface` etc. work. */
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-hover: var(--hover);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --font-mono: var(--font-mono);
+  --font-sans: var(--font-sans);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Thin, unobtrusive scrollbars — this is a three-pane reading surface. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted) 35%, transparent);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.editor-host .cm-editor {
+  height: 100%;
+}
+
+/* Drag-and-drop affordance for notes in the list. */
+[draggable='true'] {
+  cursor: grab;
+}
+[draggable='true']:active {
+  cursor: grabbing;
+  opacity: 0.6;
+}
+
+code {
+  font-family: var(--font-mono);
+}

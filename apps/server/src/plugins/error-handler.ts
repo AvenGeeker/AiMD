@@ -47,9 +47,23 @@ export function registerErrorHandler(app: FastifyInstance): void {
       message: ctx?.config.NODE_ENV === 'production' ? '服务器内部错误' : body.message,
     });
   });
+}
 
+/**
+ * Single 404 handler.
+ *
+ * Fastify permits only one not-found handler per prefix, so the API 404 contract and the SPA
+ * fallback must live in the same function. `spa` is true only when a built web client is being
+ * served from this instance.
+ */
+export function registerNotFoundHandler(app: FastifyInstance, options: { spa: boolean }): void {
   app.setNotFoundHandler((request, reply) => {
-    void reply
+    const isApi = request.url.startsWith('/api');
+    // Client-side routes (e.g. /notes/abc) must return the shell, not a 404.
+    if (options.spa && !isApi && request.method === 'GET') {
+      return reply.sendFile('index.html');
+    }
+    return reply
       .code(404)
       .send(new ApiError(ERROR_CODES.NOT_FOUND, `接口不存在: ${request.method} ${request.url}`).toJSON());
   });

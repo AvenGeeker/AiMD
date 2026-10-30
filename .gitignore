@@ -17,3 +17,10 @@ uploads/
 electron-vite.config.*.mjs.timestamp-*
 playwright-report/
 test-results/
+
+# Local deployment secrets and smoke-test scratch
+deploy/.env
+apps/server/.env.smoke
+apps/server/data/
+apps/web/data/
+backups/

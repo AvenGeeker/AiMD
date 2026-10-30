@@ -46,12 +46,12 @@ describe('fractional ordering', () => {
   });
 
   it('keeps inserting between ever-closer neighbours', () => {
-    let a: string | null = null;
+    const a: string | null = null;
     let b = keyAfter(a);
     for (let i = 0; i < 50; i++) {
       const mid = keyBetween(a, b);
       expect(compareKeys(mid, b)).toBe(-1);
-      if (a !== null) expect(compareKeys(a, mid)).toBe(-1);
+      expect(compareKeys(a as string, mid)).toBe(-1);
       b = mid;
     }
   });

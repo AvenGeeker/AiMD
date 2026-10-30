@@ -7,7 +7,6 @@ import {
   keyAfter,
   type ImportResultDto,
 } from '@aimarkdown/shared';
-import { newId } from '../utils/ids.js';
 import type { Logger } from '../utils/logger.js';
 import { createNote, loadStoredDoc } from './notes.js';
 import type { NotesDeps } from './notes.js';

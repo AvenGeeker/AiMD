@@ -76,6 +76,8 @@ export function registerNoteRoutes(app: FastifyInstance, deps: NotesDeps, ws: Wo
       ...(input.folderId !== undefined ? { folderId: input.folderId } : {}),
       ...(input.pinned !== undefined ? { pinned: input.pinned } : {}),
       ...(input.archived !== undefined ? { archived: input.archived } : {}),
+      ...(input.tagIds !== undefined ? { tagIds: input.tagIds } : {}),
+      ...(input.title !== undefined ? { title: input.title } : {}),
       ...(position ? { position } : {}),
     });
     return reply.send(noteSummaryDto.parse(toSummary(record)));

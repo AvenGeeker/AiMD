@@ -1,0 +1,150 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Lint, typecheck and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: aimarkdown
+          POSTGRES_PASSWORD: aimarkdown_test
+          POSTGRES_DB: aimarkdown_test
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U aimarkdown -d aimarkdown_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+
+    env:
+      TEST_DATABASE_URL: postgres://aimarkdown:aimarkdown_test@127.0.0.1:5434/aimarkdown_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.6.5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build workspace packages
+        run: |
+          pnpm --filter @aimarkdown/shared build
+          pnpm --filter @aimarkdown/markdown build
+          pnpm --filter @aimarkdown/server build
+          pnpm --filter @aimarkdown/web build
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit tests
+        run: pnpm -r test:unit
+
+      - name: Integration tests (real Postgres + Hocuspocus)
+        run: pnpm --filter @aimarkdown/server test:integration
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @aimarkdown/web exec playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        run: pnpm --filter @aimarkdown/web test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report
+          retention-days: 7
+
+  docker-image:
+    name: Build application image
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate compose files
+        run: |
+          docker compose -f deploy/docker-compose.dev.yml config --quiet
+          PUBLIC_URL=example.com POSTGRES_PASSWORD=x JWT_SECRET=0123456789abcdef0123456789abcdef0123 \
+            docker compose -f deploy/docker-compose.yml config --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: aimarkdown-app:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  desktop:
+    name: Package desktop clients
+    runs-on: ${{ matrix.os }}
+    needs: verify
+    # Only publish installers for tagged releases.
+    if: startsWith(github.ref, 'refs/tags/')
+    strategy:
+      matrix:
+        include:
+          - os: macos-13
+            args: --mac --x64
+          - os: macos-14
+            args: --mac --arm64
+          - os: windows-latest
+            args: --win --x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.6.5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build renderer and shell
+        run: |
+          pnpm --filter @aimarkdown/shared build
+          pnpm --filter @aimarkdown/markdown build
+          pnpm --filter @aimarkdown/desktop build
+
+      # Unsigned: see README for the Gatekeeper / SmartScreen notes.
+      - name: Package
+        run: pnpm --filter @aimarkdown/desktop exec electron-builder ${{ matrix.args }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.exe
+          if-no-files-found: warn

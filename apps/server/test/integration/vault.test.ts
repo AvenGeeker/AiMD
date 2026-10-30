@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { unzipSync, strFromU8 } from 'fflate';
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import type { ImportResultDto, NoteDto } from '@aimarkdown/shared';
 import { api, databaseAvailable, register, startTestServer, type AuthedClient, type TestServer } from './helpers.js';
 import {
@@ -115,7 +115,6 @@ describe('vault helpers', () => {
   });
 
   it('reads markdown out of a zip and skips noise', () => {
-    const { zipSync, strToU8 } = require('fflate') as typeof import('fflate');
     const zipped = zipSync({
       'a.md': strToU8('# A'),
       'dir/b.markdown': strToU8('# B'),

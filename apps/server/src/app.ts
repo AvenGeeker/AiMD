@@ -10,7 +10,7 @@ import { resolve } from 'node:path';
 import { MAX_ATTACHMENT_BYTES } from '@aimarkdown/shared';
 import type { ServerContext } from './context.js';
 import { corsOriginList } from './config.js';
-import { registerErrorHandler } from './plugins/error-handler.js';
+import { registerErrorHandler, registerNotFoundHandler } from './plugins/error-handler.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerNoteRoutes } from './routes/notes.js';
 import { registerTreeRoutes } from './routes/tree.js';
@@ -132,17 +132,16 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // Serve the built web client when a bundle is present (production single-container mode).
   const webDist = config.WEB_DIST_DIR ? resolve(config.WEB_DIST_DIR) : '';
-  if (webDist && existsSync(webDist)) {
+  const serveSpa = Boolean(webDist) && existsSync(webDist);
+  if (serveSpa) {
     await app.register(fastifyStatic, { root: webDist, prefix: '/', wildcard: false });
-    // SPA fallback: unknown non-API GETs return index.html so client-side routes work.
-    app.setNotFoundHandler((request, reply) => {
-      if (request.method === 'GET' && !request.url.startsWith('/api')) {
-        return reply.sendFile('index.html');
-      }
-      return reply.code(404).send({ code: 'NOT_FOUND', message: `接口不存在: ${request.url}` });
-    });
     log.info({ webDist }, 'serving web client');
+  } else if (webDist) {
+    log.warn({ webDist }, 'WEB_DIST_DIR is set but the directory does not exist; API-only mode');
   }
+
+  // Exactly one not-found handler: it owns both the API 404 contract and the SPA fallback.
+  registerNotFoundHandler(app, { spa: serveSpa });
 
   return app;
 }

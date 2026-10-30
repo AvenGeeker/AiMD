@@ -1,0 +1,7 @@
+{
+  "_comment": "Docker Hub is unreachable from many mainland-China networks. Merge registry-mirrors into /etc/docker/daemon.json, then `systemctl restart docker`. Verified reachable as of 2026-10-30: docker.m.daocloud.io (HTTP 401 = endpoint alive), dockerproxy.net (HTTP 200). registry-1.docker.io and hub-mirror.c.163.com timed out.",
+  "registry-mirrors": [
+    "https://docker.m.daocloud.io",
+    "https://dockerproxy.net"
+  ]
+}
