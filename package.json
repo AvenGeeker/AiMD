@@ -1,0 +1,31 @@
+{
+  "name": "aimarkdown",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Self-hosted multi-device synced Markdown notebook with CRDT collaboration and a global hotkey quick-capture window.",
+  "packageManager": "pnpm@10.6.5",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "bash scripts/dev.sh",
+    "build": "pnpm -r --filter=./packages/** --filter=./apps/server --filter=./apps/web build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint . --max-warnings=0",
+    "test": "pnpm -r test",
+    "test:unit": "pnpm -r test:unit",
+    "test:integration": "pnpm --filter @aimarkdown/server test:integration",
+    "test:e2e": "pnpm --filter @aimarkdown/web test:e2e",
+    "migrate": "pnpm --filter @aimarkdown/server migrate",
+    "db:up": "docker compose -f deploy/docker-compose.dev.yml up -d postgres",
+    "db:down": "docker compose -f deploy/docker-compose.dev.yml down",
+    "deploy": "bash scripts/deploy.sh",
+    "backup": "bash scripts/backup.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.3.3",
+    "typescript": "~5.9.3"
+  }
+}

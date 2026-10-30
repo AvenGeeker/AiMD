@@ -1,0 +1,43 @@
+# Local development / test database only. Production lives in deploy/docker-compose.yml.
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: aimarkdown-dev-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: aimarkdown
+      POSTGRES_PASSWORD: aimarkdown_dev
+      POSTGRES_DB: aimarkdown
+    ports:
+      - '5433:5432'
+    volumes:
+      # Postgres 18 expects the mount at /var/lib/postgresql (data lives in a version-specific
+      # subdirectory) so that `pg_upgrade --link` can cross the major-version boundary.
+      - aimarkdown_dev_pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U aimarkdown -d aimarkdown']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Second database so integration tests never touch dev data.
+  postgres_test:
+    image: postgres:18-alpine
+    container_name: aimarkdown-test-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: aimarkdown
+      POSTGRES_PASSWORD: aimarkdown_test
+      POSTGRES_DB: aimarkdown_test
+    ports:
+      - '5434:5432'
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U aimarkdown -d aimarkdown_test']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  aimarkdown_dev_pgdata:
