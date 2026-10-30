@@ -5,7 +5,8 @@ COMPOSE_PROD := docker compose -f deploy/docker-compose.yml --env-file deploy/.e
 
 .DEFAULT_GOAL := help
 .PHONY: help install build typecheck test test-unit test-integration test-e2e lint \
-        dev db-up db-down db-logs migrate deploy deploy-rebuild backup logs ps down clean
+        dev db-up db-down db-logs migrate deploy deploy-rebuild backup logs ps down clean \
+        mobile-build mobile-apk mobile-ipa mobile-hap mobile-sync
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -78,6 +79,22 @@ ps: ## Show production container status
 
 down: ## Stop the production stack (volumes are kept)
 	$(COMPOSE_PROD) down
+
+mobile-build: ## Stage the web renderer into the mobile shells (www + harmony rawfile)
+	pnpm --filter @aimarkdown/mobile build:renderer
+	pnpm --filter @aimarkdown/mobile sync:harmony
+
+mobile-apk: ## Build the Android debug APK (needs Android SDK + JDK 17)
+	pnpm --filter @aimarkdown/mobile build:apk
+
+mobile-ipa: ## Build the iOS simulator app, unsigned (needs Xcode)
+	pnpm --filter @aimarkdown/mobile build:ipa
+
+mobile-hap: ## Build the HarmonyOS HAP (needs DevEco Studio)
+	pnpm --filter @aimarkdown/mobile build:hap
+
+mobile-sync: ## Re-sync native projects after editing capacitor.config.ts
+	pnpm --filter @aimarkdown/mobile sync
 
 clean: ## Remove build outputs and installed dependencies
 	rm -rf apps/*/dist apps/web/dist apps/desktop/renderer packages/*/dist

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { deriveTitle } from '@aimarkdown/markdown';
-import type { NoteListDto, SettingsDto } from '@aimarkdown/shared';
+import type { NoteListDto, NoteSummaryDto, SettingsDto } from '@aimarkdown/shared';
 import { DEFAULT_SETTINGS, MIN_SEARCH_QUERY_LENGTH } from '@aimarkdown/shared';
 import { AuthProvider, useAuth } from './lib/auth.js';
 import { request } from './lib/api.js';
 import { isQuickCaptureWindow } from './lib/platform.js';
+import { useIsMobile } from './hooks/useIsMobile.js';
 import { syncManager } from './lib/sync.js';
 import { applySettingsToShell, reportSyncStatus } from './lib/desktop.js';
 import {
@@ -41,6 +42,7 @@ import { Outline } from './components/Outline.js';
 import { TagEditor } from './components/TagEditor.js';
 import { TitleBar } from './components/TitleBar.js';
 import { SettingsDialog } from './components/SettingsDialog.js';
+import { MobileShell } from './components/MobileShell.js';
 import { AuthView } from './components/AuthView.js';
 import { QuickCapture } from './components/QuickCapture.js';
 
@@ -71,6 +73,9 @@ function Workspace() {
   const [source, setSource] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
+
+  // Renders the mobile single-pane shell instead of the three-pane desktop layout.
+  const mobile = useIsMobile();
 
   const treeQuery = useTree();
   const settingsQuery = useSettings();
@@ -318,6 +323,89 @@ function Workspace() {
   }, [selectedNoteId, displayTitle, queryClient]);
 
   if (!user) return null;
+
+  /* --------------------------- mobile-only handlers --------------------------- */
+
+  const handleTogglePin = useCallback(
+    (note: NoteSummaryDto) => {
+      void updateNote.mutateAsync({ id: note.id, patch: { pinned: !note.pinned } });
+    },
+    [updateNote],
+  );
+
+  const handleDeleteNote = useCallback(
+    (id: string) => {
+      void (async () => {
+        if (inTrash && !window.confirm('彻底删除该笔记？此操作不可撤销。')) return;
+        await deleteNote.mutateAsync({ id, permanent: inTrash });
+        if (id === selectedNoteId) setSelectedNoteId(null);
+      })();
+    },
+    [deleteNote, inTrash, selectedNoteId],
+  );
+
+  const handleRestoreNote = useCallback(
+    (id: string) => {
+      void (async () => {
+        await restoreNote.mutateAsync(id);
+        if (id === selectedNoteId) setSelectedNoteId(null);
+      })();
+    },
+    [restoreNote, selectedNoteId],
+  );
+
+  const handleCreateTag = useCallback(
+    async (name: string) => {
+      try {
+        return await upsertTag.mutateAsync({ name });
+      } catch (error) {
+        flash(`创建标签失败：${error instanceof Error ? error.message : String(error)}`);
+        return undefined;
+      }
+    },
+    [flash, upsertTag],
+  );
+
+  if (mobile) {
+    return (
+      <MobileShell
+        tree={treeQuery.data}
+        settings={settings}
+        dark={dark}
+        notes={notes}
+        loading={notesQuery.isFetching}
+        inTrash={inTrash}
+        selection={selection}
+        selectedNoteId={selectedNoteId}
+        doc={doc}
+        awareness={awareness}
+        status={status}
+        tagIds={tagIds}
+        displayTitle={displayTitle}
+        user={user}
+        banner={banner}
+        inboxNoteId={settings.inboxNoteId}
+        tagBusy={updateNote.isPending || upsertTag.isPending}
+        onSelect={setSelection}
+        onOpenNote={setSelectedNoteId}
+        onCreateNote={handleCreateNote}
+        onCreateFolder={(parentId) => void handleCreateFolder(parentId)}
+        onDeleteFolder={(id) => void handleDeleteFolder(id)}
+        onRenameFolder={(id, name) => void handleRenameFolder(id, name)}
+        onDropNote={(noteId, folderId) => void handleDropNote(noteId, folderId)}
+        onTogglePin={handleTogglePin}
+        onDeleteNote={handleDeleteNote}
+        onRestoreNote={handleRestoreNote}
+        onTitleChange={handleTitleChange}
+        onModeChange={handleModeChange}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onLogout={() => void logout()}
+        onCreateTag={handleCreateTag}
+        resolveWikilink={resolveWikilink}
+        onNavigate={setSelectedNoteId}
+      />
+    );
+  }
 
   return (
     <div

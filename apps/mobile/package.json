@@ -1,0 +1,35 @@
+{
+  "name": "@aimarkdown/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "aiMarkdown mobile shell: one Capacitor app sharing the web renderer across Android, iOS and HarmonyOS.",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm --filter @aimarkdown/web build && node scripts/copy-renderer.mjs && cap sync",
+    "build:renderer": "pnpm --filter @aimarkdown/web build && node scripts/copy-renderer.mjs",
+    "build:apk": "node scripts/copy-renderer.mjs && cd android && ./gradlew assembleDebug",
+    "build:ipa": "node scripts/copy-renderer.mjs && cd ios/App && xcodebuild -project App.xcodeproj -scheme App -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath ../../build/ios CODE_SIGNING_ALLOWED=NO build",
+    "build:hap": "node scripts/copy-renderer.mjs && node scripts/sync-harmony-www.mjs && node scripts/check-harmony.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "echo 'mobile has no unit tests; see apps/web e2e for the responsive shell'",
+    "sync": "node scripts/copy-renderer.mjs && cap sync",
+    "sync:android": "node scripts/copy-renderer.mjs && cap sync android",
+    "sync:ios": "node scripts/copy-renderer.mjs && cap sync ios",
+    "open:android": "cap open android",
+    "open:ios": "cap open ios",
+    "add:android": "cap add android",
+    "add:ios": "cap add ios",
+    "sync:harmony": "node scripts/copy-renderer.mjs && node scripts/sync-harmony-www.mjs"
+  },
+  "dependencies": {
+    "@aparajita/capacitor-secure-storage": "^8.0.1",
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/ios": "^8.6.0",
+    "@capacitor/preferences": "^8.0.1"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3"
+  }
+}

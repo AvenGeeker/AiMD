@@ -10,7 +10,7 @@ import globals from 'globals';
  * React hook dependency mistakes.
  */
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**', '**/release/**', 'apps/desktop/renderer/**', '**/playwright-report/**', '**/test-results/**'] },
+  { ignores: ['**/dist/**', '**/build/**', '**/node_modules/**', '**/release/**', 'apps/desktop/renderer/**', '**/playwright-report/**', '**/test-results/**', 'apps/mobile/www/**', 'apps/mobile/android/**', 'apps/mobile/ios/**', 'apps/mobile/harmony/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

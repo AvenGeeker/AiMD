@@ -5,7 +5,8 @@ import {
   type ApiErrorBody,
 } from '@aimarkdown/shared';
 import { apiBase, resolveBaseUrl } from './config.js';
-import { getBridge, isDesktop } from './platform.js';
+import { getBridge, isDesktop, isMobile } from './platform.js';
+import { mobileClearTokens, mobileGetTokens, mobileSetTokens } from './mobile.js';
 
 /**
  * HTTP client.
@@ -35,6 +36,8 @@ export async function initApi(options: ClientOptions = {}): Promise<string> {
   if (isDesktop()) {
     const bridge = getBridge();
     if (bridge) memoryTokens = await bridge.getTokens();
+  } else if (isMobile()) {
+    memoryTokens = await mobileGetTokens();
   }
   return resolvedBase;
 }
@@ -61,26 +64,37 @@ export async function setTokens(tokens: {
   };
   if (isDesktop()) {
     await getBridge()?.setTokens(memoryTokens);
+  } else if (isMobile()) {
+    await mobileSetTokens(memoryTokens);
   }
 }
 
 export function clearTokens(): void {
   memoryTokens = { accessToken: null, refreshToken: null };
-  void getBridge()?.setTokens({ accessToken: null, refreshToken: null });
+  if (isDesktop()) {
+    void getBridge()?.setTokens({ accessToken: null, refreshToken: null });
+  } else if (isMobile()) {
+    void mobileClearTokens();
+  }
 }
 
-/** Transport header set: bearer for desktop, cookies for the browser. */
+/** True when the client has no cookie jar and must use the bearer transport. */
+function usesBearerTransport(): boolean {
+  return isDesktop() || isMobile();
+}
+
+/** Transport header set: bearer for desktop/mobile, cookies for the browser. */
 function authInit(): RequestInit & { headers: Record<string, string> } {
   const headers: Record<string, string> = {};
-  if (isDesktop() && memoryTokens.accessToken) {
+  if (usesBearerTransport() && memoryTokens.accessToken) {
     headers.authorization = `Bearer ${memoryTokens.accessToken}`;
   }
   return { credentials: 'include', headers };
 }
 
 function bearerTransportHeaders(): Record<string, string> {
-  // Ask the server for the refresh token in the body; only the desktop client needs this.
-  return isDesktop() ? { 'x-token-transport': 'bearer' } : {};
+  // Ask the server for the refresh token in the body; desktop and mobile have no cookie jar.
+  return usesBearerTransport() ? { 'x-token-transport': 'bearer' } : {};
 }
 
 export class HttpError extends Error {
@@ -105,9 +119,9 @@ export async function refreshAccessToken(): Promise<boolean> {
     refreshing = (async () => {
       try {
         const base = apiBase(resolvedBase);
-        // Desktop has no usable cookie jar on a file:// page, so it presents the refresh token
-        // in the body and asks for the rotated one back in the response body.
-        const useBodyToken = isDesktop() && Boolean(memoryTokens.refreshToken);
+        // Desktop and mobile have no usable cookie jar, so they present the refresh token in
+        // the body and ask for the rotated one back in the response body.
+        const useBodyToken = usesBearerTransport() && Boolean(memoryTokens.refreshToken);
         const response = await fetch(`${base}/auth/refresh`, {
           method: 'POST',
           credentials: 'include',
@@ -173,6 +187,31 @@ function buildUrl(path: string, query?: RequestOptions['query']): string {
   return absolute ? url.toString() : `${url.pathname}${url.search}`;
 }
 
+/**
+ * Requests must never hang the UI forever: if the host is unreachable but never refuses the
+ * connection (routable black hole, unusual WebView networking), a bare fetch can stay pending
+ * indefinitely. Large uploads (FormData) are exempt — aborting those after a fixed budget would
+ * break slow networks.
+ */
+const REQUEST_TIMEOUT_MS = 20_000;
+
+function signalWithTimeout(signal?: AbortSignal): { signal: AbortSignal; done(): void } {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const onAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener('abort', onAbort);
+  }
+  return {
+    signal: controller.signal,
+    done: () => {
+      window.clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+    },
+  };
+}
+
 async function doFetch(path: string, options: RequestOptions, allowRetry: boolean): Promise<Response> {
   const init = authInit();
   const headers: Record<string, string> = {
@@ -188,13 +227,20 @@ async function doFetch(path: string, options: RequestOptions, allowRetry: boolea
     body = JSON.stringify(options.body);
   }
 
-  const response = await fetch(buildUrl(path, options.query), {
-    method: options.method ?? 'GET',
-    headers,
-    body,
-    credentials: init.credentials,
-    signal: options.signal,
-  });
+  const upload = options.body instanceof FormData;
+  const guard = upload ? null : signalWithTimeout(options.signal);
+  let response: Response;
+  try {
+    response = await fetch(buildUrl(path, options.query), {
+      method: options.method ?? 'GET',
+      headers,
+      body,
+      credentials: init.credentials,
+      signal: guard ? guard.signal : options.signal,
+    });
+  } finally {
+    guard?.done();
+  }
 
   if (response.status === 401 && allowRetry) {
     const payload = (await response.clone().json().catch(() => null)) as ApiErrorBody | null;

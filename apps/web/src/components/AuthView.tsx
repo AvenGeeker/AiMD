@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../lib/auth.js';
-import { isDesktop } from '../lib/platform.js';
+import { isDesktop, isMobile } from '../lib/platform.js';
 
 /** Sign-in / sign-up screen. Also hosts the desktop server-URL prompt. */
 
@@ -14,7 +14,7 @@ export function AuthView() {
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
-  const needsServerUrl = isDesktop() && !baseUrl;
+  const needsServerUrl = (isDesktop() || isMobile()) && !baseUrl;
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();

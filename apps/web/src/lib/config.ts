@@ -1,4 +1,5 @@
-import { getBridge, isDesktop } from './platform.js';
+import { getBridge, isDesktop, isMobile } from './platform.js';
+import { mobileGetServerUrl } from './mobile.js';
 
 /**
  * API base URL resolution.
@@ -37,6 +38,9 @@ export async function resolveBaseUrl(): Promise<string> {
   if (bridge && isDesktop()) {
     const fromBridge = await bridge.getServerUrl();
     if (fromBridge) return fromBridge.replace(/\/+$/, '');
+  }
+  if (isMobile()) {
+    return (await mobileGetServerUrl()).replace(/\/+$/, '');
   }
   return getStoredServerUrl() || '';
 }

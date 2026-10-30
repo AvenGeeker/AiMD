@@ -97,3 +97,61 @@ export function formatHotkey(accelerator: string): string {
     })
     .join('');
 }
+
+/* ------------------------------ mobile shell ------------------------------ */
+
+/**
+ * Runtime detection for the Capacitor-based mobile app (Android / iOS / HarmonyOS).
+ *
+ * Capacitor injects `window.Capacitor` into the WebView at runtime; it is absent in a plain
+ * browser tab. The HarmonyOS port is a community harness that reuses the same Core bridge, so it
+ * reports a platform other than `android`/`ios`. The minimal ArkWeb harness we ship as a fallback
+ * injects `window.aiMarkdownHarmony` instead, which is recognised here as well.
+ */
+
+export type MobilePlatform = 'android' | 'ios' | 'harmony' | 'web';
+
+interface CapacitorRuntime {
+  isNativePlatform?: () => boolean;
+  getPlatform?: () => string;
+}
+
+export interface HarmonyBridge {
+  /** Load a value from HarmonyOS secure storage (or null when absent / unsupported). */
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string): Promise<void>;
+  remove(key: string): Promise<void>;
+}
+
+function capacitorRuntime(): CapacitorRuntime | null {
+  if (typeof window === 'undefined') return null;
+  return (window as unknown as { Capacitor?: CapacitorRuntime }).Capacitor ?? null;
+}
+
+export function harmonyBridge(): HarmonyBridge | null {
+  if (typeof window === 'undefined') return null;
+  return (window as unknown as { aiMarkdownHarmony?: HarmonyBridge }).aiMarkdownHarmony ?? null;
+}
+
+/** Which native surface this bundle is running in, if any. */
+export function mobilePlatform(): MobilePlatform {
+  const runtime = capacitorRuntime();
+  if (runtime?.isNativePlatform?.()) {
+    const name = runtime.getPlatform?.();
+    if (name === 'android') return 'android';
+    if (name === 'ios') return 'ios';
+    // Any other native platform is the HarmonyOS / OpenHarmony port.
+    return 'harmony';
+  }
+  if (harmonyBridge()) return 'harmony';
+  return 'web';
+}
+
+/** True when the bundle runs inside the Capacitor mobile app. */
+export function isMobile(): boolean {
+  return mobilePlatform() !== 'web';
+}
+
+export function isHarmony(): boolean {
+  return mobilePlatform() === 'harmony';
+}

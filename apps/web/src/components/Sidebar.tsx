@@ -30,6 +30,11 @@ export const EMPTY_SELECTION: SidebarSelection = {
 };
 
 interface SidebarProps {
+  /**
+   * `rail` is the fixed desktop left rail. `drawer` fills its container and is used by the
+   * mobile shell's slide-in navigation (same component, same data-testids, different width).
+   */
+  variant?: 'rail' | 'drawer';
   tree: TreeDto | undefined;
   selection: SidebarSelection;
   onSelect(next: SidebarSelection): void;
@@ -87,6 +92,7 @@ export function buildTree(folders: FolderDto[]): TreeNode[] {
 
 export function Sidebar(props: SidebarProps) {
   const {
+    variant = 'rail',
     tree,
     selection,
     onSelect,
@@ -202,7 +208,12 @@ export function Sidebar(props: SidebarProps) {
     });
 
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-surface" data-testid="sidebar">
+    <aside
+      className={`flex h-full flex-col border-r border-border bg-surface ${
+        variant === 'drawer' ? 'w-full' : 'w-64 shrink-0'
+      }`}
+      data-testid="sidebar"
+    >
       <div className="flex items-center gap-2 border-b border-border p-2">
         <div className="relative flex-1">
           <Search size={14} className="absolute left-2 top-2.5 text-muted" />

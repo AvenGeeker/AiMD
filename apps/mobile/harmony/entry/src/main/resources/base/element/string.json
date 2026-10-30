@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "aiMarkdown 多端同步 Markdown 笔记本"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "aiMarkdown 主界面"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "aiMarkdown"
+    }
+  ]
+}

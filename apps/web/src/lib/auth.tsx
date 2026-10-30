@@ -8,7 +8,8 @@ import {
 } from '@aimarkdown/shared';
 import { apiBase } from './config.js';
 import { clearTokens, describeError, initApi, request, setTokens } from './api.js';
-import { isDesktop, getBridge } from './platform.js';
+import { getBridge, isDesktop, isMobile } from './platform.js';
+import { mobileSetServerUrl } from './mobile.js';
 import { syncManager } from './sync.js';
 
 /** Session state shared by the whole app. */
@@ -34,7 +35,8 @@ interface SessionPayload {
 }
 
 function transportHeaders(): Record<string, string> {
-  return isDesktop() ? { [TOKEN_TRANSPORT_HEADER]: BEARER_TRANSPORT } : {};
+  // Desktop and mobile have no cookie jar, so both use the bearer transport.
+  return isDesktop() || isMobile() ? { [TOKEN_TRANSPORT_HEADER]: BEARER_TRANSPORT } : {};
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -43,27 +45,64 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [baseUrl, setBaseUrlState] = useState('');
 
-  // Resolve the API base (desktop reads it from the shell) before attempting a session restore.
+  /**
+   * Resolve the API base (browser: same origin; desktop/mobile: stored server URL) before
+   * attempting a session restore.
+   *
+   * Boot must never hang on the "正在连接…" spinner: `initApi()` does storage-bridge I/O on
+   * mobile, and the `/me` probe can hang against an unreachable host. Every path therefore ends
+   * in `anonymous` (the login / server-URL screen) — either normally, on error, or via the
+   * watchdog below.
+   */
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
-      const base = await initApi();
+
+    // Watchdog: if boot has not settled within 15s (a hung /me probe, a dead host that never
+    // answers, a stuck storage bridge), surface the login/URL screen with an explanation
+    // instead of spinning on "正在连接…" forever.
+    const watchdog = window.setTimeout(() => {
       if (cancelled) return;
-      setBaseUrlState(base);
-      syncManager.configure(base);
+      setError('无法连接服务器，请检查服务器地址与网络后重试');
+      setStatus('anonymous');
+    }, 15_000);
+
+    void (async () => {
       try {
-        const me = await request<{ user: UserDto }>('/me');
+        const base = await initApi();
         if (cancelled) return;
-        setUser(me.user);
-        setStatus('authenticated');
+        setBaseUrlState(base);
+        syncManager.configure(base);
+
+        // First launch on desktop/mobile: no server URL configured yet, so a /me probe would
+        // be a doomed request against the shell's own origin. Go straight to the URL prompt.
+        if ((isDesktop() || isMobile()) && !base) {
+          setStatus('anonymous');
+          return;
+        }
+
+        try {
+          const me = await request<{ user: UserDto }>('/me');
+          if (cancelled) return;
+          setUser(me.user);
+          setStatus('authenticated');
+        } catch {
+          if (cancelled) return;
+          clearTokens();
+          setStatus('anonymous');
+        }
       } catch {
+        // Storage/bridge failure during init (e.g. the WebView's secure-storage bridge). Do
+        // not keep the loader spinning — hand over to the login/URL screen.
         if (cancelled) return;
-        clearTokens();
         setStatus('anonymous');
+      } finally {
+        window.clearTimeout(watchdog);
       }
     })();
+
     return () => {
       cancelled = true;
+      window.clearTimeout(watchdog);
     };
   }, []);
 
@@ -144,6 +183,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const bridge = getBridge();
     if (bridge && isDesktop()) {
       await bridge.setServerUrl(next);
+    } else if (isMobile()) {
+      await mobileSetServerUrl(next);
     }
     await initApi({ baseUrl: next });
     setBaseUrlState(next);

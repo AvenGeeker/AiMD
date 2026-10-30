@@ -107,6 +107,31 @@ cd apps/desktop && pnpm build && npx electron-builder --mac --x64
 
 > 打包前必须先构建 renderer：`pnpm build` 会按 `web 构建 → 主进程编译 → stage renderer` 的顺序做完。如果单独跑了 `electron-builder` 而没重新 stage，`copy-renderer.mjs` 会告警提示 bundle 可能过期。
 
+### 移动端 App（Android / iOS / HarmonyOS）
+
+在 `apps/mobile` 下，用 **Capacitor** 复用同一份 React 渲染层（与 Electron 相同的 `web/dist` 契约）。
+服务端、CRDT 同步、离线缓存全部沿用现有实现：移动端走 bearer 鉴权 + `/collab` WebSocket，
+离线靠 WebView 的 IndexedDB（y-indexeddb）。
+
+```bash
+# 首次：安装依赖并生成原生工程（Android SDK / Xcode）
+pnpm install
+pnpm --filter @aimarkdown/mobile add:android
+pnpm --filter @aimarkdown/mobile add:ios
+
+# 改完 web 后重新打包
+make mobile-build         # web build → stage → 同步 www 与 harmony rawfile
+make mobile-apk           # Android debug APK → apps/mobile/android/app/build/outputs/apk/debug/
+make mobile-ipa           # iOS 模拟器构建（未签名）
+make mobile-hap           # HarmonyOS HAP —— 需要 DevEco Studio（本机未装，v1 为阻塞项）
+```
+
+- 首启会在登录页引导填写自托管服务器地址（与桌面端一致），Token 存 Keychain / Android Keystore。
+- Android 工程钉在 **AGP 8.7.3 / compileSdk 35**（兼容 2025 代 Android Studio，原因和升级路径见 `apps/mobile/android/variables.gradle` 注释）；Gradle 保持 8.14.3。
+- 自用侧载构建已放开明文 HTTP（AndroidManifest / Info.plist 有注释标记），上架前必须移除并强制 HTTPS。
+- HarmonyOS 走 `apps/mobile/harmony` 的最小 ArkWeb harness（Stage 模型 + javaScriptProxy 桥），
+  native 插件面仅 token 存储一项；拿到 DevEco Studio 后 `cd apps/mobile/harmony && ohpm install && hvigorw assembleHap`。
+
 ### 本地开发
 
 ```bash
