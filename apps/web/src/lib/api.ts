@@ -69,12 +69,16 @@ export async function setTokens(tokens: {
   }
 }
 
-export function clearTokens(): void {
+export async function clearTokens(): Promise<void> {
   memoryTokens = { accessToken: null, refreshToken: null };
-  if (isDesktop()) {
-    void getBridge()?.setTokens({ accessToken: null, refreshToken: null });
-  } else if (isMobile()) {
-    void mobileClearTokens();
+  try {
+    if (isDesktop()) {
+      await getBridge()?.setTokens({ accessToken: null, refreshToken: null });
+    } else if (isMobile()) {
+      await mobileClearTokens();
+    }
+  } catch {
+    // Memory is already clear; a failing secure-storage bridge must not block sign-out.
   }
 }
 
@@ -132,7 +136,7 @@ export async function refreshAccessToken(): Promise<boolean> {
           body: JSON.stringify(useBodyToken ? { refreshToken: memoryTokens.refreshToken } : {}),
         });
         if (!response.ok) {
-          clearTokens();
+          await clearTokens();
           return false;
         }
         const payload = (await response.json()) as {

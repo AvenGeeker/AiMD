@@ -87,7 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setStatus('authenticated');
         } catch {
           if (cancelled) return;
-          clearTokens();
+          await clearTokens();
           setStatus('anonymous');
         }
       } catch {
@@ -172,7 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       /* the local sign-out must succeed even if the server call fails */
     }
-    clearTokens();
+    await clearTokens();
     syncManager.destroy();
     setUser(null);
     setStatus('anonymous');
@@ -180,16 +180,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const setBaseUrlNext = useCallback(async (url: string) => {
     const next = url.replace(/\/+$/, '');
+    const changed = next !== baseUrl;
     const bridge = getBridge();
     if (bridge && isDesktop()) {
       await bridge.setServerUrl(next);
     } else if (isMobile()) {
       await mobileSetServerUrl(next);
     }
+    if (changed) {
+      // Tokens belong to the previous server. Clear them before initApi() re-reads the
+      // storage bridge, so the new session can never accidentally reuse the old credentials.
+      await clearTokens();
+      syncManager.destroy();
+      setUser(null);
+      setStatus('anonymous');
+    }
     await initApi({ baseUrl: next });
     setBaseUrlState(next);
     syncManager.configure(next);
-  }, []);
+    setError(null);
+  }, [baseUrl]);
 
   const value = useMemo<AuthState>(
     () => ({ user, status, error, login, register, logout, baseUrl, setBaseUrl: setBaseUrlNext }),

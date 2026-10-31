@@ -205,3 +205,60 @@ test.describe('workspace basics', () => {
     await expect(page.locator('.markdown-preview')).toContainText('<script>');
   });
 });
+
+test.describe('desktop server settings', () => {
+  test('lets the user return to the server URL form and starts over after a change', async ({
+    page,
+    baseURL,
+  }) => {
+    expect(baseURL).toBeTruthy();
+
+    // Simulate the Electron preload bridge so the web bundle takes its desktop code path.
+    await page.addInitScript((initialServerUrl) => {
+      const state: {
+        serverUrl: string;
+        accessToken: string | null;
+        refreshToken: string | null;
+      } = { serverUrl: initialServerUrl, accessToken: null, refreshToken: null };
+
+      (window as unknown as { aiMarkdown: unknown }).aiMarkdown = {
+        platform: 'darwin',
+        appVersion: 'test',
+        getServerUrl: async () => state.serverUrl,
+        setServerUrl: async (url: string) => {
+          state.serverUrl = url;
+        },
+        getTokens: async () => ({
+          accessToken: state.accessToken,
+          refreshToken: state.refreshToken,
+        }),
+        setTokens: async (tokens: { accessToken: string | null; refreshToken: string | null }) => {
+          state.accessToken = tokens.accessToken;
+          state.refreshToken = tokens.refreshToken;
+        },
+        setHotkey: async () => ({ ok: true }),
+        getHotkeyState: async () => ({ accelerator: 'Alt+Space', registered: true }),
+        showMainWindow: async () => {},
+        hideQuickCapture: async () => {},
+      };
+    }, baseURL!);
+
+    await page.goto('/');
+    await expect(page.getByTestId('auth-view')).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId('email').fill('someone@example.com');
+    await page.getByTestId('password').fill('password123');
+
+    await page.getByTestId('edit-server-url').click();
+    await expect(page.getByTestId('server-url')).toHaveValue(baseURL!);
+
+    await page.getByTestId('server-url').fill('https://notes.example.com');
+    await page.getByTestId('auth-submit').click();
+
+    // The login form is back, but credentials typed for the previous server are gone.
+    await expect(page.getByTestId('email')).toHaveValue('');
+    await expect(page.getByTestId('password')).toHaveValue('');
+    await expect(page.getByText('当前服务器：https://notes.example.com')).toBeVisible();
+    await expect(page.getByTestId('edit-server-url')).toBeVisible();
+    await expect(page.getByTestId('auth-error')).toHaveCount(0);
+  });
+});

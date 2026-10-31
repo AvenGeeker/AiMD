@@ -11,18 +11,45 @@ export function AuthView() {
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [serverUrl, setServerUrlInput] = useState(baseUrl);
+  const [editingServerUrl, setEditingServerUrl] = useState(false);
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
-  const needsServerUrl = (isDesktop() || isMobile()) && !baseUrl;
+  const localShell = isDesktop() || isMobile();
+  const needsServerUrl = localShell && !baseUrl;
+  const showServerUrlForm = localShell && (!baseUrl || editingServerUrl);
+
+  const openServerSettings = () => {
+    setServerUrlInput(baseUrl);
+    setLocalError(null);
+    setEditingServerUrl(true);
+  };
+
+  const closeServerSettings = () => {
+    setServerUrlInput(baseUrl);
+    setLocalError(null);
+    setEditingServerUrl(false);
+  };
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true);
     setLocalError(null);
     try {
-      if (needsServerUrl) {
-        await setBaseUrl(serverUrl);
+      if (showServerUrlForm) {
+        const next = serverUrl.trim().replace(/\/+$/, '');
+        const changed = next !== baseUrl;
+        await setBaseUrl(next);
+        setServerUrlInput(next);
+        setEditingServerUrl(false);
+        if (changed) {
+          // A different server has a different account database. Drop credentials and any
+          // half-filled sign-up data, then make the user sign in again from scratch.
+          setMode('login');
+          setEmail('');
+          setPassword('');
+          setDisplayName('');
+        }
         return;
       }
       if (mode === 'login') await login(email, password);
@@ -46,7 +73,7 @@ export function AuthView() {
           <p className="text-xs text-muted">多端同步的 Markdown 笔记本</p>
         </div>
 
-        {needsServerUrl ? (
+        {showServerUrlForm ? (
           <>
             <label className="block space-y-1">
               <span className="text-xs text-muted">服务器地址</span>
@@ -60,7 +87,9 @@ export function AuthView() {
               />
             </label>
             <p className="text-[11px] text-muted">
-              填入你自己部署的 aiMarkdown 服务地址，保存后继续登录。
+              {needsServerUrl
+                ? '填入你自己部署的 aiMarkdown 服务地址，保存后继续登录。'
+                : '更改服务器地址后需要重新登录。'}
             </p>
           </>
         ) : (
@@ -120,7 +149,7 @@ export function AuthView() {
           </>
         )}
 
-        {(localError || error) && (
+        {(localError || (!editingServerUrl && error)) && (
           <div className="rounded border border-danger/40 bg-danger/10 px-2 py-1.5 text-xs text-danger" data-testid="auth-error">
             {localError ?? error}
           </div>
@@ -132,8 +161,43 @@ export function AuthView() {
           className="w-full rounded bg-accent px-3 py-2 text-sm font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50"
           data-testid="auth-submit"
         >
-          {busy ? '处理中…' : needsServerUrl ? '保存服务器地址' : mode === 'login' ? '登录' : '创建账号'}
+          {busy
+            ? '处理中…'
+            : showServerUrlForm
+              ? needsServerUrl
+                ? '保存服务器地址'
+                : '保存并返回登录'
+              : mode === 'login'
+                ? '登录'
+                : '创建账号'}
         </button>
+
+        {showServerUrlForm && !needsServerUrl && (
+          <button
+            type="button"
+            onClick={closeServerSettings}
+            className="w-full text-center text-xs text-muted hover:text-accent"
+            data-testid="cancel-server-url"
+          >
+            取消
+          </button>
+        )}
+
+        {localShell && baseUrl && !showServerUrlForm && (
+          <div className="space-y-1 border-t border-border pt-3 text-center">
+            <p className="truncate text-[11px] text-muted" title={baseUrl}>
+              当前服务器：{baseUrl}
+            </p>
+            <button
+              type="button"
+              onClick={openServerSettings}
+              className="text-xs text-muted hover:text-accent"
+              data-testid="edit-server-url"
+            >
+              回到服务器地址设置
+            </button>
+          </div>
+        )}
       </form>
     </div>
   );
