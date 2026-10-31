@@ -33,6 +33,38 @@ server 和 web 才能 typecheck（它们是 workspace 依赖，走 `main`/`types
 
 ---
 
+## 每次修改后：替换并重启本机桌面 App（强制）
+
+**每次修改完成后都必须重新构建桌面 App、替换 `/Applications/aiMarkdown.app` 并重新启动，除非用户当次
+明确说不用。** 只重新构建 Web 不够：Electron 读取的是 stage 后的 `apps/desktop/renderer`，而本机
+安装版运行的是 `/Applications/aiMarkdown.app` 里的包。
+
+```bash
+# 1. 构建 web renderer + Electron 主进程，并重新 stage 到 apps/desktop/renderer
+pnpm --filter @aimarkdown/desktop build
+
+# 2. 只打当前机器架构的 .app；`dir` 跳过 dmg/zip，避免同时构建 x64 和 arm64
+HOST_ARCH="$(uname -m | sed 's/x86_64/x64/')"
+(cd apps/desktop && pnpm exec electron-builder --mac dir --"$HOST_ARCH")
+
+# 3. 退出正在运行的安装版
+osascript -e 'if application "aiMarkdown" is running then tell application "aiMarkdown" to quit' 2>/dev/null || true
+sleep 1
+pkill -x aiMarkdown 2>/dev/null || true
+
+# 4. 替换 /Applications 里的 App 并启动
+APP_DIR="apps/desktop/release/$([ "$(uname -m)" = "arm64" ] && echo mac-arm64 || echo mac)/aiMarkdown.app"
+BACKUP="/tmp/aiMarkdown.app.backup.$(date +%Y%m%d-%H%M%S)"
+[ ! -d /Applications/aiMarkdown.app ] || mv /Applications/aiMarkdown.app "$BACKUP"
+ditto "$APP_DIR" /Applications/aiMarkdown.app
+open -a /Applications/aiMarkdown.app
+```
+
+启动后用 `pgrep -x aiMarkdown` 确认进程存在。构建、替换或重启失败必须在回复里明确说明，不能把
+“代码改完”当成“桌面 App 已更新”。
+
+---
+
 ## 不可违背的架构约束
 
 **Y.Doc 是唯一真相，Postgres 里的同名列只是投影。**
