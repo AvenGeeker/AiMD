@@ -179,3 +179,13 @@ code {
     min-height: 44px;
   }
 }
+
+/* Electron main-window chrome. The header is a drag region; interactive controls opt out so
+   clicks still reach them. In a browser tab these properties are ignored. */
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+
+.titlebar-no-drag {
+  -webkit-app-region: no-drag;
+}

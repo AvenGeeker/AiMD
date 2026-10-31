@@ -139,7 +139,9 @@ test.describe('multi-device CRDT sync', () => {
     await registerThroughUi(page, email);
     const noteId = await createNote(page);
     await typeInEditor(page, '# 同步测试\n\n中间段落\n');
-    await expect(page.getByTestId('note-title-input')).toHaveValue('同步测试', { timeout: 20_000 });
+    await expect(page.locator(`[data-testid="note-item-${noteId}"]`)).toContainText('同步测试', {
+      timeout: 20_000,
+    });
 
     const otherPage = await secondDevice(browser, email);
     await openNote(otherPage, noteId);

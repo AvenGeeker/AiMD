@@ -24,8 +24,9 @@ test.describe('workspace basics', () => {
     await typeInEditor(page, '# 我的第一篇笔记\n\n这是正文内容。\n');
 
     // The title is derived from the first heading once the CRDT round-trip lands.
-    await expect(page.getByTestId('note-title-input')).toHaveValue('我的第一篇笔记', { timeout: 15_000 });
-    await expect(page.locator(`[data-testid="note-item-${noteId}"]`)).toContainText('我的第一篇笔记');
+    await expect(page.locator(`[data-testid="note-item-${noteId}"]`)).toContainText('我的第一篇笔记', {
+      timeout: 15_000,
+    });
   });
 
   test('renders markdown in the split preview as you type', async ({ page }) => {
@@ -86,7 +87,12 @@ test.describe('workspace basics', () => {
     await registerThroughUi(page);
     const taggedId = await createNote(page);
     await typeInEditor(page, '# 带标签的笔记\n');
-    await expect(page.getByTestId('note-title-input')).toHaveValue('带标签的笔记', { timeout: 15_000 });
+    await expect(page.locator(`[data-testid="note-item-${taggedId}"]`)).toContainText('带标签的笔记', {
+      timeout: 15_000,
+    });
+
+    // The tag editor shares the collapsed right rail, so reveal it first.
+    await page.getByTestId('toggle-outline').click();
 
     // Create + assign a tag entirely through the UI.
     const editor = page.getByTestId('tag-editor');
@@ -103,7 +109,9 @@ test.describe('workspace basics', () => {
     await page.getByTestId('all-notes').click();
     const otherId = await createNote(page);
     await typeInEditor(page, '# 无标签笔记\n');
-    await expect(page.getByTestId('note-title-input')).toHaveValue('无标签笔记', { timeout: 15_000 });
+    await expect(page.locator(`[data-testid="note-item-${otherId}"]`)).toContainText('无标签笔记', {
+      timeout: 15_000,
+    });
 
     await chip.click();
     await expect(page.locator(`[data-testid="note-item-${taggedId}"]`)).toBeVisible();
@@ -117,10 +125,12 @@ test.describe('workspace basics', () => {
 
   test('searches by a Chinese phrase', async ({ page }) => {
     await registerThroughUi(page);
-    await createNote(page);
+    const noteId = await createNote(page);
     await typeInEditor(page, '# 会议纪要\n\n讨论了多端同步方案的细节。\n');
     // Let the CRDT store hook mirror the text into Postgres before searching.
-    await expect(page.getByTestId('note-title-input')).toHaveValue('会议纪要', { timeout: 15_000 });
+    await expect(page.locator(`[data-testid="note-item-${noteId}"]`)).toContainText('会议纪要', {
+      timeout: 15_000,
+    });
     await page.waitForTimeout(2_500);
 
     await page.getByTestId('search-input').fill('同步方案');
@@ -140,7 +150,9 @@ test.describe('workspace basics', () => {
     await registerThroughUi(page);
     const noteId = await createNote(page);
     await typeInEditor(page, '# 待删除\n');
-    await expect(page.getByTestId('note-title-input')).toHaveValue('待删除', { timeout: 15_000 });
+    await expect(page.locator(`[data-testid="note-item-${noteId}"]`)).toContainText('待删除', {
+      timeout: 15_000,
+    });
 
     const row = page.locator(`[data-testid="note-item-${noteId}"]`);
     await row.hover();
@@ -163,7 +175,9 @@ test.describe('workspace basics', () => {
     await registerThroughUi(page, email);
     const noteId = await createNote(page);
     await typeInEditor(page, '# 持久化验证\n\n重新登录后仍然在。\n');
-    await expect(page.getByTestId('note-title-input')).toHaveValue('持久化验证', { timeout: 15_000 });
+    await expect(page.locator(`[data-testid="note-item-${noteId}"]`)).toContainText('持久化验证', {
+      timeout: 15_000,
+    });
     await page.waitForTimeout(2_000);
 
     await page.getByTestId('logout').click();
@@ -175,14 +189,22 @@ test.describe('workspace basics', () => {
     await expect(page.locator('.markdown-preview')).toContainText('重新登录后仍然在');
   });
 
-  test('shows the outline built from headings', async ({ page }) => {
+  test('keeps the outline hidden until toggled', async ({ page }) => {
     await registerThroughUi(page);
     await createNote(page);
     await typeInEditor(page, '# 一级\n\n## 二级 A\n\n正文\n\n## 二级 B\n');
+
+    // The rail is a per-device preference and starts hidden so the editor gets the width.
+    await expect(page.getByTestId('outline')).toHaveCount(0);
+    await page.getByTestId('toggle-outline').click();
+
     const outline = page.getByTestId('outline');
     await expect(outline).toContainText('一级');
     await expect(outline).toContainText('二级 A');
     await expect(outline).toContainText('二级 B');
+
+    await page.getByTestId('toggle-outline').click();
+    await expect(page.getByTestId('outline')).toHaveCount(0);
   });
 
   test('escapes raw HTML in the preview (no script execution)', async ({ page }) => {

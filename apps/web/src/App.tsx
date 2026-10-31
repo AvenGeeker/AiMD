@@ -46,6 +46,18 @@ import { MobileShell } from './components/MobileShell.js';
 import { AuthView } from './components/AuthView.js';
 import { QuickCapture } from './components/QuickCapture.js';
 
+/** Per-device UI preference: the outline rail starts hidden so the editor gets the width. */
+const OUTLINE_VISIBLE_KEY = 'aimarkdown.outline-visible';
+
+function readOutlineVisible(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(OUTLINE_VISIBLE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 /** Resolve the effective theme, following the OS when set to `system`. */
 function useResolvedDark(theme: SettingsDto['theme']): boolean {
   const [systemDark, setSystemDark] = useState(() =>
@@ -73,6 +85,7 @@ function Workspace() {
   const [source, setSource] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
+  const [outlineVisible, setOutlineVisible] = useState(readOutlineVisible);
 
   // Renders the mobile single-pane shell instead of the three-pane desktop layout.
   const mobile = useIsMobile();
@@ -225,6 +238,18 @@ function Workspace() {
     },
     [updateSettings],
   );
+
+  const handleToggleOutline = useCallback(() => {
+    setOutlineVisible((visible) => {
+      const next = !visible;
+      try {
+        window.localStorage.setItem(OUTLINE_VISIBLE_KEY, next ? '1' : '0');
+      } catch {
+        // A blocked storage partition only loses the preference; the toggle still works.
+      }
+      return next;
+    });
+  }, []);
 
   const handleImport = useCallback(
     async (files: File[]) => {
@@ -416,13 +441,12 @@ function Workspace() {
       data-active-note-id={selectedNoteId ?? ''}
     >
       <TitleBar
-        title={displayTitle}
-        onTitleChange={handleTitleChange}
-        titleEditable={Boolean(selectedNoteId) && !inTrash}
         syncStatus={status}
         pendingCount={syncManager.pendingCount}
         mode={settings.editorMode}
         onModeChange={handleModeChange}
+        outlineVisible={outlineVisible}
+        onToggleOutline={handleToggleOutline}
         onOpenSettings={() => setSettingsOpen(true)}
         onExportNote={handleExportNote}
         onExportVault={handleExportVault}
@@ -496,35 +520,37 @@ function Workspace() {
           )}
         </main>
 
-        <Outline
-          source={source}
-          createdAt={notes.find((note) => note.id === selectedNoteId)?.createdAt}
-          updatedAt={notes.find((note) => note.id === selectedNoteId)?.contentUpdatedAt}
-          onJump={(anchorId) => {
-            const target = document.querySelector(`.markdown-preview #${CSS.escape(anchorId)}`);
-            target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }}
-        >
-          {selectedNoteId && !inTrash && (
-            <TagEditor
-              allTags={treeQuery.data?.tags ?? []}
-              selectedIds={tagIds}
-              busy={updateNote.isPending || upsertTag.isPending}
-              onCreate={async (name) => {
-                try {
-                  return await upsertTag.mutateAsync({ name });
-                } catch (error) {
-                  flash(`创建标签失败：${error instanceof Error ? error.message : String(error)}`);
-                  return undefined;
-                }
-              }}
-              onToggle={(_tagId, nextSelected) => {
-                // Written straight into the CRDT so it works offline and merges across devices.
-                writeNoteTagIds(doc, nextSelected);
-              }}
-            />
-          )}
-        </Outline>
+        {outlineVisible && (
+          <Outline
+            source={source}
+            createdAt={notes.find((note) => note.id === selectedNoteId)?.createdAt}
+            updatedAt={notes.find((note) => note.id === selectedNoteId)?.contentUpdatedAt}
+            onJump={(anchorId) => {
+              const target = document.querySelector(`.markdown-preview #${CSS.escape(anchorId)}`);
+              target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
+          >
+            {selectedNoteId && !inTrash && (
+              <TagEditor
+                allTags={treeQuery.data?.tags ?? []}
+                selectedIds={tagIds}
+                busy={updateNote.isPending || upsertTag.isPending}
+                onCreate={async (name) => {
+                  try {
+                    return await upsertTag.mutateAsync({ name });
+                  } catch (error) {
+                    flash(`创建标签失败：${error instanceof Error ? error.message : String(error)}`);
+                    return undefined;
+                  }
+                }}
+                onToggle={(_tagId, nextSelected) => {
+                  // Written straight into the CRDT so it works offline and merges across devices.
+                  writeNoteTagIds(doc, nextSelected);
+                }}
+              />
+            )}
+          </Outline>
+        )}
       </div>
 
       {settingsOpen && (
