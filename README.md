@@ -10,7 +10,12 @@
 
 ## 一键部署
 
-需要一台服务器，装好 Docker Engine + Compose v2 插件，并且 80/443 端口可用（或改用 `HTTP_PORT` / `HTTPS_PORT`）。
+需要一台服务器，装好 Docker Engine + Compose v2 插件。部署脚本交互式询问部署地址，支持两种模式：
+
+| 模式 | 场景 | 访问方式 |
+| --- | --- | --- |
+| **域名模式**（推荐） | 有域名（及 DNS 指向服务器） | `https://你的域名/`，Caddy 自动申请 / 续期 Let's Encrypt 证书 |
+| **无域名 / IP 直连** | 没有域名，只想先跑起来 | `http://服务器IP:端口/`，纯 HTTP，浏览器会提示“不安全”，忽略即可 |
 
 ```bash
 git clone <your-repo> aiMarkdown && cd aiMarkdown
@@ -20,14 +25,26 @@ git clone <your-repo> aiMarkdown && cd aiMarkdown
 脚本会依次完成：
 
 1. 检查 Docker 与端口占用
-2. 首次运行时交互式生成 `deploy/.env`，用 `openssl rand` 填充 `JWT_SECRET` 与 `POSTGRES_PASSWORD`
+2. 首次运行时交互式生成 `deploy/.env`：询问域名（或公网 IP + 端口），用 `openssl rand` 填充 `JWT_SECRET` 与 `POSTGRES_PASSWORD`，并推导 Caddy 的站点地址 `CADDY_SITE_ADDR`
 3. `docker compose up -d --build` 构建并启动 **Caddy + app + Postgres**
 4. 数据库迁移在容器启动时自动执行（幂等），无需手动步骤
 5. 轮询 `/api/health`，成功后打印访问地址
 
-部署完成后访问 `https://<你的域名>/` 注册第一个账号。**注册默认开放**，创建好自己的账号后，把 `deploy/.env` 里的 `ALLOW_REGISTRATION=false` 并重新执行 `./scripts/deploy.sh` 关闭注册。
+部署完成后访问脚本打印的地址注册第一个账号。**注册默认开放**，创建好自己的账号后，把 `deploy/.env` 里的 `ALLOW_REGISTRATION=false` 并重新执行 `./scripts/deploy.sh` 关闭注册。
 
-Caddy 会自动申请并续期 Let's Encrypt 证书。如果拉取镜像失败（国内网络常见），脚本会提示配置镜像加速，详见[国内网络](#国内网络注意事项)。
+### 域名模式（自动 HTTPS）
+
+`deploy/.env` 里 `PUBLIC_URL=https://你的域名`（带协议），`CADDY_SITE_ADDR` 由脚本自动推导。Caddy 绑定 80（跳转）与 443（TLS），自动申请并续期 Let's Encrypt 证书。若 80/443 被别的服务占用，可改 `HTTP_PORT` / `HTTPS_PORT`。
+
+### 无域名 / IP 直连（纯 HTTP 试用）
+
+脚本提示输入公网 IP 与端口（默认 `8080`）。`PUBLIC_URL=http://IP:端口`，`CADDY_SITE_ADDR=http://IP`（**不带端口**，Caddy 在容器内绑定 80，宿主机对外端口由 `HTTP_PORT` 决定）。
+
+- **大陆区 ECS 未备案时，80/443 会被运营商拦截**，所以必须用非标端口（这就是默认 8080 的原因）；境外区（如香港）可留 80。
+- 纯 HTTP 下登录 cookie 不带 `Secure` 标志（服务端按请求协议判断，Caddy 透传 `X-Forwarded-Proto`），功能与 HTTPS 一致。
+- 之后配好域名：改 `deploy/.env` 的 `PUBLIC_URL` / `CADDY_SITE_ADDR` / `HTTP_PORT`，重新执行 `./scripts/deploy.sh` 即可平滑切到 HTTPS。
+
+如果拉取镜像失败（国内网络常见），脚本会提示配置镜像加速，详见[国内网络](#国内网络注意事项)。
 
 ### 常用运维命令
 

@@ -61,28 +61,92 @@ done
 # ---------------------------------------------------------------------------
 rand() { openssl rand -hex "${1:-32}"; }
 
+# --- URL helpers: split "https://host:8443/x" into scheme / host / port. ---
+url_scheme() { local v="$1"; [[ "$v" =~ ^([a-zA-Z][a-zA-Z0-9+.-]*):// ]] && echo "${BASH_REMATCH[1]}" || echo ""; }
+url_host() {
+  local v="$1" rest
+  v="${v#*://}"
+  v="${v%%/*}"
+  rest="${v#*@}"
+  rest="${rest%%:*}"
+  echo "$rest"
+}
+url_port() {
+  local v="$1" host rest
+  host="$(url_host "$v")"
+  v="${v#*://}"
+  v="${v%%/*}"
+  rest="${v#*@}"
+  rest="${rest#*:}"
+  [[ -n "$rest" && "$rest" != "$host" ]] && echo "$rest" || echo ""
+}
+# Add a scheme when the user gave a bare hostname/IP, defaulting domains to https and IPs to http.
+normalize_public_url() {
+  local v="$1"
+  v="${v%/}"
+  if [[ "$v" != *"://"* ]]; then
+    if [[ "$v" =~ ^[0-9.]+$ || "$v" == "localhost" || "$v" == "127.0.0.1" ]]; then
+      echo "http://${v}"
+    else
+      echo "https://${v}"
+    fi
+  else
+    echo "$v"
+  fi
+}
+# Caddy site address: scheme + host, never a port (Caddy binds the standard container port).
+#   https://notes.example.com -> https://notes.example.com  (auto HTTPS on 443, redirect from 80)
+#   http://47.97.12.34:8080    -> http://47.97.12.34          (plain HTTP on container :80)
+derive_caddy_site() { echo "$(url_scheme "$1")://$(url_host "$1")"; }
+
 if [[ ! -f "$ENV_FILE" ]]; then
   info "Creating ${ENV_FILE}"
   cp "${DEPLOY_DIR}/.env.example" "$ENV_FILE"
 
-  # Ask for the hostname unless it was supplied in the environment (CI / scripted installs).
+  # Two deployment modes:
+  #   - 域名模式: PUBLIC_URL=https://<域名>, Caddy 自动 HTTPS (Let's Encrypt)。
+  #   - 无域名 / IP 直连: PUBLIC_URL=http://<IP>[:<port>], 纯 HTTP; 大陆区未备案用非标端口。
   if [[ -n "${PUBLIC_URL:-}" ]]; then
-    HOSTNAME_VALUE="$PUBLIC_URL"
+    # Scripted / CI deployment: PUBLIC_URL was supplied in the environment.
+    PUBLIC_URL_VALUE="$(normalize_public_url "$PUBLIC_URL")"
+    ACME_EMAIL_VALUE="${ACME_EMAIL:-}"
+    # When the URL carries a port (http://ip:8080), honor it as the host HTTP_PORT.
+    HTTP_PORT_VALUE="${HTTP_PORT:-$(url_port "$PUBLIC_URL_VALUE")}"
+    HTTP_PORT_VALUE="${HTTP_PORT_VALUE:-80}"
   else
-    read -r -p "  Public hostname for this deployment (e.g. notes.example.com): " HOSTNAME_VALUE
-    HOSTNAME_VALUE="${HOSTNAME_VALUE:-localhost}"
+    read -r -p "  有域名吗？输入域名开启自动 HTTPS（如 notes.example.com）；直接回车=无域名，走 http IP 直连: " DOMAIN_VALUE
+    if [[ -n "$DOMAIN_VALUE" ]]; then
+      PUBLIC_URL_VALUE="https://${DOMAIN_VALUE}"
+      HTTP_PORT_VALUE="80"
+      read -r -p "  Let's Encrypt 通知邮箱（可选）: " ACME_EMAIL_VALUE
+    else
+      DEFAULT_IP="$(curl -sS --max-time 3 https://api.ipify.org 2>/dev/null || true)"
+      read -r -p "  服务器公网 IP（直接回车自动检测: ${DEFAULT_IP:-失败}）: " IP_VALUE
+      IP_VALUE="${IP_VALUE:-$DEFAULT_IP}"
+      [[ -n "$IP_VALUE" ]] || fail "未检测到公网 IP，请手动输入"
+      read -r -p "  对外 HTTP 端口（默认 8080；大陆区 ECS 未备案时 80 会被运营商拦截）: " HTTP_PORT_VALUE
+      HTTP_PORT_VALUE="${HTTP_PORT_VALUE:-8080}"
+      if [[ "$HTTP_PORT_VALUE" == "80" ]]; then
+        PUBLIC_URL_VALUE="http://${IP_VALUE}"
+      else
+        PUBLIC_URL_VALUE="http://${IP_VALUE}:${HTTP_PORT_VALUE}"
+      fi
+      ACME_EMAIL_VALUE=""
+    fi
   fi
-  read -r -p "  Email for Let's Encrypt notices (optional): " ACME_EMAIL_VALUE
 
+  CADDY_SITE_ADDR_VALUE="$(derive_caddy_site "$PUBLIC_URL_VALUE")"
   JWT_SECRET_VALUE="$(rand 48)"
   POSTGRES_PASSWORD_VALUE="$(rand 24)"
 
   # Rewrite the placeholders in place; | is used as the sed delimiter because secrets contain /.
   sed -i.bak \
-    -e "s|^PUBLIC_URL=.*|PUBLIC_URL=${HOSTNAME_VALUE}|" \
+    -e "s|^PUBLIC_URL=.*|PUBLIC_URL=${PUBLIC_URL_VALUE}|" \
+    -e "s|^CADDY_SITE_ADDR=.*|CADDY_SITE_ADDR=${CADDY_SITE_ADDR_VALUE}|" \
     -e "s|^ACME_EMAIL=.*|ACME_EMAIL=${ACME_EMAIL_VALUE}|" \
     -e "s|^JWT_SECRET=.*|JWT_SECRET=${JWT_SECRET_VALUE}|" \
     -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${POSTGRES_PASSWORD_VALUE}|" \
+    -e "s|^HTTP_PORT=.*|HTTP_PORT=${HTTP_PORT_VALUE}|" \
     "$ENV_FILE"
   rm -f "${ENV_FILE}.bak"
   chmod 600 "$ENV_FILE"
@@ -94,11 +158,37 @@ fi
 
 # shellcheck disable=SC1090
 set -a; source "$ENV_FILE"; set +a
+
+# Backfill for .env files created before the direct-IP mode existed: normalize a bare
+# PUBLIC_URL to scheme-ful form and derive CADDY_SITE_ADDR when it is missing.
+NEED_WRITE=0
+if [[ -n "${PUBLIC_URL:-}" && "$PUBLIC_URL" != *"://"* ]]; then
+  PUBLIC_URL="$(normalize_public_url "$PUBLIC_URL")"
+  NEED_WRITE=1
+fi
+if [[ -z "${CADDY_SITE_ADDR:-}" ]]; then
+  [[ -n "${PUBLIC_URL:-}" ]] || fail "CADDY_SITE_ADDR and PUBLIC_URL are both empty in ${ENV_FILE}"
+  CADDY_SITE_ADDR="$(derive_caddy_site "$PUBLIC_URL")"
+  NEED_WRITE=1
+fi
+if [[ "$NEED_WRITE" == "1" ]]; then
+  sed -i.bak \
+    -e "s|^PUBLIC_URL=.*|PUBLIC_URL=${PUBLIC_URL}|" \
+    -e "s|^CADDY_SITE_ADDR=.*|CADDY_SITE_ADDR=${CADDY_SITE_ADDR}|" \
+    "$ENV_FILE"
+  rm -f "${ENV_FILE}.bak"
+  warn "backfilled CADDY_SITE_ADDR / PUBLIC_URL in ${ENV_FILE}"
+fi
+
 [[ -n "${JWT_SECRET:-}" ]] || fail "JWT_SECRET is empty in ${ENV_FILE}"
 [[ ${#JWT_SECRET} -ge 32 ]] || fail "JWT_SECRET must be at least 32 characters"
 [[ -n "${POSTGRES_PASSWORD:-}" ]] || fail "POSTGRES_PASSWORD is empty in ${ENV_FILE}"
 [[ -n "${PUBLIC_URL:-}" ]] || fail "PUBLIC_URL is empty in ${ENV_FILE}"
+[[ -n "${CADDY_SITE_ADDR:-}" ]] || fail "CADDY_SITE_ADDR is empty in ${ENV_FILE}"
 ok "environment validated (PUBLIC_URL=${PUBLIC_URL})"
+if [[ "$(url_scheme "$PUBLIC_URL")" == "http" ]]; then
+  warn "纯 HTTP 直连模式（无 TLS）。大陆区 ECS 上请确认 HTTP_PORT=${HTTP_PORT:-80} 是非标端口（如 8080）。"
+fi
 
 # ---------------------------------------------------------------------------
 # Bring the stack up
@@ -143,19 +233,30 @@ fi
 info "Waiting for the app to become healthy"
 HTTP_PORT="${HTTP_PORT:-80}"
 HTTPS_PORT="${HTTPS_PORT:-443}"
+PUBLIC_SCHEME="$(url_scheme "$PUBLIC_URL")"
+PUBLIC_HOST="$(url_host "$PUBLIC_URL")"
 HEALTHY=0
 STATUS=""
 HEALTH_BODY=""
+probe_http() {
+  # Host header matches the Caddy site; connecting to loopback avoids hairpin NAT issues.
+  curl -sS --max-time 5 -H "Host: ${PUBLIC_HOST}" "http://127.0.0.1:${HTTP_PORT}/api/health" 2>/dev/null || true
+}
+probe_https() {
+  curl -sSk --max-time 5 \
+    --resolve "${PUBLIC_HOST}:${HTTPS_PORT}:127.0.0.1" \
+    "https://${PUBLIC_HOST}:${HTTPS_PORT}/api/health" 2>/dev/null || true
+}
 for _ in $(seq 1 60); do
-  # Probe over HTTP first (works for localhost/self-signed and before a cert is issued), then
-  # fall back to HTTPS with the CA check relaxed for a freshly issued Let's Encrypt cert.
-  HEALTH_BODY="$(curl -sS --max-time 5 \
-    --resolve "${PUBLIC_URL}:${HTTP_PORT}:127.0.0.1" \
-    "http://${PUBLIC_URL}:${HTTP_PORT}/api/health" 2>/dev/null || true)"
-  if [[ -z "$HEALTH_BODY" && "$HTTPS_PORT" != "$HTTP_PORT" ]]; then
-    HEALTH_BODY="$(curl -sSk --max-time 5 \
-      --resolve "${PUBLIC_URL}:${HTTPS_PORT}:127.0.0.1" \
-      "https://${PUBLIC_URL}:${HTTPS_PORT}/api/health" 2>/dev/null || true)"
+  if [[ "$PUBLIC_SCHEME" == "http" ]]; then
+    # Direct-IP mode is plain HTTP; only the configured HTTP port is live.
+    HEALTH_BODY="$(probe_http)"
+  else
+    # Domain mode: the :80 listener answers with a redirect (no body), then HTTPS serves /api/health.
+    HEALTH_BODY="$(probe_http)"
+    if [[ -z "$(printf '%s' "$HEALTH_BODY" | grep -o '"status":"ok"' || true)" && "$HTTPS_PORT" != "$HTTP_PORT" ]]; then
+      HEALTH_BODY="$(probe_https)"
+    fi
   fi
   STATUS="$(printf '%s' "$HEALTH_BODY" | grep -o '"status":"ok"' || true)"
   if [[ -n "$STATUS" ]]; then HEALTHY=1; break; fi
@@ -174,13 +275,9 @@ ok "healthy — ${HEALTH_BODY}"
 
 echo
 info "Deployment complete"
-SUFFIX=""
-[[ "${HTTPS_PORT:-443}" != "443" ]] && SUFFIX=":${HTTPS_PORT}"
-[[ "${HTTP_PORT:-80}" != "80" && -z "$SUFFIX" ]] && SUFFIX=":${HTTP_PORT}"
-if [[ "$PUBLIC_URL" == "localhost" || "$PUBLIC_URL" == "127.0.0.1" ]]; then
-  echo "  Web app:   http://${PUBLIC_URL}${SUFFIX}/"
-else
-  echo "  Web app:   https://${PUBLIC_URL}${SUFFIX}/"
+echo "  Web app:   ${PUBLIC_URL}/"
+if [[ "$PUBLIC_SCHEME" == "http" ]]; then
+  echo "  (纯 HTTP：浏览器会提示“不安全”，直接继续即可；之后配好域名可切 HTTPS)"
 fi
 echo "  API:       /api   Collaboration WS: /collab"
 echo

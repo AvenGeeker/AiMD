@@ -98,7 +98,10 @@ function clearSessionCookies(reply: FastifyReply, secure: boolean): void {
 }
 
 export function registerAuthRoutes(app: FastifyInstance, deps: UsersDeps): void {
-  const secure = app.ctx.config.NODE_ENV === 'production';
+  // The Secure flag follows the request scheme, not NODE_ENV. Caddy terminates TLS and
+  // forwards X-Forwarded-Proto (trustProxy is on), so `request.protocol === 'https'` is true over HTTPS
+  // and false over the plain-HTTP, direct-IP deployment mode. A hardcoded `production`
+  // would stamp Secure cookies on http:// deployments, which browsers refuse to send back.
 
   /**
    * Credential endpoints get a far tighter budget than the rest of the API to blunt password
@@ -111,26 +114,26 @@ export function registerAuthRoutes(app: FastifyInstance, deps: UsersDeps): void 
   app.post('/api/auth/register', AUTH_RATE_LIMIT, async (request, reply) => {
     const input = parse(registerInput, request.body, '注册信息');
     const session = await registerUser(deps, input);
-    return reply.code(201).send(sessionPayload(request, reply, session, secure));
+    return reply.code(201).send(sessionPayload(request, reply, session, request.protocol === 'https'));
   });
 
   app.post('/api/auth/login', AUTH_RATE_LIMIT, async (request, reply) => {
     const input = parse(loginInput, request.body, '登录信息');
     const session = await loginUser(deps, { ...input });
-    return reply.send(sessionPayload(request, reply, session, secure));
+    return reply.send(sessionPayload(request, reply, session, request.protocol === 'https'));
   });
 
   app.post('/api/auth/refresh', AUTH_RATE_LIMIT, async (request, reply) => {
     const raw = readRefreshFromBody(request.body) ?? request.cookies?.[REFRESH_COOKIE] ?? null;
     if (!raw) throw new ApiError(ERROR_CODES.UNAUTHENTICATED, '缺少刷新令牌');
     const session = await refreshSession(deps, raw, request.headers['user-agent']);
-    return reply.send(sessionPayload(request, reply, session, secure));
+    return reply.send(sessionPayload(request, reply, session, request.protocol === 'https'));
   });
 
   app.post('/api/auth/logout', async (request, reply) => {
     const raw = readRefreshFromBody(request.body) ?? request.cookies?.[REFRESH_COOKIE] ?? null;
     await revokeRefreshToken(deps, raw);
-    clearSessionCookies(reply, secure);
+    clearSessionCookies(reply, request.protocol === 'https');
     return reply.send({ ok: true });
   });
 
@@ -142,7 +145,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: UsersDeps): void 
 
   app.delete('/api/me/sessions', { preHandler: [requireAuth] }, async (request, reply) => {
     await revokeAllSessions(deps, currentUser(request).id);
-    clearSessionCookies(reply, secure);
+    clearSessionCookies(reply, request.protocol === 'https');
     return reply.send({ ok: true });
   });
 }

@@ -20,8 +20,12 @@ services:
       # HTTP/3 (QUIC) — Caddy advertises it automatically once TLS is working.
       - '${HTTPS_PORT:-443}:443/udp'
     environment:
-      # The Caddyfile references these as {$PUBLIC_URL} / {$ACME_EMAIL}; without them here the
-      # site address expands to empty and Caddy refuses to start.
+      # The Caddyfile references {$CADDY_SITE_ADDR} / {$ACME_EMAIL}; without a site address here
+      # Caddy refuses to start. deploy.sh derives CADDY_SITE_ADDR from PUBLIC_URL automatically:
+      #   domain mode -> https://<domain>   (auto HTTPS on 443, redirect from 80)
+      #   direct-IP mode -> http://<ip>     (plain HTTP; host port comes from HTTP_PORT)
+      # Set it explicitly when PUBLIC_URL carries a non-80 port (e.g. http://1.2.3.4:8080).
+      CADDY_SITE_ADDR: ${CADDY_SITE_ADDR:-${PUBLIC_URL:-localhost}}
       PUBLIC_URL: ${PUBLIC_URL}
       ACME_EMAIL: ${ACME_EMAIL:-}
     volumes:
