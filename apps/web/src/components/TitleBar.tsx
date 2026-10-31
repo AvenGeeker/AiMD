@@ -5,6 +5,7 @@ import {
   Download,
   Eye,
   Loader2,
+  PanelLeft,
   PanelRight,
   Pencil,
   Settings,
@@ -15,13 +16,15 @@ import type { SyncStatus } from '../lib/sync.js';
 import { isDesktop, platform } from '../lib/platform.js';
 import type { EditorMode } from './MarkdownEditor.js';
 
-/** Top bar: sync state, view-mode switch, outline toggle and global actions. */
+/** Top bar: sync state, view-mode switch, rail toggles and global actions. */
 
 export interface TitleBarProps {
   syncStatus: SyncStatus;
   pendingCount: number;
   mode: EditorMode;
   onModeChange(mode: EditorMode): void;
+  sidebarVisible: boolean;
+  onToggleSidebar(): void;
   outlineVisible: boolean;
   onToggleOutline(): void;
   onOpenSettings(): void;
@@ -94,6 +97,20 @@ export function TitleBar(props: TitleBarProps) {
             );
           })}
         </div>
+
+        <button
+          type="button"
+          className={`rounded p-1.5 ${
+            props.sidebarVisible ? 'bg-accent/10 text-accent' : 'text-muted hover:bg-hover'
+          }`}
+          onClick={props.onToggleSidebar}
+          title={props.sidebarVisible ? '隐藏左侧栏' : '显示左侧栏'}
+          aria-label={props.sidebarVisible ? '隐藏左侧栏' : '显示左侧栏'}
+          aria-pressed={props.sidebarVisible}
+          data-testid="toggle-sidebar"
+        >
+          <PanelLeft size={16} />
+        </button>
 
         <button
           type="button"

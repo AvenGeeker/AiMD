@@ -230,7 +230,8 @@ test.describe('multi-device CRDT sync', () => {
     // (Reloading while offline is out of scope for v1: there is no service worker, so the shell
     // itself cannot be fetched. Offline support covers an already-open tab.)
     await page.reload();
-    await loginThroughUi(page, email);
+    // Browser sessions live in an HTTP-only cookie, so a reload restores the workspace directly.
+    await expect(page.getByTestId('workspace')).toBeVisible({ timeout: 20_000 });
     await page.locator(`[data-testid="note-item-${noteId}"]`).click();
     await waitForEditorBound(page, noteId);
     await expect(page.locator('.cm-content')).toContainText('断网时写入', { timeout: 20_000 });

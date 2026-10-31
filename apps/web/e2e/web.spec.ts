@@ -234,6 +234,18 @@ test.describe('workspace basics', () => {
     await expect(page.getByTestId('outline')).toHaveCount(0);
   });
 
+  test('hides and restores the left sidebar', async ({ page }) => {
+    await registerThroughUi(page);
+
+    await expect(page.getByTestId('sidebar')).toBeVisible();
+    await page.getByTestId('toggle-sidebar').click();
+    await expect(page.getByTestId('sidebar')).toHaveCount(0);
+
+    await page.getByTestId('toggle-sidebar').click();
+    await expect(page.getByTestId('sidebar')).toBeVisible();
+    await expect(page.getByTestId('all-notes')).toBeVisible();
+  });
+
   test('escapes raw HTML in the preview (no script execution)', async ({ page }) => {
     await registerThroughUi(page);
     await createNote(page);

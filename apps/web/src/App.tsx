@@ -48,13 +48,24 @@ import { AuthView } from './components/AuthView.js';
 import { QuickCapture } from './components/QuickCapture.js';
 import { useQuickCaptures, type QuickCaptureEntry } from './lib/quickCaptures.js';
 
-/** Per-device UI preference: the outline rail starts hidden so the editor gets the width. */
+/** Per-device UI preferences for the two desktop rails. */
+const SIDEBAR_VISIBLE_KEY = 'aimarkdown.sidebar-visible';
 const OUTLINE_VISIBLE_KEY = 'aimarkdown.outline-visible';
 
 interface CaptureReveal extends EditorReveal {
   noteId: string;
 }
 
+function readSidebarVisible(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    return window.localStorage.getItem(SIDEBAR_VISIBLE_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+
+/** The outline rail starts hidden so the editor gets the width. */
 function readOutlineVisible(): boolean {
   if (typeof window === 'undefined') return false;
   try {
@@ -91,6 +102,7 @@ function Workspace() {
   const [source, setSource] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
+  const [sidebarVisible, setSidebarVisible] = useState(readSidebarVisible);
   const [outlineVisible, setOutlineVisible] = useState(readOutlineVisible);
   const [captureView, setCaptureView] = useState(false);
   const [captureReveal, setCaptureReveal] = useState<CaptureReveal | null>(null);
@@ -295,6 +307,18 @@ function Workspace() {
     },
     [updateSettings],
   );
+
+  const handleToggleSidebar = useCallback(() => {
+    setSidebarVisible((visible) => {
+      const next = !visible;
+      try {
+        window.localStorage.setItem(SIDEBAR_VISIBLE_KEY, next ? '1' : '0');
+      } catch {
+        // A blocked storage partition only loses the preference; the toggle still works.
+      }
+      return next;
+    });
+  }, []);
 
   const handleToggleOutline = useCallback(() => {
     setOutlineVisible((visible) => {
@@ -513,6 +537,8 @@ function Workspace() {
         pendingCount={syncManager.pendingCount}
         mode={settings.editorMode}
         onModeChange={handleModeChange}
+        sidebarVisible={sidebarVisible}
+        onToggleSidebar={handleToggleSidebar}
         outlineVisible={outlineVisible}
         onToggleOutline={handleToggleOutline}
         onOpenSettings={() => setSettingsOpen(true)}
@@ -530,21 +556,23 @@ function Workspace() {
       )}
 
       <div className="flex min-h-0 flex-1">
-        <Sidebar
-          tree={treeQuery.data}
-          selection={selection}
-          onSelect={handleSidebarSelect}
-          onOpenNote={handleOpenNote}
-          onCreateNote={() => void handleCreateNote()}
-          onCreateFolder={(parentId) => void handleCreateFolder(parentId)}
-          onDeleteFolder={(id) => void handleDeleteFolder(id)}
-          onRenameFolder={(id, name) => void handleRenameFolder(id, name)}
-          onDropNote={(noteId, folderId) => void handleDropNote(noteId, folderId)}
-          inboxNoteId={settings.inboxNoteId}
-          captureCount={captures.length}
-          capturesActive={captureView}
-          onOpenCaptures={handleOpenCaptures}
-        />
+        {sidebarVisible && (
+          <Sidebar
+            tree={treeQuery.data}
+            selection={selection}
+            onSelect={handleSidebarSelect}
+            onOpenNote={handleOpenNote}
+            onCreateNote={() => void handleCreateNote()}
+            onCreateFolder={(parentId) => void handleCreateFolder(parentId)}
+            onDeleteFolder={(id) => void handleDeleteFolder(id)}
+            onRenameFolder={(id, name) => void handleRenameFolder(id, name)}
+            onDropNote={(noteId, folderId) => void handleDropNote(noteId, folderId)}
+            inboxNoteId={settings.inboxNoteId}
+            captureCount={captures.length}
+            capturesActive={captureView}
+            onOpenCaptures={handleOpenCaptures}
+          />
+        )}
 
         {captureView ? (
           <CaptureList
