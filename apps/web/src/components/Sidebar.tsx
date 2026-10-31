@@ -5,13 +5,14 @@ import {
   FolderPlus,
   Folder as FolderIcon,
   Inbox,
+  NotebookPen,
   Search,
   Trash2,
 } from 'lucide-react';
 import type { FolderDto, TagDto, TreeDto } from '@aimarkdown/shared';
 import { MIN_SEARCH_QUERY_LENGTH } from '@aimarkdown/shared';
 
-/** Left rail: search, folder tree, tag filter, inbox and trash. */
+/** Left rail: search, folder tree, tag filter, quick captures, inbox and trash. */
 
 export interface SidebarSelection {
   folderId: string | null | undefined; // undefined = all notes
@@ -45,6 +46,9 @@ interface SidebarProps {
   onRenameFolder(id: string, name: string): void;
   onDropNote(noteId: string, folderId: string | null): void;
   inboxNoteId: string | null;
+  captureCount: number;
+  capturesActive: boolean;
+  onOpenCaptures(): void;
 }
 
 interface TreeNode {
@@ -103,6 +107,9 @@ export function Sidebar(props: SidebarProps) {
     onRenameFolder,
     onDropNote,
     inboxNoteId,
+    captureCount,
+    capturesActive,
+    onOpenCaptures,
   } = props;
 
   const [query, setQuery] = useState(selection.q);
@@ -275,7 +282,7 @@ export function Sidebar(props: SidebarProps) {
           type="button"
           onClick={() => onSelect({ ...EMPTY_SELECTION, q: selection.q })}
           className={`flex w-full items-center gap-2 rounded px-2 py-1 text-sm ${
-            selection.folderId === undefined && selection.archived === 'false' && selection.tagIds.length === 0
+            !capturesActive && selection.folderId === undefined && selection.archived === 'false' && selection.tagIds.length === 0
               ? 'bg-accent text-accent-foreground'
               : 'hover:bg-hover'
           }`}
@@ -284,6 +291,19 @@ export function Sidebar(props: SidebarProps) {
           <FilePlus2 size={14} className="text-muted" />
           全部笔记
           <span className="ml-auto text-[11px] text-muted/70">{tree?.counts.notes ?? 0}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={onOpenCaptures}
+          className={`flex w-full items-center gap-2 rounded px-2 py-1 text-sm ${
+            capturesActive ? 'bg-accent text-accent-foreground' : 'hover:bg-hover'
+          }`}
+          data-testid="captures-link"
+        >
+          <NotebookPen size={14} className="text-muted" />
+          速记
+          <span className="ml-auto text-[11px] text-muted/70">{captureCount}</span>
         </button>
 
         {inboxNoteId && (

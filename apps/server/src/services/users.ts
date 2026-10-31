@@ -48,7 +48,7 @@ export interface UserRowLite {
   createdAt: Date;
 }
 
-function toUserDto(row: UserRowLite): UserDto {
+export function toUserDto(row: UserRowLite): UserDto {
   return {
     id: row.id,
     email: row.email,

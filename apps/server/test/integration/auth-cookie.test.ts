@@ -34,6 +34,29 @@ describeDb('auth cookie Secure flag follows the request scheme', () => {
     expect(setCookieHeader(response.headers)).not.toContain('Secure');
   });
 
+  it('returns a serialisable current-user DTO for a bearer session', async () => {
+    const email = uniqueEmail('bearer-me');
+    const registered = await server.app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      headers: { 'x-token-transport': 'bearer' },
+      payload: { email, password: 'password123' },
+    });
+    expect(registered.statusCode).toBe(201);
+    const session = registered.json() as { accessToken: string };
+
+    const me = await server.app.inject({
+      method: 'GET',
+      url: '/api/me',
+      headers: { authorization: `Bearer ${session.accessToken}` },
+    });
+
+    expect(me.statusCode).toBe(200);
+    const body = me.json() as { user: { email: string; createdAt: unknown } };
+    expect(body.user.email).toBe(email);
+    expect(typeof body.user.createdAt).toBe('string');
+  });
+
   it('stamps Secure cookies when Caddy forwards X-Forwarded-Proto: https', async () => {
     const response = await server.app.inject({
       method: 'POST',

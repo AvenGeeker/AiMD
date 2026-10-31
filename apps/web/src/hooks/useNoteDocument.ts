@@ -26,12 +26,17 @@ export function useNoteDocument(noteId: string | null): {
       setStatus('disconnected');
       return;
     }
-    const acquired = syncManager.acquireNote(noteId, {
-      onStatus: (next) => setStatus(next),
-    });
+    const acquired = syncManager.acquireNote(noteId);
     setEntry(acquired);
     setStatus(acquired.status);
+    // A document can have more than one subscriber (the selected note and the always-warm inbox
+    // can be the same doc). `acquire` only wires callbacks on first acquisition, so listen to the
+    // manager-wide status channel scoped to this document instead.
+    const stopListening = syncManager.onStatusChange((next, documentName) => {
+      if (documentName === noteDocName(noteId)) setStatus(next);
+    });
     return () => {
+      stopListening();
       syncManager.release(noteDocName(noteId));
       setEntry(null);
     };

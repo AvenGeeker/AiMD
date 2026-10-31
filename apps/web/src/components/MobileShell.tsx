@@ -24,9 +24,11 @@ import type {
 } from '@aimarkdown/shared';
 import type { SyncStatus } from '../lib/sync.js';
 import { writeNoteTagIds } from '../hooks/useNoteDocument.js';
+import type { QuickCaptureEntry } from '../lib/quickCaptures.js';
 import { Sidebar, type SidebarSelection } from './Sidebar.js';
 import { NoteList } from './NoteList.js';
-import { MarkdownEditor, type EditorMode } from './MarkdownEditor.js';
+import { CaptureList } from './CaptureList.js';
+import { MarkdownEditor, type EditorMode, type EditorReveal } from './MarkdownEditor.js';
 import { TagEditor } from './TagEditor.js';
 
 /**
@@ -55,11 +57,19 @@ export interface MobileShellProps {
   user: UserDto;
   banner: string | null;
   inboxNoteId: string | null;
+  captures: QuickCaptureEntry[];
+  capturesLoading: boolean;
+  captureView: boolean;
+  captureCount: number;
+  reveal: EditorReveal | null;
   /** True while a tag mutation is in flight (disables the tag editor input). */
   tagBusy: boolean;
 
   onSelect(next: SidebarSelection): void;
   onOpenNote(id: string): void;
+  onOpenCaptures(): void;
+  onOpenCapture(entry: QuickCaptureEntry): void;
+  onCapture(): void;
   onCreateNote(): Promise<void>;
   onCreateFolder(parentId: string | null): void;
   onDeleteFolder(id: string): void;
@@ -117,9 +127,17 @@ export function MobileShell(props: MobileShellProps) {
     user,
     banner,
     inboxNoteId,
+    captures,
+    capturesLoading,
+    captureView,
+    captureCount,
+    reveal,
     tagBusy,
     onSelect,
     onOpenNote,
+    onOpenCaptures,
+    onOpenCapture,
+    onCapture,
     onCreateNote,
     onCreateFolder,
     onDeleteFolder,
@@ -193,7 +211,7 @@ export function MobileShell(props: MobileShellProps) {
               <Menu size={20} />
             </button>
             <span className="min-w-0 flex-1 truncate pl-1 text-sm font-semibold tracking-tight">
-              aiMarkdown
+              {captureView ? '速记' : 'aiMarkdown'}
             </span>
             <SyncBadge status={status} />
             <button
@@ -226,16 +244,29 @@ export function MobileShell(props: MobileShellProps) {
           )}
 
           <div className="min-h-0 flex-1">
-            <NoteList
-              notes={notes}
-              selectedId={selectedNoteId}
-              onOpen={openNote}
-              inTrash={inTrash}
-              loading={loading}
-              onTogglePin={onTogglePin}
-              onDelete={onDeleteNote}
-              onRestore={onRestoreNote}
-            />
+            {captureView ? (
+              <CaptureList
+                captures={captures}
+                loading={capturesLoading}
+                hasInbox={Boolean(inboxNoteId)}
+                onOpen={(entry) => {
+                  onOpenCapture(entry);
+                  setView('editor');
+                }}
+                onCapture={onCapture}
+              />
+            ) : (
+              <NoteList
+                notes={notes}
+                selectedId={selectedNoteId}
+                onOpen={openNote}
+                inTrash={inTrash}
+                loading={loading}
+                onTogglePin={onTogglePin}
+                onDelete={onDeleteNote}
+                onRestore={onRestoreNote}
+              />
+            )}
           </div>
 
           {/* slide-in navigation drawer */}
@@ -271,6 +302,13 @@ export function MobileShell(props: MobileShellProps) {
                     onRenameFolder={onRenameFolder}
                     onDropNote={onDropNote}
                     inboxNoteId={inboxNoteId}
+                    captureCount={captureCount}
+                    capturesActive={captureView}
+                    onOpenCaptures={() => {
+                      onOpenCaptures();
+                      closeDrawer();
+                      setView('list');
+                    }}
                   />
                 </div>
                 <div className="flex h-12 shrink-0 items-center gap-2 border-t border-border px-3">
@@ -344,6 +382,7 @@ export function MobileShell(props: MobileShellProps) {
                 onSourceChange={(_source) => undefined}
                 resolveWikilink={resolveWikilink}
                 onNavigate={onNavigate}
+                reveal={reveal}
               />
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted">

@@ -41,6 +41,16 @@ import { Preview, useYTextValue } from './Preview.js';
 
 export type EditorMode = 'split' | 'edit' | 'preview';
 
+/** A request to reveal one capture that was opened from the quick-capture list. */
+export interface EditorReveal {
+  /** Zero-based markdown line. */
+  line: number;
+  /** Heading text for preview-mode anchors; null for stamp-less captures. */
+  stampLabel: string | null;
+  /** Changes on every click so selecting the same capture twice reveals it again. */
+  nonce: number;
+}
+
 export interface MarkdownEditorProps {
   /** Note id, used only for scoping attachment uploads. */
   noteId: string;
@@ -58,6 +68,7 @@ export interface MarkdownEditorProps {
   /** Resolves a wikilink target to a note id so the preview can navigate. */
   resolveWikilink?(target: string): Promise<string | null>;
   onNavigate?(noteId: string): void;
+  reveal?: EditorReveal | null;
 }
 
 /** Insert markdown at the cursor, wrapping a selection when one exists. */
@@ -76,7 +87,8 @@ function surroundSelection(view: EditorView, before: string, after: string, plac
 }
 
 export function MarkdownEditor(props: MarkdownEditorProps) {
-  const { noteId, doc, awareness, mode, fontSize, dark, onSourceChange, resolveWikilink, onNavigate } = props;
+  const { noteId, doc, awareness, mode, fontSize, dark, onSourceChange, resolveWikilink, onNavigate, reveal } =
+    props;
 
   const editorHostRef = useRef<HTMLDivElement | null>(null);
   const previewScrollRef = useRef<HTMLDivElement | null>(null);
@@ -262,6 +274,39 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       };
     });
   };
+
+  /* ---------------------------- capture reveal ---------------------------- */
+
+  useEffect(() => {
+    if (!reveal) return;
+    // In preview-only mode there is no CodeMirror instance; use the timestamp heading instead.
+    if (mode === 'preview') {
+      const preview = previewScrollRef.current;
+      if (!preview) return;
+      const heading = reveal.stampLabel
+        ? Array.from(preview.querySelectorAll('h2')).find(
+            (element) => element.textContent?.trim() === reveal.stampLabel,
+          )
+        : null;
+      const target = heading ?? preview;
+      const top =
+        target === preview
+          ? 0
+          : target.getBoundingClientRect().top - preview.getBoundingClientRect().top + preview.scrollTop;
+      preview.scrollTo({ top, behavior: 'smooth' });
+      return;
+    }
+
+    const view = viewRef.current;
+    if (!view) return;
+    const lineNumber = Math.min(Math.max(reveal.line + 1, 1), view.state.doc.lines);
+    const line = view.state.doc.line(lineNumber);
+    view.dispatch({
+      selection: { anchor: line.from },
+      effects: EditorView.scrollIntoView(line.from, { y: 'center' }),
+    });
+    view.focus();
+  }, [reveal, mode, bodyText]);
 
   const showEditor = mode !== 'preview';
   const showPreview = mode !== 'edit';

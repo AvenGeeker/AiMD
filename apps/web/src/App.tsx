@@ -37,7 +37,8 @@ import {
 } from './hooks/useNoteDocument.js';
 import { Sidebar, EMPTY_SELECTION, type SidebarSelection } from './components/Sidebar.js';
 import { NoteList } from './components/NoteList.js';
-import { MarkdownEditor, type EditorMode } from './components/MarkdownEditor.js';
+import { CaptureList } from './components/CaptureList.js';
+import { MarkdownEditor, type EditorMode, type EditorReveal } from './components/MarkdownEditor.js';
 import { Outline } from './components/Outline.js';
 import { TagEditor } from './components/TagEditor.js';
 import { TitleBar } from './components/TitleBar.js';
@@ -45,9 +46,14 @@ import { SettingsDialog } from './components/SettingsDialog.js';
 import { MobileShell } from './components/MobileShell.js';
 import { AuthView } from './components/AuthView.js';
 import { QuickCapture } from './components/QuickCapture.js';
+import { useQuickCaptures, type QuickCaptureEntry } from './lib/quickCaptures.js';
 
 /** Per-device UI preference: the outline rail starts hidden so the editor gets the width. */
 const OUTLINE_VISIBLE_KEY = 'aimarkdown.outline-visible';
+
+interface CaptureReveal extends EditorReveal {
+  noteId: string;
+}
 
 function readOutlineVisible(): boolean {
   if (typeof window === 'undefined') return false;
@@ -86,6 +92,8 @@ function Workspace() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
   const [outlineVisible, setOutlineVisible] = useState(readOutlineVisible);
+  const [captureView, setCaptureView] = useState(false);
+  const [captureReveal, setCaptureReveal] = useState<CaptureReveal | null>(null);
 
   // Renders the mobile single-pane shell instead of the three-pane desktop layout.
   const mobile = useIsMobile();
@@ -107,7 +115,8 @@ function Workspace() {
     Boolean(user),
   );
   const notes = notesQuery.data?.items ?? [];
-  const inTrash = selection.archived === 'only';
+  // The capture view always shows the inbox, even when the note-list filter currently says trash.
+  const inTrash = selection.archived === 'only' && !captureView;
 
   const createNote = useCreateNote();
   const updateNote = useUpdateNote();
@@ -121,6 +130,10 @@ function Workspace() {
   const quickCapture = useQuickCapture();
 
   const { doc, awareness, status } = useNoteDocument(selectedNoteId);
+  // Keep the inbox document warm so the capture count and list are live even when another note is
+  // open. This is the same ref-counted document the editor uses when the inbox itself is selected.
+  const inboxDocument = useNoteDocument(settings.inboxNoteId);
+  const captures = useQuickCaptures(inboxDocument.doc);
   const meta = useNoteMeta(doc);
   const tagIds = useNoteTagIds(doc);
 
@@ -184,7 +197,51 @@ function Workspace() {
     window.setTimeout(() => setBanner(null), 3000);
   }, []);
 
+  const handleSidebarSelect = useCallback(
+    (next: SidebarSelection) => {
+      setCaptureView(false);
+      setCaptureReveal(null);
+      // Leaving the capture view can land on a filter that was already selected (for example
+      // clicking 回收站 while it was active). The filter key would not change then, so clear the
+      // inbox selection explicitly to let the normal auto-selection pick a note in that filter.
+      if (captureView) setSelectedNoteId(null);
+      setSelection(next);
+    },
+    [captureView],
+  );
+
+  const handleOpenNote = useCallback((id: string) => {
+    setCaptureView(false);
+    setCaptureReveal(null);
+    setSelection((prev) => ({ ...prev, archived: 'false' }));
+    setSelectedNoteId(id);
+  }, []);
+
+  const handleOpenCaptures = useCallback(() => {
+    setCaptureView(true);
+    setCaptureReveal(null);
+    if (settings.inboxNoteId) setSelectedNoteId(settings.inboxNoteId);
+  }, [settings.inboxNoteId]);
+
+  const handleOpenCapture = useCallback(
+    (entry: QuickCaptureEntry) => {
+      const inboxId = settings.inboxNoteId;
+      if (!inboxId) return;
+      setCaptureView(true);
+      setSelectedNoteId(inboxId);
+      setCaptureReveal({
+        noteId: inboxId,
+        line: entry.line,
+        stampLabel: entry.stampLabel,
+        nonce: Date.now(),
+      });
+    },
+    [settings.inboxNoteId],
+  );
+
   const handleCreateNote = useCallback(async () => {
+    setCaptureView(false);
+    setCaptureReveal(null);
     const created = await createNote.mutateAsync({
       folderId: selection.folderId ?? null,
       tagIds: selection.tagIds,
@@ -305,7 +362,7 @@ function Workspace() {
     const text = window.prompt('速记内容');
     if (!text?.trim()) return;
     await quickCapture.mutateAsync({ noteId: inboxId, text: text.trim() });
-    flash('已追加到收集箱');
+    flash('已记录，可在左侧「速记」查看');
   }, [flash, quickCapture, settings.inboxNoteId]);
 
   // ⌘/Ctrl+Shift+Q captures from the browser too; the OS-level hotkey is the desktop shell's job.
@@ -346,6 +403,9 @@ function Workspace() {
     }, 1_500);
     return () => window.clearTimeout(timer);
   }, [selectedNoteId, displayTitle, queryClient]);
+
+  const editorReveal =
+    captureReveal && captureReveal.noteId === selectedNoteId ? captureReveal : null;
 
   if (!user) return null;
 
@@ -410,9 +470,17 @@ function Workspace() {
         user={user}
         banner={banner}
         inboxNoteId={settings.inboxNoteId}
+        captures={captures}
+        capturesLoading={Boolean(settings.inboxNoteId) && inboxDocument.status === 'connecting' && captures.length === 0}
+        captureView={captureView}
+        captureCount={captures.length}
+        reveal={editorReveal}
         tagBusy={updateNote.isPending || upsertTag.isPending}
-        onSelect={setSelection}
-        onOpenNote={setSelectedNoteId}
+        onSelect={handleSidebarSelect}
+        onOpenNote={handleOpenNote}
+        onOpenCaptures={handleOpenCaptures}
+        onOpenCapture={handleOpenCapture}
+        onCapture={() => void handleQuickCapture()}
         onCreateNote={handleCreateNote}
         onCreateFolder={(parentId) => void handleCreateFolder(parentId)}
         onDeleteFolder={(id) => void handleDeleteFolder(id)}
@@ -427,7 +495,7 @@ function Workspace() {
         onLogout={() => void logout()}
         onCreateTag={handleCreateTag}
         resolveWikilink={resolveWikilink}
-        onNavigate={setSelectedNoteId}
+        onNavigate={handleOpenNote}
       />
     );
   }
@@ -465,40 +533,50 @@ function Workspace() {
         <Sidebar
           tree={treeQuery.data}
           selection={selection}
-          onSelect={setSelection}
-          onOpenNote={(id) => {
-            setSelection((prev) => ({ ...prev, archived: 'false' }));
-            setSelectedNoteId(id);
-          }}
+          onSelect={handleSidebarSelect}
+          onOpenNote={handleOpenNote}
           onCreateNote={() => void handleCreateNote()}
           onCreateFolder={(parentId) => void handleCreateFolder(parentId)}
           onDeleteFolder={(id) => void handleDeleteFolder(id)}
           onRenameFolder={(id, name) => void handleRenameFolder(id, name)}
           onDropNote={(noteId, folderId) => void handleDropNote(noteId, folderId)}
           inboxNoteId={settings.inboxNoteId}
+          captureCount={captures.length}
+          capturesActive={captureView}
+          onOpenCaptures={handleOpenCaptures}
         />
 
-        <NoteList
-          notes={notes}
-          selectedId={selectedNoteId}
-          onOpen={setSelectedNoteId}
-          inTrash={inTrash}
-          loading={notesQuery.isFetching}
-          onTogglePin={(note) => void updateNote.mutateAsync({ id: note.id, patch: { pinned: !note.pinned } })}
-          onDelete={(id) =>
-            void (async () => {
-              if (inTrash && !window.confirm('彻底删除该笔记？此操作不可撤销。')) return;
-              await deleteNote.mutateAsync({ id, permanent: inTrash });
-              if (id === selectedNoteId) setSelectedNoteId(null);
-            })()
-          }
-          onRestore={(id) =>
-            void (async () => {
-              await restoreNote.mutateAsync(id);
-              if (id === selectedNoteId) setSelectedNoteId(null);
-            })()
-          }
-        />
+        {captureView ? (
+          <CaptureList
+            captures={captures}
+            loading={Boolean(settings.inboxNoteId) && inboxDocument.status === 'connecting' && captures.length === 0}
+            hasInbox={Boolean(settings.inboxNoteId)}
+            onOpen={handleOpenCapture}
+            onCapture={() => void handleQuickCapture()}
+          />
+        ) : (
+          <NoteList
+            notes={notes}
+            selectedId={selectedNoteId}
+            onOpen={handleOpenNote}
+            inTrash={inTrash}
+            loading={notesQuery.isFetching}
+            onTogglePin={(note) => void updateNote.mutateAsync({ id: note.id, patch: { pinned: !note.pinned } })}
+            onDelete={(id) =>
+              void (async () => {
+                if (inTrash && !window.confirm('彻底删除该笔记？此操作不可撤销。')) return;
+                await deleteNote.mutateAsync({ id, permanent: inTrash });
+                if (id === selectedNoteId) setSelectedNoteId(null);
+              })()
+            }
+            onRestore={(id) =>
+              void (async () => {
+                await restoreNote.mutateAsync(id);
+                if (id === selectedNoteId) setSelectedNoteId(null);
+              })()
+            }
+          />
+        )}
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           {selectedNoteId && doc ? (
@@ -511,7 +589,8 @@ function Workspace() {
               dark={dark}
               onSourceChange={setSource}
               resolveWikilink={resolveWikilink}
-              onNavigate={setSelectedNoteId}
+              onNavigate={handleOpenNote}
+              reveal={editorReveal}
             />
           ) : (
             <div className="flex flex-1 items-center justify-center text-sm text-muted">

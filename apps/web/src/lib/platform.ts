@@ -32,6 +32,10 @@ export interface DesktopBridge {
     getContext(): Promise<QuickCaptureContext>;
     /** Hide the window. Called after a successful capture and on Escape. */
     dismiss(): Promise<void>;
+    /** Fired by the shell just before the window is hidden, so pending CRDT updates can flush. */
+    onFlush?(callback: () => void): () => void;
+    /** Fired when the window becomes visible so the editor can be re-focused. */
+    onShown?(callback: () => void): () => void;
   };
 }
 

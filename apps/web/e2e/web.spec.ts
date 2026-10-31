@@ -83,6 +83,33 @@ test.describe('workspace basics', () => {
     await expect(page.locator(`[data-testid="note-item-${noteId}"]`)).toBeVisible();
   });
 
+  test('shows quick captures in the dedicated sidebar view', async ({ page }) => {
+    const email = uniqueEmail('captures');
+    await registerThroughUi(page, email);
+
+    const treeResponse = await page.request.get('/api/tree');
+    const tree = (await treeResponse.json()) as { settings: { inboxNoteId: string | null } };
+    const inboxId = tree.settings.inboxNoteId;
+    expect(inboxId).toBeTruthy();
+
+    const text = `速记里的内容-${Date.now()}`;
+    const captureResponse = await page.request.post(`/api/notes/${inboxId}/capture`, {
+      data: { text, stampFormat: 'heading' },
+    });
+    expect(captureResponse.ok()).toBe(true);
+
+    await page.getByTestId('captures-link').click();
+    await expect(page.getByTestId('capture-list')).toBeVisible();
+    await expect(page.getByTestId('capture-item').first()).toContainText(text, { timeout: 20_000 });
+
+    // Opening an entry reveals the inbox note itself, so it can still be edited in place.
+    await page.getByTestId('capture-item').first().click();
+    await expect(page.getByTestId('editor-host')).toHaveAttribute('data-note-id', inboxId!, {
+      timeout: 20_000,
+    });
+    await expect(page.locator('.cm-content')).toContainText(text, { timeout: 20_000 });
+  });
+
   test('tags a note through the right-rail editor and filters by it', async ({ page }) => {
     await registerThroughUi(page);
     const taggedId = await createNote(page);

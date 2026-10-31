@@ -27,6 +27,7 @@ import {
   registerUser,
   revokeAllSessions,
   revokeRefreshToken,
+  toUserDto,
   type UsersDeps,
 } from '../services/users.js';
 
@@ -140,7 +141,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: UsersDeps): void 
   app.get('/api/me', { preHandler: [requireAuth] }, async (request, reply) => {
     const user = await findUserById(deps.sql, currentUser(request).id);
     if (!user) throw new ApiError(ERROR_CODES.NOT_FOUND, '用户不存在');
-    return reply.send({ user: userDto.parse(user) });
+    return reply.send({ user: userDto.parse(toUserDto(user)) });
   });
 
   app.delete('/api/me/sessions', { preHandler: [requireAuth] }, async (request, reply) => {
