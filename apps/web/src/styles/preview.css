@@ -6,9 +6,13 @@
  */
 
 .markdown-preview {
+  width: min(100%, 820px);
+  margin: 0 auto;
   color: var(--foreground);
-  font-size: 15px;
-  line-height: 1.75;
+  font-family: var(--font-editor);
+  font-size: 15.5px;
+  line-height: 1.82;
+  letter-spacing: 0.002em;
   word-wrap: break-word;
 }
 
@@ -22,29 +26,32 @@
 .markdown-preview h4,
 .markdown-preview h5,
 .markdown-preview h6 {
-  margin: 1.6em 0 0.6em;
-  font-weight: 600;
-  line-height: 1.3;
+  margin: 1.65em 0 0.65em;
+  color: var(--foreground);
+  font-weight: 650;
+  line-height: 1.32;
+  letter-spacing: -0.025em;
   scroll-margin-top: 1rem;
 }
 
 .markdown-preview h1 {
-  font-size: 1.75em;
-  padding-bottom: 0.3em;
-  border-bottom: 1px solid var(--border);
+  margin-top: 0.6em;
+  font-size: 1.92em;
+  letter-spacing: -0.04em;
 }
 .markdown-preview h2 {
-  font-size: 1.4em;
-  padding-bottom: 0.25em;
-  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.28em;
+  font-size: 1.48em;
+  border-bottom: 1px solid var(--border-subtle);
 }
 .markdown-preview h3 {
-  font-size: 1.2em;
+  font-size: 1.24em;
 }
 .markdown-preview h4,
 .markdown-preview h5,
 .markdown-preview h6 {
-  font-size: 1em;
+  font-size: 1.03em;
+  letter-spacing: -0.01em;
 }
 
 .markdown-preview p,
@@ -53,19 +60,24 @@
 .markdown-preview blockquote,
 .markdown-preview pre,
 .markdown-preview table {
-  margin: 0 0 1em;
+  margin: 0 0 1.1em;
+}
+
+.markdown-preview p {
+  color: color-mix(in srgb, var(--foreground) 94%, var(--muted));
 }
 
 .markdown-preview a {
   color: var(--accent);
   text-decoration: none;
+  text-underline-offset: 3px;
 }
 .markdown-preview a:hover {
   text-decoration: underline;
 }
 
 .markdown-preview a.wikilink {
-  border-bottom: 1px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--accent) 50%, transparent);
 }
 .markdown-preview a.wikilink-missing {
   color: var(--muted);
@@ -74,58 +86,69 @@
 }
 
 .markdown-preview blockquote {
-  padding: 0.2em 1em;
-  color: var(--muted);
-  border-left: 3px solid var(--border);
-  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  padding: 0.65em 1em 0.65em 1.15em;
+  color: var(--muted-strong);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 62%, var(--border));
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--accent-soft) 54%, transparent);
+}
+.markdown-preview blockquote > :last-child {
+  margin-bottom: 0;
 }
 
 .markdown-preview ul,
 .markdown-preview ol {
-  padding-left: 1.6em;
+  padding-left: 1.55em;
+}
+.markdown-preview li {
+  padding-left: 0.18em;
 }
 .markdown-preview li + li {
-  margin-top: 0.25em;
+  margin-top: 0.3em;
+}
+.markdown-preview li::marker {
+  color: color-mix(in srgb, var(--muted) 76%, transparent);
 }
 
-/* Task lists: drop the bullet and align the checkbox with the text. */
 .markdown-preview ul.contains-task-list,
 .markdown-preview li.task-list-item {
   list-style: none;
 }
 .markdown-preview ul.contains-task-list {
-  padding-left: 0.4em;
+  padding-left: 0.25em;
 }
 .markdown-preview .task-list-item-checkbox {
-  margin-right: 0.5em;
-  vertical-align: -0.1em;
+  margin-right: 0.58em;
+  vertical-align: -0.12em;
   accent-color: var(--accent);
 }
 
 .markdown-preview code {
-  padding: 0.15em 0.4em;
-  font-size: 0.88em;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--muted) 15%, transparent);
+  padding: 0.16em 0.4em;
+  color: color-mix(in srgb, var(--foreground) 88%, var(--accent));
+  font-size: 0.87em;
+  border: 1px solid color-mix(in srgb, var(--border) 66%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--hover) 68%, transparent);
 }
 
 .markdown-preview pre {
-  padding: 0.9em 1em;
+  padding: 1em 1.1em;
   overflow: auto;
   font-size: 0.86em;
-  line-height: 1.6;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--surface);
+  line-height: 1.68;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+  background: var(--panel);
 }
 .markdown-preview pre code {
   padding: 0;
+  border: 0;
   background: transparent;
   font-size: inherit;
 }
-/* Shiki emits two themes; show the one matching the active app theme. */
 .markdown-preview pre.shiki {
-  background: var(--surface);
+  background: var(--panel);
 }
 .dark .markdown-preview pre.shiki,
 .dark .markdown-preview pre.shiki span {
@@ -141,36 +164,48 @@
   width: max-content;
   max-width: 100%;
   overflow: auto;
-  border-collapse: collapse;
+  border-spacing: 0;
+  border-collapse: separate;
+  border: 1px solid var(--border);
+  border-radius: 9px;
 }
 .markdown-preview th,
 .markdown-preview td {
-  padding: 0.45em 0.85em;
-  border: 1px solid var(--border);
+  padding: 0.5em 0.9em;
+  border-right: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.markdown-preview th:last-child,
+.markdown-preview td:last-child {
+  border-right: 0;
+}
+.markdown-preview tr:last-child td {
+  border-bottom: 0;
 }
 .markdown-preview th {
-  background: var(--surface);
-  font-weight: 600;
+  background: var(--panel);
+  font-weight: 620;
 }
 .markdown-preview tr:nth-child(2n) td {
-  background: color-mix(in srgb, var(--surface) 45%, transparent);
+  background: color-mix(in srgb, var(--panel) 54%, transparent);
 }
 
 .markdown-preview hr {
   height: 1px;
-  margin: 1.6em 0;
+  margin: 2em 0;
   border: 0;
-  background: var(--border);
+  background: var(--border-subtle);
 }
 
 .markdown-preview img {
   max-width: 100%;
   height: auto;
-  border-radius: 6px;
+  border-radius: 9px;
+  box-shadow: 0 1px 4px rgba(20, 26, 40, 0.1);
 }
 
 .markdown-preview .math-block {
-  margin: 1em 0;
+  margin: 1.1em 0;
   overflow-x: auto;
   overflow-y: hidden;
   text-align: center;
@@ -185,12 +220,12 @@
 }
 
 .markdown-preview .mermaid-block {
-  margin: 1em 0;
-  padding: 0.75em;
+  margin: 1.1em 0;
+  padding: 0.9em;
   overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--panel);
   text-align: center;
 }
 .markdown-preview .mermaid-block pre {
@@ -207,9 +242,8 @@
   text-align: left;
 }
 
-/* Empty documents should not collapse to zero height in preview-only mode. */
 .markdown-preview:empty::before {
   content: '（空白笔记）';
   color: var(--muted);
-  opacity: 0.6;
+  opacity: 0.64;
 }

@@ -8,14 +8,15 @@ import {
   NotebookPen,
   Search,
   Trash2,
+  X,
 } from 'lucide-react';
 import type { FolderDto, TagDto, TreeDto } from '@aimarkdown/shared';
 import { MIN_SEARCH_QUERY_LENGTH } from '@aimarkdown/shared';
 
-/** Left rail: search, folder tree, tag filter, quick captures, inbox and trash. */
+/** Left rail: search, library navigation, folder tree, tags and trash. */
 
 export interface SidebarSelection {
-  folderId: string | null | undefined; // undefined = all notes
+  folderId: string | null | undefined;
   rootOnly: boolean;
   tagIds: string[];
   archived: 'true' | 'false' | 'only';
@@ -31,10 +32,6 @@ export const EMPTY_SELECTION: SidebarSelection = {
 };
 
 interface SidebarProps {
-  /**
-   * `rail` is the fixed desktop left rail. `drawer` fills its container and is used by the
-   * mobile shell's slide-in navigation (same component, same data-testids, different width).
-   */
   variant?: 'rail' | 'drawer';
   tree: TreeDto | undefined;
   selection: SidebarSelection;
@@ -60,7 +57,6 @@ export function buildTree(folders: FolderDto[]): TreeNode[] {
   const byParent = new Map<string | null, FolderDto[]>();
   const ids = new Set(folders.map((folder) => folder.id));
   for (const folder of folders) {
-    // A parent that is not in the set (deleted elsewhere) is treated as root-level.
     const parentId = folder.parentId && ids.has(folder.parentId) ? folder.parentId : null;
     const list = byParent.get(parentId) ?? [];
     list.push(folder);
@@ -73,8 +69,6 @@ export function buildTree(folders: FolderDto[]): TreeNode[] {
     const list = byParent.get(parentId) ?? [];
     const out: TreeNode[] = [];
     for (const folder of list) {
-      // `placed` doubles as the cycle guard: a folder can only be rendered once, so a merged
-      // cycle terminates instead of recursing forever.
       if (placed.has(folder.id)) continue;
       placed.add(folder.id);
       out.push({ folder, children: build(folder.id) });
@@ -83,10 +77,6 @@ export function buildTree(folders: FolderDto[]): TreeNode[] {
   };
 
   const roots = build(null);
-
-  // Any folder still unplaced is only reachable through a cycle, so it has no root ancestor.
-  // Surface those at the top level rather than dropping them: a CRDT merge must never make a
-  // user's folders silently disappear from the sidebar.
   const unreachable = folders
     .filter((folder) => !placed.has(folder.id))
     .map((folder) => ({ folder, children: [] as TreeNode[] }));
@@ -131,7 +121,13 @@ export function Sidebar(props: SidebarProps) {
   };
 
   const selectFolder = (folderId: string | null | undefined) => {
-    onSelect({ ...EMPTY_SELECTION, folderId, rootOnly: folderId === null, q: selection.q, tagIds: selection.tagIds });
+    onSelect({
+      ...EMPTY_SELECTION,
+      folderId,
+      rootOnly: folderId === null,
+      q: selection.q,
+      tagIds: selection.tagIds,
+    });
   };
 
   const toggleTag = (tagId: string) => {
@@ -145,13 +141,14 @@ export function Sidebar(props: SidebarProps) {
     nodes.map((node) => {
       const isOpen = expanded.has(node.folder.id);
       const isActive = selection.folderId === node.folder.id && !selection.rootOnly;
+      const hasChildren = node.children.length > 0;
       return (
         <div key={node.folder.id}>
           <div
-            className={`group flex items-center gap-1 rounded px-2 py-1 text-sm ${
-              isActive ? 'bg-accent text-accent-foreground' : 'hover:bg-hover'
-            } ${dragOverFolder === node.folder.id ? 'ring-1 ring-accent' : ''}`}
-            style={{ paddingLeft: `${depth * 12 + 8}px` }}
+            className={`folder-row group ${isActive ? 'is-active' : ''} ${
+              dragOverFolder === node.folder.id ? 'ring-1 ring-accent' : ''
+            }`}
+            style={{ paddingLeft: `${depth * 13 + 4}px` }}
             onDragOver={(event) => {
               event.preventDefault();
               setDragOverFolder(node.folder.id);
@@ -166,18 +163,23 @@ export function Sidebar(props: SidebarProps) {
           >
             <button
               type="button"
-              className="w-4 shrink-0 text-muted"
+              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted ${
+                hasChildren ? 'hover:bg-hover hover:text-foreground' : 'pointer-events-none opacity-0'
+              }`}
               onClick={() => toggleExpanded(node.folder.id)}
-              aria-label={isOpen ? '折叠' : '展开'}
+              aria-label={isOpen ? '折叠目录' : '展开目录'}
             >
-              <ChevronRight size={14} className={`transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+              <ChevronRight
+                size={13}
+                className={`transition-transform duration-150 ${isOpen ? 'rotate-90' : ''}`}
+              />
             </button>
-            <FolderIcon size={14} className="shrink-0 text-muted" />
+            <FolderIcon size={14} className={`shrink-0 ${isActive ? 'text-accent' : 'text-muted'}`} />
             {editingFolder === node.folder.id ? (
               <input
                 autoFocus
                 defaultValue={node.folder.name}
-                className="w-full rounded border border-border bg-background px-1 text-sm"
+                className="input-base h-6 min-h-0 flex-1 px-1.5 py-0 text-xs"
                 onBlur={(event) => {
                   const value = event.target.value.trim();
                   if (value && value !== node.folder.name) onRenameFolder(node.folder.id, value);
@@ -191,7 +193,7 @@ export function Sidebar(props: SidebarProps) {
             ) : (
               <button
                 type="button"
-                className="flex-1 truncate text-left"
+                className="min-w-0 flex-1 truncate text-left"
                 onClick={() => selectFolder(node.folder.id)}
                 onDoubleClick={() => setEditingFolder(node.folder.id)}
                 title="双击重命名"
@@ -199,14 +201,14 @@ export function Sidebar(props: SidebarProps) {
                 {node.folder.name}
               </button>
             )}
-            <span className="shrink-0 text-[11px] text-muted/70">{node.folder.noteCount}</span>
+            <span className="shrink-0 text-[10.5px] tabular-nums text-muted/70">{node.folder.noteCount}</span>
             <button
               type="button"
-              className="hidden shrink-0 text-muted hover:text-danger group-hover:block"
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted opacity-0 transition-opacity hover:bg-danger-soft hover:text-danger group-hover:opacity-100"
               onClick={() => onDeleteFolder(node.folder.id)}
               aria-label="删除目录"
             >
-              <Trash2 size={13} />
+              <Trash2 size={12} />
             </button>
           </div>
           {isOpen && renderNodes(node.children, depth + 1)}
@@ -216,113 +218,143 @@ export function Sidebar(props: SidebarProps) {
 
   return (
     <aside
-      className={`flex h-full flex-col border-r border-border bg-surface ${
-        variant === 'drawer' ? 'w-full' : 'w-64 shrink-0'
-      }`}
+      className={`sidebar-panel flex h-full flex-col ${variant === 'drawer' ? '!w-full' : ''}`}
       data-testid="sidebar"
     >
-      <div className="flex items-center gap-2 border-b border-border p-2">
-        <div className="relative flex-1">
-          <Search size={14} className="absolute left-2 top-2.5 text-muted" />
+      <div className="px-3 pb-2 pt-3">
+        <div className="mb-2 flex items-center justify-between px-1">
+          <span className="text-[11px] font-semibold tracking-wide text-muted">笔记库</span>
+          <div className="flex items-center gap-0.5">
+            <button
+              type="button"
+              className="icon-button !h-7 !w-7"
+              onClick={onCreateNote}
+              title="新建笔记"
+              aria-label="新建笔记"
+              data-testid="new-note"
+            >
+              <FilePlus2 size={15} />
+            </button>
+            <button
+              type="button"
+              className="icon-button !h-7 !w-7"
+              onClick={() => onCreateFolder(null)}
+              title="新建目录"
+              aria-label="新建目录"
+              data-testid="new-folder"
+            >
+              <FolderPlus size={15} />
+            </button>
+          </div>
+        </div>
+
+        <div className="sidebar-search flex items-center gap-2 px-2.5">
+          <Search size={14} className="shrink-0 text-muted" />
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                const q = query.trim();
-                if (q.length > 0 && q.length < MIN_SEARCH_QUERY_LENGTH) return;
-                onSelect({ ...selection, q });
-              }
-              if (event.key === 'Escape') {
-                setQuery('');
-                onSelect({ ...selection, q: '' });
+              if (event.key === 'Enter' && !queryTooShort) {
+                onSelect({ ...selection, q: query.trim() });
               }
             }}
-            placeholder={`搜索（至少 ${MIN_SEARCH_QUERY_LENGTH} 字符）`}
-            className="w-full rounded border border-border bg-background py-1.5 pl-7 pr-2 text-sm outline-none focus:border-accent"
+            placeholder="搜索笔记"
+            aria-label="搜索笔记"
+            className="h-8 min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted/65"
             data-testid="search-input"
           />
+          {query && (
+            <button
+              type="button"
+              className="flex h-5 w-5 items-center justify-center rounded text-muted hover:bg-hover hover:text-foreground"
+              onClick={() => {
+                setQuery('');
+                onSelect({ ...selection, q: '' });
+              }}
+              aria-label="清除搜索"
+            >
+              <X size={12} />
+            </button>
+          )}
         </div>
-        <button
-          type="button"
-          title="新建笔记"
-          onClick={onCreateNote}
-          className="rounded p-1.5 text-muted hover:bg-hover hover:text-foreground"
-          data-testid="new-note"
-        >
-          <FilePlus2 size={16} />
-        </button>
-        <button
-          type="button"
-          title="新建目录"
-          onClick={() => onCreateFolder(selection.folderId ?? null)}
-          className="rounded p-1.5 text-muted hover:bg-hover hover:text-foreground"
-          data-testid="new-folder"
-        >
-          <FolderPlus size={16} />
-        </button>
+
+        {queryTooShort && (
+          <div className="px-1 pt-1.5 text-[10.5px] text-warning">
+            搜索词至少 {MIN_SEARCH_QUERY_LENGTH} 个字符
+          </div>
+        )}
+        {selection.q && !queryTooShort && (
+          <div className="flex items-center justify-between px-1 pt-1.5 text-[10.5px] text-muted">
+            <span className="truncate">搜索「{selection.q}」</span>
+            <button
+              type="button"
+              className="shrink-0 text-accent hover:underline"
+              onClick={() => onSelect({ ...selection, q: '' })}
+            >
+              清除
+            </button>
+          </div>
+        )}
       </div>
 
-      {queryTooShort && (
-        <div className="px-3 py-1 text-[11px] text-warning">
-          搜索词至少 {MIN_SEARCH_QUERY_LENGTH} 个字符（中文分词限制）
-        </div>
-      )}
-      {selection.q && !queryTooShort && (
-        <div className="flex items-center justify-between px-3 py-1 text-[11px] text-muted">
-          <span>搜索「{selection.q}」</span>
-          <button type="button" className="hover:text-foreground" onClick={() => onSelect({ ...selection, q: '' })}>
-            清除
-          </button>
-        </div>
-      )}
-
-      <nav className="min-h-0 flex-1 overflow-auto p-2">
-        <button
-          type="button"
-          onClick={() => onSelect({ ...EMPTY_SELECTION, q: selection.q })}
-          className={`flex w-full items-center gap-2 rounded px-2 py-1 text-sm ${
-            !capturesActive && selection.folderId === undefined && selection.archived === 'false' && selection.tagIds.length === 0
-              ? 'bg-accent text-accent-foreground'
-              : 'hover:bg-hover'
-          }`}
-          data-testid="all-notes"
-        >
-          <FilePlus2 size={14} className="text-muted" />
-          全部笔记
-          <span className="ml-auto text-[11px] text-muted/70">{tree?.counts.notes ?? 0}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={onOpenCaptures}
-          className={`flex w-full items-center gap-2 rounded px-2 py-1 text-sm ${
-            capturesActive ? 'bg-accent text-accent-foreground' : 'hover:bg-hover'
-          }`}
-          data-testid="captures-link"
-        >
-          <NotebookPen size={14} className="text-muted" />
-          速记
-          <span className="ml-auto text-[11px] text-muted/70">{captureCount}</span>
-        </button>
-
-        {inboxNoteId && (
+      <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+        <div className="space-y-0.5">
           <button
             type="button"
-            onClick={() => onOpenNote(inboxNoteId)}
-            className="flex w-full items-center gap-2 rounded px-2 py-1 text-sm hover:bg-hover"
-            data-testid="inbox-link"
+            onClick={() => onSelect({ ...EMPTY_SELECTION, q: selection.q })}
+            className={`nav-item ${
+              !capturesActive &&
+              selection.folderId === undefined &&
+              selection.archived === 'false' &&
+              selection.tagIds.length === 0
+                ? 'is-active'
+                : ''
+            }`}
+            data-testid="all-notes"
           >
-            <Inbox size={14} className="text-muted" />
-            收集箱
+            <FilePlus2 size={15} className={selection.folderId === undefined ? 'text-accent' : 'text-muted'} />
+            <span>全部笔记</span>
+            <span className="nav-count">{tree?.counts.notes ?? 0}</span>
           </button>
-        )}
 
-        <div className="mt-3 flex items-center justify-between px-2 text-[11px] uppercase tracking-wide text-muted">
-          <span>目录</span>
+          <button
+            type="button"
+            onClick={onOpenCaptures}
+            className={`nav-item ${capturesActive ? 'is-active' : ''}`}
+            data-testid="captures-link"
+          >
+            <NotebookPen size={15} className={capturesActive ? 'text-accent' : 'text-muted'} />
+            <span>速记</span>
+            <span className="nav-count">{captureCount}</span>
+          </button>
+
+          {inboxNoteId && (
+            <button
+              type="button"
+              onClick={() => onOpenNote(inboxNoteId)}
+              className="nav-item"
+              data-testid="inbox-link"
+            >
+              <Inbox size={15} className="text-muted" />
+              <span>收集箱</span>
+            </button>
+          )}
+        </div>
+
+        <div className="mb-1.5 mt-5 flex items-center justify-between">
+          <span className="section-label">目录</span>
+          <button
+            type="button"
+            className="flex h-5 w-5 items-center justify-center rounded text-muted hover:bg-hover hover:text-foreground"
+            onClick={() => onCreateFolder(null)}
+            aria-label="新建目录"
+            title="新建目录"
+          >
+            <FolderPlus size={12} />
+          </button>
         </div>
         <div
-          className={`rounded ${dragOverFolder === null ? 'ring-1 ring-accent' : ''}`}
+          className={`rounded-lg py-0.5 ${dragOverFolder === null ? 'ring-1 ring-accent' : ''}`}
           onDragOver={(event) => {
             event.preventDefault();
             setDragOverFolder(null);
@@ -336,15 +368,18 @@ export function Sidebar(props: SidebarProps) {
           }}
         >
           {folders.length === 0 ? (
-            <div className="px-2 py-1 text-xs text-muted/70">还没有目录</div>
+            <div className="px-2 py-1.5 text-[11px] text-muted/65">还没有目录</div>
           ) : (
             renderNodes(folders, 0)
           )}
         </div>
 
-        <div className="mt-3 px-2 text-[11px] uppercase tracking-wide text-muted">标签</div>
-        <div className="flex flex-wrap gap-1 px-2 py-1">
-          {tags.length === 0 && <span className="text-xs text-muted/70">还没有标签</span>}
+        <div className="mb-2 mt-5 flex items-center justify-between">
+          <span className="section-label">标签</span>
+          <span className="pr-1 text-[10px] tabular-nums text-muted/60">{tags.length}</span>
+        </div>
+        <div className="flex flex-wrap gap-1.5 px-0.5">
+          {tags.length === 0 && <span className="px-1.5 text-[11px] text-muted/65">还没有标签</span>}
           {tags.map((tag: TagDto) => {
             const active = selection.tagIds.includes(tag.id);
             return (
@@ -352,31 +387,27 @@ export function Sidebar(props: SidebarProps) {
                 key={tag.id}
                 type="button"
                 onClick={() => toggleTag(tag.id)}
-                className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${
-                  active ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:bg-hover'
-                }`}
+                className={`chip ${active ? 'is-active' : ''}`}
                 data-testid={`tag-${tag.name}`}
               >
-                <span className="inline-block h-2 w-2 rounded-full" style={{ background: tag.color }} />
-                {tag.name}
-                <span className="text-muted/60">{tag.noteCount}</span>
+                <span className="h-1.5 w-1.5 rounded-full" style={{ background: tag.color }} />
+                <span>{tag.name}</span>
+                <span className="tabular-nums opacity-55">{tag.noteCount}</span>
               </button>
             );
           })}
         </div>
 
-        <div className="mt-3 border-t border-border pt-2">
+        <div className="mt-5 border-t border-border-subtle pt-2">
           <button
             type="button"
             onClick={() => onSelect({ ...EMPTY_SELECTION, archived: 'only', q: selection.q })}
-            className={`flex w-full items-center gap-2 rounded px-2 py-1 text-sm ${
-              selection.archived === 'only' ? 'bg-accent text-accent-foreground' : 'hover:bg-hover'
-            }`}
+            className={`nav-item ${selection.archived === 'only' ? 'is-active' : ''}`}
             data-testid="trash-link"
           >
-            <Trash2 size={14} className="text-muted" />
-            回收站
-            <span className="ml-auto text-[11px] text-muted/70">{tree?.counts.trashed ?? 0}</span>
+            <Trash2 size={15} className={selection.archived === 'only' ? 'text-accent' : 'text-muted'} />
+            <span>回收站</span>
+            <span className="nav-count">{tree?.counts.trashed ?? 0}</span>
           </button>
         </div>
       </nav>

@@ -29,11 +29,26 @@ test.describe('workspace basics', () => {
     });
   });
 
+  test('edits the note title from the document header', async ({ page }) => {
+    await registerThroughUi(page);
+    const noteId = await createNote(page);
+
+    await expect(page.getByTestId('mode-split')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('note-header')).toBeVisible();
+    await page.getByTestId('note-title-input').fill('直接修改的标题');
+    await expect
+      .poll(
+        async () => ((await (await page.request.get(`/api/notes/${noteId}`)).json()) as { title: string }).title,
+        { timeout: 15_000 },
+      )
+      .toBe('直接修改的标题');
+  });
+
   test('renders markdown in the split preview as you type', async ({ page }) => {
     await registerThroughUi(page);
     await createNote(page);
 
-    await expect(page.getByTestId('mode-split')).toHaveClass(/bg-accent/);
+    await expect(page.getByTestId('mode-split')).toHaveAttribute('aria-pressed', 'true');
 
     await typeInEditor(page, '# 标题\n\n**加粗** 和 `代码`\n\n- [ ] 待办事项\n');
 
@@ -183,7 +198,7 @@ test.describe('workspace basics', () => {
 
     const row = page.locator(`[data-testid="note-item-${noteId}"]`);
     await row.hover();
-    await row.getByRole('button', { name: '删除' }).click();
+    await row.getByRole('button', { name: '移到回收站' }).click();
     await expect(page.locator(`[data-testid="note-item-${noteId}"]`)).toHaveCount(0);
 
     await page.getByTestId('trash-link').click();
@@ -287,6 +302,31 @@ test.describe('workspace basics', () => {
     // The markup is shown as inert text rather than executed.
     await expect(page.locator('.markdown-preview')).toContainText('<script>');
   });
+});
+
+test('exposes import and vault export through the compact more menu', async ({ page }) => {
+  await registerThroughUi(page);
+  await page.getByTestId('open-more').click();
+
+  const chooserPromise = page.waitForEvent('filechooser');
+  await page.getByTestId('import').click();
+  await chooserPromise;
+
+  await page.getByTestId('open-more').click();
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByTestId('export-vault').click();
+  await downloadPromise;
+});
+
+test('switches to the dark theme and persists it across reloads', async ({ page }) => {
+  await registerThroughUi(page);
+  await page.getByTestId('open-settings').click();
+  await page.getByTestId('settings-theme-dark').click();
+  await expect(page.locator('html')).toHaveClass(/dark/);
+  await page.getByRole('button', { name: '关闭' }).click();
+  await page.reload();
+  await expect(page.getByTestId('workspace')).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('html')).toHaveClass(/dark/);
 });
 
 test.describe('desktop server settings', () => {
@@ -395,6 +435,7 @@ test.describe('desktop server settings', () => {
 
     await registerThroughUi(page);
     await page.getByTestId('open-settings').click();
+    await page.getByTestId('settings-tab-capture').click();
 
     await page.getByTestId('hotkey-main-input').click();
     await page.keyboard.press('Control+Shift+K');

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FileText } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { deriveTitle } from '@aimarkdown/markdown';
 import type { NoteListDto, NoteSummaryDto, SettingsDto } from '@aimarkdown/shared';
@@ -45,9 +46,10 @@ import { Sidebar, EMPTY_SELECTION, type SidebarSelection } from './components/Si
 import { NoteList } from './components/NoteList.js';
 import { CaptureList } from './components/CaptureList.js';
 import { MarkdownEditor, type EditorMode, type EditorReveal } from './components/MarkdownEditor.js';
+import { NoteHeader } from './components/NoteHeader.js';
 import { Inspector, type InspectorTab } from './components/Inspector.js';
 import { TitleBar } from './components/TitleBar.js';
-import { SettingsDialog } from './components/SettingsDialog.js';
+import { SettingsDialog, type SettingsTab } from './components/SettingsDialog.js';
 import { MobileShell } from './components/MobileShell.js';
 import { AuthView } from './components/AuthView.js';
 import { QuickCapture } from './components/QuickCapture.js';
@@ -108,6 +110,7 @@ function Workspace() {
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [source, setSource] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('appearance');
   const [banner, setBanner] = useState<string | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(readSidebarVisible);
   const [outlineVisible, setOutlineVisible] = useState(readOutlineVisible);
@@ -264,6 +267,11 @@ function Workspace() {
   const flash = useCallback((message: string) => {
     setBanner(message);
     window.setTimeout(() => setBanner(null), 3000);
+  }, []);
+
+  const openSettings = useCallback((tab: SettingsTab = 'appearance') => {
+    setSettingsInitialTab(tab);
+    setSettingsOpen(true);
   }, []);
 
   const handleSidebarSelect = useCallback(
@@ -460,9 +468,9 @@ function Workspace() {
   }, [flash, quickCapture, settings.inboxNoteId]);
 
   const handleAppleNotesSync = useCallback(() => {
-    if (!appleNotes.status?.settings.enabled) setSettingsOpen(true);
+    if (!appleNotes.status?.settings.enabled) openSettings('apple');
     else void appleNotes.syncNow();
-  }, [appleNotes]);
+  }, [appleNotes, openSettings]);
 
   // One handler for every native menu action, routed into the exact same code the TitleBar uses.
   // The listener is installed before `markMenuReady()` so clicks queued during window creation are
@@ -489,7 +497,7 @@ function Workspace() {
           handleOpenAi();
           break;
         case 'open-settings':
-          setSettingsOpen(true);
+          openSettings();
           break;
         case 'mode-split':
           handleModeChange('split');
@@ -513,7 +521,7 @@ function Workspace() {
           handleAppleNotesSync();
           break;
         case 'apple-notes-settings':
-          setSettingsOpen(true);
+          openSettings('apple');
           break;
       }
     });
@@ -553,6 +561,11 @@ function Workspace() {
     if (!selectedNoteId) return '';
     return meta.titleManual ? meta.title : deriveTitle(source, meta.title);
   }, [meta.title, meta.titleManual, selectedNoteId, source]);
+
+  const selectedNote = useMemo(
+    () => notes.find((note) => note.id === selectedNoteId),
+    [notes, selectedNoteId],
+  );
 
   /**
    * Refresh the list and tree after the derived title settles.
@@ -678,12 +691,22 @@ function Workspace() {
           onTitleChange={handleTitleChange}
           onSourceChange={setSource}
           onModeChange={handleModeChange}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSettings={() => openSettings()}
+          onExportNote={() => void handleExportNote()}
           onLogout={() => void logout()}
           onCreateTag={handleCreateTag}
           resolveWikilink={resolveWikilink}
           onNavigate={handleOpenNote}
         />
+        {settingsOpen && (
+          <SettingsDialog
+            settings={settings}
+            onSave={async (patch) => updateSettings.mutateAsync(patch)}
+            onClose={() => setSettingsOpen(false)}
+            appleNotes={appleNotes}
+            initialTab={settingsInitialTab}
+          />
+        )}
       </>
     );
   }
@@ -706,9 +729,8 @@ function Workspace() {
         onToggleSidebar={handleToggleSidebar}
         outlineVisible={outlineVisible}
         onToggleOutline={handleToggleOutline}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={() => openSettings()}
         onOpenAi={handleOpenAi}
-        onExportNote={handleExportNote}
         onExportVault={handleExportVault}
         onImport={() => importInputRef.current?.click()}
         appleNotesAvailable={appleNotes.available}
@@ -758,40 +780,55 @@ function Workspace() {
             onOpen={handleOpenNote}
             inTrash={inTrash}
             loading={notesQuery.isFetching}
+            onCreateNote={() => void handleCreateNote()}
             onTogglePin={(note) => void updateNote.mutateAsync({ id: note.id, patch: { pinned: !note.pinned } })}
-            onDelete={(id) =>
-              void (async () => {
-                if (inTrash && !window.confirm('彻底删除该笔记？此操作不可撤销。')) return;
-                await deleteNote.mutateAsync({ id, permanent: inTrash });
-                if (id === selectedNoteId) setSelectedNoteId(null);
-              })()
-            }
-            onRestore={(id) =>
-              void (async () => {
-                await restoreNote.mutateAsync(id);
-                if (id === selectedNoteId) setSelectedNoteId(null);
-              })()
-            }
+            onDelete={handleDeleteNote}
+            onRestore={handleRestoreNote}
           />
         )}
 
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <main className="editor-main flex min-h-0 min-w-0 flex-1 flex-col">
           {selectedNoteId && doc ? (
-            <MarkdownEditor
-              noteId={selectedNoteId}
-              doc={doc}
-              awareness={awareness}
-              mode={inTrash ? 'preview' : settings.editorMode}
-              fontSize={settings.fontSize}
-              dark={dark}
-              onSourceChange={setSource}
-              resolveWikilink={resolveWikilink}
-              onNavigate={handleOpenNote}
-              reveal={editorReveal}
-            />
+            <>
+              <NoteHeader
+                title={displayTitle}
+                updatedAt={selectedNote?.contentUpdatedAt}
+                pinned={selectedNote?.pinned ?? false}
+                inTrash={inTrash}
+                onTitleChange={handleTitleChange}
+                onTogglePin={() => {
+                  if (selectedNote) {
+                    void updateNote.mutateAsync({ id: selectedNote.id, patch: { pinned: !selectedNote.pinned } });
+                  }
+                }}
+                onExport={() => void handleExportNote()}
+                onDelete={() => handleDeleteNote(selectedNoteId)}
+                onRestore={() => handleRestoreNote(selectedNoteId)}
+              />
+              <MarkdownEditor
+                noteId={selectedNoteId}
+                doc={doc}
+                awareness={awareness}
+                mode={inTrash ? 'preview' : settings.editorMode}
+                fontSize={settings.fontSize}
+                dark={dark}
+                onSourceChange={setSource}
+                resolveWikilink={resolveWikilink}
+                onNavigate={handleOpenNote}
+                reveal={editorReveal}
+              />
+            </>
           ) : (
-            <div className="flex flex-1 items-center justify-center text-sm text-muted">
-              {notesQuery.isFetching ? '加载中…' : '选择或新建一篇笔记'}
+            <div className="empty-state flex-1">
+              <span className="empty-state-icon">
+                <FileText size={20} />
+              </span>
+              <div className="text-sm">{notesQuery.isFetching ? '正在加载…' : '选择或新建一篇笔记'}</div>
+              {!notesQuery.isFetching && (
+                <button type="button" className="button-secondary mt-1" onClick={() => void handleCreateNote()}>
+                  新建笔记
+                </button>
+              )}
             </div>
           )}
         </main>
@@ -810,7 +847,7 @@ function Workspace() {
               const target = document.querySelector(`.markdown-preview #${CSS.escape(anchorId)}`);
               target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }}
-            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenSettings={() => openSettings('ai')}
             allTags={treeQuery.data?.tags ?? []}
             selectedTagIds={tagIds}
             tagBusy={updateNote.isPending || upsertTag.isPending}
@@ -836,6 +873,7 @@ function Workspace() {
           onSave={async (patch) => updateSettings.mutateAsync(patch)}
           onClose={() => setSettingsOpen(false)}
           appleNotes={appleNotes}
+          initialTab={settingsInitialTab}
         />
       )}
 

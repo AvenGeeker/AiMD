@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  Command,
+  NotebookPen,
+  Palette,
+  PenLine,
+  Settings2,
+  Sparkles,
+  X,
+} from 'lucide-react';
 import {
   DEFAULT_HOTKEY,
   DEFAULT_MAIN_WINDOW_HOTKEY,
@@ -21,6 +30,8 @@ import { describeError } from '../lib/api.js';
 import { AppleNotesSettingsSection } from './AppleNotesSettingsSection.js';
 import { AiSettingsSection } from './AiSettingsSection.js';
 import { HotkeyRecorder } from './HotkeyRecorder.js';
+import { ToggleSwitch } from './ui/ToggleSwitch.js';
+import { SegmentedControl } from './ui/SegmentedControl.js';
 import type { AppleNotesController } from '../hooks/useAppleNotes.js';
 
 /** Preferences dialog. Values are persisted through the API, which writes the workspace CRDT. */
@@ -30,13 +41,27 @@ export interface SettingsDialogProps {
   onSave(patch: Partial<SettingsDto>): Promise<unknown>;
   onClose(): void;
   appleNotes?: AppleNotesController;
+  initialTab?: SettingsTab;
 }
 
-export function SettingsDialog({ settings, onSave, onClose, appleNotes }: SettingsDialogProps) {
+export type SettingsTab = 'appearance' | 'editor' | 'capture' | 'ai' | 'apple';
+
+const THEME_OPTIONS = THEMES.map((value) => ({
+  value,
+  label: value === 'light' ? '浅色' : value === 'dark' ? '深色' : '跟随系统',
+}));
+
+const EDITOR_MODE_OPTIONS = EDITOR_MODES.map((value) => ({
+  value,
+  label: value === 'split' ? '分栏' : value === 'edit' ? '编辑' : '预览',
+}));
+
+export function SettingsDialog({ settings, onSave, onClose, appleNotes, initialTab = 'appearance' }: SettingsDialogProps) {
   const [draft, setDraft] = useState<SettingsDto>(settings);
   const [hotkeyStates, setHotkeyStates] = useState<HotkeyStates | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<SettingsTab>(initialTab);
   const desktop = isDesktop();
 
   useEffect(() => setDraft(settings), [settings]);
@@ -52,7 +77,6 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes }: Settin
         if (!cancelled) setHotkeyStates(states);
         return;
       }
-      // Older desktop shell: expose its one capture shortcut under the new shape.
       const legacy = await bridge.getHotkeyState?.();
       if (!cancelled && legacy) {
         setHotkeyStates({
@@ -73,6 +97,10 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes }: Settin
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  useEffect(() => {
+    if (tab === 'apple' && !appleNotes?.available) setTab('appearance');
+  }, [appleNotes?.available, tab]);
 
   const persist = async (patch: Partial<SettingsDto>) => {
     setSaving(true);
@@ -112,182 +140,275 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes }: Settin
 
   const hotkeyWarning = (label: string, state: HotkeyState | undefined) =>
     state && !state.registered ? (
-      <div className="ml-2 flex items-start gap-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1.5 text-[11px] text-warning">
+      <div className="flex items-start gap-2 rounded-lg border border-warning/35 bg-warning-soft px-3 py-2 text-[10.5px] leading-5 text-warning">
         <AlertTriangle size={13} className="mt-0.5 shrink-0" />
         <span>
           {label} <code>{formatHotkey(state.accelerator)}</code> 注册失败
-          {state.error ? `（${state.error}）` : ''}
-          ，可能被其他应用占用，请换一个组合。
+          {state.error ? `（${state.error}）` : ''}，可能被其他应用占用，请换一个组合。
         </span>
       </div>
     ) : null;
 
+  const navItems: Array<{ value: SettingsTab; label: string; icon: typeof Palette }> = [
+    { value: 'appearance', label: '外观', icon: Palette },
+    { value: 'editor', label: '编辑', icon: PenLine },
+    { value: 'capture', label: '速记与桌面', icon: Command },
+    { value: 'ai', label: 'AI 助手', icon: Sparkles },
+    ...(appleNotes?.available
+      ? [{ value: 'apple' as const, label: 'macOS 备忘录', icon: NotebookPen }]
+      : []),
+  ];
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" data-testid="settings-dialog">
-      <div className="w-full max-w-lg rounded-lg border border-border bg-surface shadow-lg">
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 className="text-sm font-semibold">设置</h2>
-          <button type="button" onClick={onClose} className="rounded p-1 text-muted hover:bg-hover" aria-label="关闭">
-            <X size={16} />
+    <div className="dialog-overlay" data-testid="settings-dialog">
+      <div className="dialog-panel settings-panel flex flex-col">
+        <div className="dialog-header shrink-0">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-subtle bg-panel text-muted">
+              <Settings2 size={16} />
+            </span>
+            <div>
+              <h2 className="text-[13px] font-semibold">设置</h2>
+              <p className="mt-0.5 text-[10px] text-muted">所有改动会自动同步到你的账号</p>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="icon-button" aria-label="关闭">
+            <X size={17} />
           </button>
         </div>
 
-        <div className="max-h-[70vh] space-y-4 overflow-auto px-4 py-4 text-sm">
-          {error && (
-            <div className="rounded border border-danger/40 bg-danger/10 px-2 py-1.5 text-xs text-danger">{error}</div>
-          )}
-
-          <Row label="编辑器视图">
-            <div className="flex gap-1">
-              {EDITOR_MODES.map((value) => (
+        <div className="flex min-h-0 flex-1">
+          <nav className="hidden w-48 shrink-0 border-r border-border-subtle bg-panel/55 p-2.5 md:block" aria-label="设置分类">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              return (
                 <button
-                  key={value}
+                  key={item.value}
                   type="button"
-                  onClick={() => void persist({ editorMode: value })}
-                  className={`rounded border px-2 py-1 text-xs ${
-                    draft.editorMode === value
-                      ? 'border-accent bg-accent/10 text-accent'
-                      : 'border-border text-muted hover:bg-hover'
-                  }`}
+                  onClick={() => setTab(item.value)}
+                  className={`nav-item mb-0.5 ${tab === item.value ? 'is-active' : ''}`}
+                  data-testid={`settings-tab-${item.value}`}
                 >
-                  {value === 'split' ? '分栏' : value === 'edit' ? '编辑' : '预览'}
+                  <Icon size={15} />
+                  <span>{item.label}</span>
                 </button>
-              ))}
+              );
+            })}
+          </nav>
+
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-border-subtle px-3 py-2 md:hidden">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.value}
+                    type="button"
+                    onClick={() => setTab(item.value)}
+                    className={`chip shrink-0 !min-h-8 ${tab === item.value ? 'is-active' : ''}`}
+                  >
+                    <Icon size={12} />
+                    {item.label}
+                  </button>
+                );
+              })}
             </div>
-          </Row>
 
-          <Row label="主题">
-            <div className="flex gap-1">
-              {THEMES.map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => void persist({ theme: value })}
-                  className={`rounded border px-2 py-1 text-xs ${
-                    draft.theme === value
-                      ? 'border-accent bg-accent/10 text-accent'
-                      : 'border-border text-muted hover:bg-hover'
-                  }`}
-                >
-                  {value === 'light' ? '浅色' : value === 'dark' ? '深色' : '跟随系统'}
-                </button>
-              ))}
-            </div>
-          </Row>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7">
+              {error && (
+                <div className="mb-4 rounded-lg border border-danger/35 bg-danger-soft px-3 py-2.5 text-[11px] text-danger">
+                  {error}
+                </div>
+              )}
 
-          <Row label={`字号 ${draft.fontSize}px`}>
-            <input
-              type="range"
-              min={10}
-              max={24}
-              value={draft.fontSize}
-              onChange={(event) => setDraft((prev) => ({ ...prev, fontSize: Number(event.target.value) }))}
-              onMouseUp={() => void persist({ fontSize: draft.fontSize })}
-              onTouchEnd={() => void persist({ fontSize: draft.fontSize })}
-              className="w-40"
-            />
-          </Row>
+              {tab === 'appearance' && (
+                <div className="space-y-6">
+                  <SectionHeading title="外观" description="界面会立即更新，并跟随账号同步。" />
+                  <SettingGroup title="主题">
+                    <SegmentedControl
+                      value={draft.theme}
+                      options={THEME_OPTIONS}
+                      onChange={(value) => void persist({ theme: value })}
+                      ariaLabel="主题"
+                      testIdPrefix="settings-theme"
+                    />
+                    <div className="theme-preview mt-4 overflow-hidden rounded-xl border border-border-subtle">
+                      <div className="grid h-36 grid-cols-[72px_1fr]">
+                        <div className="border-r border-border-subtle bg-surface p-2.5">
+                          <div className="h-1.5 w-9 rounded-full bg-muted/30" />
+                          <div className="mt-3 h-2 w-12 rounded bg-accent/35" />
+                          <div className="mt-1.5 h-1.5 w-10 rounded bg-muted/20" />
+                          <div className="mt-1.5 h-1.5 w-12 rounded bg-muted/15" />
+                        </div>
+                        <div className="bg-background p-4">
+                          <div className="h-2 w-24 rounded bg-foreground/60" />
+                          <div className="mt-3 h-1.5 w-full rounded bg-muted/18" />
+                          <div className="mt-1.5 h-1.5 w-4/5 rounded bg-muted/14" />
+                          <div className="mt-4 h-8 w-full rounded-md border border-border-subtle bg-panel" />
+                        </div>
+                      </div>
+                    </div>
+                  </SettingGroup>
+                </div>
+              )}
 
-          <Row label="速记时间戳">
-            <select
-              value={draft.stampFormat}
-              onChange={(event) => void persist({ stampFormat: event.target.value as SettingsDto['stampFormat'] })}
-              className="rounded border border-border bg-background px-2 py-1 text-xs"
-            >
-              {STAMP_FORMATS.map((value) => (
-                <option key={value} value={value}>
-                  {value === 'heading' ? '## 日期 时间' : value === 'bullet' ? '- [时间]' : '不加'}
-                </option>
-              ))}
-            </select>
-          </Row>
+              {tab === 'editor' && (
+                <div className="space-y-6">
+                  <SectionHeading title="编辑" description="选择默认视图和正文显示大小。" />
+                  <SettingGroup title="编辑器视图">
+                    <SegmentedControl
+                      value={draft.editorMode}
+                      options={EDITOR_MODE_OPTIONS}
+                      onChange={(value) => void persist({ editorMode: value })}
+                      ariaLabel="编辑器视图"
+                      testIdPrefix="settings-editor-mode"
+                    />
+                  </SettingGroup>
+                  <SettingGroup title="正文字号" description={`当前 ${draft.fontSize}px`}>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10.5px] text-muted">小</span>
+                      <input
+                        type="range"
+                        min={10}
+                        max={24}
+                        value={draft.fontSize}
+                        onChange={(event) =>
+                          setDraft((prev) => ({ ...prev, fontSize: Number(event.target.value) }))
+                        }
+                        onMouseUp={() => void persist({ fontSize: draft.fontSize })}
+                        onTouchEnd={() => void persist({ fontSize: draft.fontSize })}
+                        className="range-input flex-1"
+                        style={{ '--range-progress': `${((draft.fontSize - 10) / 14) * 100}%` } as React.CSSProperties}
+                        aria-label="正文字号"
+                      />
+                      <span className="text-[14px] text-muted">大</span>
+                    </div>
+                  </SettingGroup>
+                </div>
+              )}
 
-          <AiSettingsSection />
+              {tab === 'capture' && (
+                <div className="space-y-6">
+                  <SectionHeading title="速记与桌面" description="控制速记格式、窗口行为和全局快捷键。" />
+                  <SettingGroup title="速记时间戳">
+                    <select
+                      value={draft.stampFormat}
+                      onChange={(event) =>
+                        void persist({ stampFormat: event.target.value as SettingsDto['stampFormat'] })
+                      }
+                      className="select-base w-full sm:w-56"
+                    >
+                      {STAMP_FORMATS.map((value) => (
+                        <option key={value} value={value}>
+                          {value === 'heading' ? '## 日期 时间' : value === 'bullet' ? '- [时间]' : '不加'}
+                        </option>
+                      ))}
+                    </select>
+                  </SettingGroup>
 
-          <div className="border-t border-border pt-3">
-            <div className="mb-2 text-xs font-medium text-muted">桌面端</div>
+                  <SettingGroup title="桌面快捷键" description="点击快捷键框后直接按下组合键；Esc 取消录制。">
+                    <div className="space-y-3">
+                      <Row label="打开主窗口">
+                        <div className="flex items-center gap-2">
+                          <HotkeyRecorder
+                            value={draft.mainWindowHotkey}
+                            onChange={(accelerator) => void applyHotkey('main', accelerator)}
+                            testId="hotkey-main-input"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void applyHotkey('main', defaultMainHotkey)}
+                            className="button-ghost !min-h-7 px-2 text-[10.5px]"
+                          >
+                            恢复默认
+                          </button>
+                        </div>
+                      </Row>
+                      {hotkeyWarning('主窗口快捷键', hotkeyStates?.main)}
 
-            <Row label="打开主窗口">
-              <div className="flex items-center gap-2">
-                <HotkeyRecorder
-                  value={draft.mainWindowHotkey}
-                  onChange={(accelerator) => void applyHotkey('main', accelerator)}
-                  testId="hotkey-main-input"
-                />
-                <button
-                  type="button"
-                  onClick={() => void applyHotkey('main', defaultMainHotkey)}
-                  className="rounded border border-border px-2 py-1 text-xs text-muted hover:bg-hover"
-                >
-                  恢复默认
-                </button>
-              </div>
-            </Row>
-            {hotkeyWarning('主窗口快捷键', hotkeyStates?.main)}
+                      <Row label="打开数据窗口">
+                        <div className="flex items-center gap-2">
+                          <HotkeyRecorder
+                            value={draft.hotkey}
+                            onChange={(accelerator) => void applyHotkey('capture', accelerator)}
+                            testId="hotkey-input"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void applyHotkey('capture', defaultHotkey)}
+                            className="button-ghost !min-h-7 px-2 text-[10.5px]"
+                          >
+                            恢复默认
+                          </button>
+                        </div>
+                      </Row>
+                      {hotkeyWarning('数据窗口快捷键', hotkeyStates?.capture)}
+                    </div>
+                    {!desktop && (
+                      <p className="mt-3 rounded-lg bg-panel px-3 py-2 text-[10px] leading-5 text-muted">
+                        全局快捷键仅在桌面客户端生效；当前预览为 {formatHotkey(draft.mainWindowHotkey)} /{' '}
+                        {formatHotkey(draft.hotkey)}。
+                      </p>
+                    )}
+                    {hotkeyStates?.main.registered && hotkeyStates.capture.registered && (
+                      <div className="mt-3 text-[10.5px] text-success">两个快捷键均已生效</div>
+                    )}
+                  </SettingGroup>
 
-            <Row label="打开数据窗口">
-              <div className="flex items-center gap-2">
-                <HotkeyRecorder
-                  value={draft.hotkey}
-                  onChange={(accelerator) => void applyHotkey('capture', accelerator)}
-                  testId="hotkey-input"
-                />
-                <button
-                  type="button"
-                  onClick={() => void applyHotkey('capture', defaultHotkey)}
-                  className="rounded border border-border px-2 py-1 text-xs text-muted hover:bg-hover"
-                >
-                  恢复默认
-                </button>
-              </div>
-            </Row>
-            {hotkeyWarning('数据窗口快捷键', hotkeyStates?.capture)}
+                  <SettingGroup title="窗口行为">
+                    <div className="space-y-3.5">
+                      <ToggleSwitch
+                        label="失焦时自动隐藏速记窗口"
+                        checked={draft.hideOnBlur}
+                        disabled={!desktop}
+                        onChange={(value) => void persist({ hideOnBlur: value })}
+                      />
+                      <ToggleSwitch
+                        label="关闭窗口后驻留托盘"
+                        checked={draft.minimizeToTray}
+                        disabled={!desktop}
+                        onChange={(value) => void persist({ minimizeToTray: value })}
+                      />
+                      <ToggleSwitch
+                        label="登录时启动"
+                        checked={draft.launchAtLogin}
+                        disabled={!desktop}
+                        onChange={(value) => void persist({ launchAtLogin: value })}
+                      />
+                    </div>
+                  </SettingGroup>
+                </div>
+              )}
 
-            <div className="ml-2 text-[11px] text-muted">
-              点击快捷键框后直接按下组合键完成录制，Esc 取消。
-              {!desktop && (
-                <>
-                  {' '}全局快捷键仅在桌面客户端生效；当前预览为 {formatHotkey(draft.mainWindowHotkey)} /{' '}
-                  {formatHotkey(draft.hotkey)}。
-                </>
+              {tab === 'ai' && (
+                <div className="space-y-5">
+                  <SectionHeading title="AI 助手" description="总结、自动标签与批量回填。" />
+                  <div className="settings-embedded">
+                    <AiSettingsSection />
+                  </div>
+                </div>
+              )}
+
+              {tab === 'apple' && appleNotes && (
+                <div className="space-y-5">
+                  <SectionHeading title="macOS 备忘录" description="把当前账号的笔记库与 Apple 备忘录双向镜像。" />
+                  <div className="settings-embedded">
+                    <AppleNotesSettingsSection controller={appleNotes} />
+                  </div>
+                </div>
               )}
             </div>
-            {hotkeyStates?.main.registered && hotkeyStates.capture.registered && (
-              <div className="ml-2 text-[11px] text-success">
-                两个快捷键均已生效
-              </div>
-            )}
-
-            <Toggle
-              label="失焦时自动隐藏速记窗口"
-              checked={draft.hideOnBlur}
-              disabled={!desktop}
-              onChange={(value) => void persist({ hideOnBlur: value })}
-            />
-            <Toggle
-              label="关闭窗口后驻留托盘"
-              checked={draft.minimizeToTray}
-              disabled={!desktop}
-              onChange={(value) => void persist({ minimizeToTray: value })}
-            />
-            <Toggle
-              label="登录时启动"
-              checked={draft.launchAtLogin}
-              disabled={!desktop}
-              onChange={(value) => void persist({ launchAtLogin: value })}
-            />
           </div>
-
-          {appleNotes && <AppleNotesSettingsSection controller={appleNotes} />}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
-          {saving && <span className="text-xs text-muted">保存中…</span>}
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded border border-border px-3 py-1.5 text-xs hover:bg-hover"
-          >
+        <div className="dialog-footer shrink-0">
+          {saving && (
+            <span className="mr-auto flex items-center gap-1.5 text-[10.5px] text-muted">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+              正在同步设置…
+            </span>
+          )}
+          <button type="button" onClick={onClose} className="button-secondary">
             完成
           </button>
         </div>
@@ -296,36 +417,40 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes }: Settin
   );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function SectionHeading({ title, description }: { title: string; description: string }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="shrink-0 text-xs text-muted">{label}</span>
-      <div className="flex items-center">{children}</div>
+    <div>
+      <h3 className="text-[16px] font-semibold tracking-[-0.02em]">{title}</h3>
+      <p className="mt-1.5 text-[11px] leading-5 text-muted">{description}</p>
     </div>
   );
 }
 
-function Toggle({
-  label,
-  checked,
-  onChange,
-  disabled,
+function SettingGroup({
+  title,
+  description,
+  children,
 }: {
-  label: string;
-  checked: boolean;
-  onChange(value: boolean): void;
-  disabled?: boolean;
+  title: string;
+  description?: string;
+  children: React.ReactNode;
 }) {
   return (
-    <label className={`mt-2 flex items-center justify-between gap-3 ${disabled ? 'opacity-50' : ''}`}>
-      <span className="text-xs">{label}</span>
-      <input
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.checked)}
-        className="h-4 w-4"
-      />
-    </label>
+    <section className="rounded-xl border border-border-subtle bg-panel/45 p-4">
+      <div className="mb-3">
+        <h4 className="text-[11.5px] font-semibold">{title}</h4>
+        {description && <p className="mt-1 text-[10px] leading-4 text-muted">{description}</p>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="shrink-0 text-[11px] text-muted">{label}</span>
+      <div className="flex items-center">{children}</div>
+    </div>
   );
 }

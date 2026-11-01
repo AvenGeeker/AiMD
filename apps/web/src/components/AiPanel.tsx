@@ -81,16 +81,16 @@ export function AiPanel({ noteId, doc, source, onOpenSettings }: AiPanelProps) {
 
   const content = useMemo(() => {
     if (!overview.data) {
-      return <div className="p-3 text-xs text-muted">正在读取 AI 配置…</div>;
+      return <div className="p-4 text-[11px] text-muted">正在读取 AI 配置…</div>;
     }
     if (!overview.data.config) {
       return (
-        <div className="space-y-3 p-3 text-xs text-muted">
+        <div className="space-y-4 p-4 text-[11px] leading-5 text-muted">
           <p>还没有配置 AI 服务。填入 OpenAI 兼容接口或阿里云 Token Plan 后即可自动总结和打标签。</p>
           <button
             type="button"
             onClick={onOpenSettings}
-            className="inline-flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-xs text-accent-foreground"
+            className="button-primary !min-h-8 !px-3 text-[10.5px]"
             data-testid="ai-go-settings"
           >
             <Settings2 size={13} /> 去设置
@@ -100,7 +100,7 @@ export function AiPanel({ noteId, doc, source, onOpenSettings }: AiPanelProps) {
     }
     if (!overview.data.config.enabled) {
       return (
-        <div className="space-y-3 p-3 text-xs text-muted">
+        <div className="space-y-3 p-4 text-[11px] text-muted">
           <p>AI 功能已关闭。</p>
           <button type="button" onClick={onOpenSettings} className="text-accent underline-offset-2 hover:underline">
             在设置中启用
@@ -109,15 +109,15 @@ export function AiPanel({ noteId, doc, source, onOpenSettings }: AiPanelProps) {
       );
     }
     if (!noteId) {
-      return <div className="p-3 text-xs text-muted">选择一篇笔记后查看 AI 总结。</div>;
+      return <div className="p-4 text-[11px] text-muted">选择一篇笔记后查看 AI 总结。</div>;
     }
     return (
-      <div className="space-y-4 p-3" data-testid="ai-panel-body">
+      <div className="space-y-4 p-4" data-testid="ai-panel-body">
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <div className="text-[11px] uppercase tracking-wide text-muted">AI 总结</div>
+            <div className="text-[10.5px] font-semibold tracking-wide text-muted">AI 总结</div>
             {state.generatedAt && (
-              <div className="truncate text-[11px] text-muted/70">
+              <div className="mt-0.5 truncate text-[9.5px] text-muted/70">
                 {formatTime(state.generatedAt)}
                 {state.model ? ` · ${state.model}` : ''}
               </div>
@@ -127,42 +127,42 @@ export function AiPanel({ noteId, doc, source, onOpenSettings }: AiPanelProps) {
             type="button"
             onClick={regenerate}
             disabled={busy}
-            className="flex shrink-0 items-center gap-1 rounded border border-border px-2 py-1 text-[11px] text-muted hover:bg-hover disabled:opacity-50"
+            className="button-secondary !min-h-7 !px-2.5 text-[10px]"
             data-testid="ai-regenerate"
           >
-            {busy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+            {busy ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
             {hasResult ? '重新生成' : '生成'}
           </button>
         </div>
 
         {state.error && (
-          <div className="rounded border border-danger/40 bg-danger/10 px-2 py-1.5 text-[11px] text-danger">
+          <div className="rounded-lg border border-danger/35 bg-danger-soft px-3 py-2 text-[10.5px] leading-5 text-danger">
             {state.error}
           </div>
         )}
 
         {stale && (
-          <div className="rounded border border-warning/40 bg-warning/10 px-2 py-1.5 text-[11px] text-warning">
+          <div className="rounded-lg border border-warning/35 bg-warning-soft px-3 py-2 text-[10.5px] leading-5 text-warning">
             正文已变化，当前摘要可能过期。
           </div>
         )}
 
         {busy && !hasResult && (
-          <div className="flex items-center gap-2 rounded border border-border bg-hover/60 px-2 py-2 text-xs text-muted">
+          <div className="flex items-center gap-2 rounded-lg border border-border-subtle bg-hover/60 px-3 py-2.5 text-[10.5px] text-muted">
             <Loader2 size={13} className="animate-spin" /> 正在阅读笔记…
           </div>
         )}
 
         {state.summary && (
-          <div className="text-xs leading-5 text-foreground" data-testid="ai-summary">
+          <div className="rounded-xl border border-border-subtle bg-panel/45 p-3.5 text-[11.5px] leading-6 text-foreground" data-testid="ai-summary">
             {state.summary}
           </div>
         )}
 
         {state.keyPoints.length > 0 && (
           <div>
-            <div className="mb-1 text-[11px] font-medium text-muted">要点</div>
-            <ul className="space-y-1 text-xs leading-5">
+            <div className="mb-2 text-[10.5px] font-semibold text-muted">要点</div>
+            <ul className="space-y-1.5 text-[11px] leading-5">
               {state.keyPoints.map((point, index) => (
                 <li key={`${point}-${index}`} className="flex gap-1.5">
                   <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-accent" />
@@ -176,11 +176,11 @@ export function AiPanel({ noteId, doc, source, onOpenSettings }: AiPanelProps) {
         {todos.length > 0 && (
           <div>
             <div className="mb-1 flex items-center justify-between">
-              <span className="text-[11px] font-medium text-muted">待办</span>
+              <span className="text-[10.5px] font-semibold text-muted">待办</span>
               <button
                 type="button"
                 onClick={insertTodos}
-                className="text-[11px] text-accent hover:underline"
+                className="rounded px-1.5 py-0.5 text-[10px] text-accent transition-colors hover:bg-accent-soft"
                 data-testid="ai-insert-todos"
               >
                 插入正文
@@ -188,7 +188,7 @@ export function AiPanel({ noteId, doc, source, onOpenSettings }: AiPanelProps) {
             </div>
             <div className="space-y-1">
               {todos.map((todo: AiTodoEntry) => (
-                <label key={todo.id} className="flex cursor-pointer items-start gap-2 text-xs leading-5">
+                <label key={todo.id} className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 text-[11px] leading-5 hover:bg-hover/60">
                   <input
                     type="checkbox"
                     checked={todo.done}
@@ -205,7 +205,7 @@ export function AiPanel({ noteId, doc, source, onOpenSettings }: AiPanelProps) {
         )}
 
         {!hasResult && !busy && !state.error && (
-          <p className="text-xs leading-5 text-muted">输入正文后会自动生成一次；也可以点右上角“生成”。</p>
+          <p className="text-[11px] leading-5 text-muted">输入正文后会自动生成一次；也可以点右上角“生成”。</p>
         )}
 
         {analyze.error && (
@@ -234,8 +234,8 @@ export function AiPanel({ noteId, doc, source, onOpenSettings }: AiPanelProps) {
 
   return (
     <div className="flex h-full flex-col" data-testid="ai-panel">
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs font-medium">
-        <Sparkles size={14} className="text-accent" />
+      <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-2.5 text-[10.5px] font-semibold text-muted">
+        <Sparkles size={13} className="text-accent" />
         AI 助手
       </div>
       <div className="min-h-0 flex-1 overflow-auto">{content}</div>

@@ -138,3 +138,13 @@ test('mobile shell: create a note and offline edits survive reconnection', async
     )
     .toContain('断网时写入');
 });
+
+test('mobile shell: settings open full-screen and theme changes apply', async ({ page }) => {
+  await registerThroughUi(page, uniqueEmail('mob4'));
+  await page.getByTestId('open-settings').click();
+  await expect(page.getByTestId('settings-dialog')).toBeVisible();
+  await page.getByTestId('settings-theme-dark').click();
+  await expect(page.locator('html')).toHaveClass(/dark/);
+  await page.getByRole('button', { name: '关闭' }).click();
+  await expect(page.getByTestId('settings-dialog')).toHaveCount(0);
+});

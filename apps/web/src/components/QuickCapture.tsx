@@ -9,6 +9,7 @@ import * as Y from 'yjs';
 import { NOTE_KEYS, noteDocName, type StampFormat } from '@aimarkdown/shared';
 import { collabUrl } from '../lib/config.js';
 import { getBridge } from '../lib/platform.js';
+import { CornerDownLeft, NotebookPen } from 'lucide-react';
 
 /**
  * Renderer for the Electron quick-capture window.
@@ -257,8 +258,8 @@ export function QuickCapture() {
       markdown({ base: markdownLanguage }),
       EditorView.lineWrapping,
       EditorView.theme({
-        '&': { height: '100%', fontSize: '14px', backgroundColor: 'transparent' },
-        '.cm-scroller': { fontFamily: 'var(--font-mono)', padding: '8px 0' },
+        '&': { height: '100%', fontSize: '15px', backgroundColor: 'transparent' },
+        '.cm-scroller': { fontFamily: 'var(--font-editor)', padding: '0' },
         '&.cm-focused': { outline: 'none' },
       }),
     ];
@@ -294,15 +295,25 @@ export function QuickCapture() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-surface" data-testid="quick-capture">
-      <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-        <span className="text-[11px] font-medium text-muted">速记 → 收集箱</span>
+    <div className="flex h-screen flex-col bg-background" data-testid="quick-capture">
+      <div className="flex h-11 shrink-0 items-center justify-between border-b border-border-subtle bg-panel px-4">
+        <span className="flex items-center gap-2 text-[11px] font-medium text-muted">
+          <span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent-soft text-accent">
+            <NotebookPen size={13} />
+          </span>
+          速记到收集箱
+        </span>
         <span
-          className={`text-[11px] ${
+          className={`flex items-center gap-1.5 text-[10.5px] ${
             status === 'error' ? 'text-danger' : status === 'saved' ? 'text-success' : 'text-muted'
           }`}
           data-testid="capture-status"
         >
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${
+              status === 'error' ? 'bg-danger' : status === 'saved' ? 'bg-success' : 'bg-muted/50'
+            }`}
+          />
           {status === 'saving'
             ? '保存中…'
             : status === 'saved'
@@ -312,9 +323,17 @@ export function QuickCapture() {
                 : '离线也会保存'}
         </span>
       </div>
-      <div ref={hostRef} className="min-h-0 flex-1" data-testid="capture-editor" />
-      <div className="border-t border-border px-3 py-1.5 text-[11px] text-muted">
-        ⌘/Ctrl + Enter 保存 · Esc 关闭
+      <div ref={hostRef} className="quick-capture-editor min-h-0 flex-1" data-testid="capture-editor" />
+      <div className="flex h-9 shrink-0 items-center gap-3 border-t border-border-subtle bg-panel px-4 text-[10px] text-muted">
+        <span className="flex items-center gap-1">
+          <kbd className="rounded border border-border bg-background px-1.5 py-0.5 text-[9px]">⌘/Ctrl</kbd>
+          <CornerDownLeft size={10} />
+          保存
+        </span>
+        <span className="flex items-center gap-1">
+          <kbd className="rounded border border-border bg-background px-1.5 py-0.5 text-[9px]">Esc</kbd>
+          关闭
+        </span>
       </div>
     </div>
   );

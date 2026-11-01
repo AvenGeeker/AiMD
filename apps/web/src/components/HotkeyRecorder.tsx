@@ -55,9 +55,9 @@ export function HotkeyRecorder({ value, onChange, testId }: HotkeyRecorderProps)
         onClick={() => setRecording(true)}
         onKeyDown={handleKeyDown}
         onBlur={() => setRecording(false)}
-        className={`flex h-8 w-44 items-center justify-center gap-1.5 rounded border px-2 text-xs ${
+        className={`flex h-8 w-44 items-center justify-center gap-1.5 rounded-lg border px-2.5 text-[10.5px] transition-colors ${
           recording
-            ? 'border-accent bg-accent/10 text-accent'
+            ? 'border-accent bg-accent-soft text-accent shadow-[0_0_0_3px_var(--accent-soft)]'
             : 'border-border bg-background text-foreground hover:bg-hover'
         }`}
         data-testid={testId}

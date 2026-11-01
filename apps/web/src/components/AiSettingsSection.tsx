@@ -9,6 +9,7 @@ import {
   type AiProviderPreset,
 } from '@aimarkdown/shared';
 import { describeError } from '../lib/api.js';
+import { ToggleSwitch } from './ui/ToggleSwitch.js';
 import {
   useAiOverview,
   useCancelAiJob,
@@ -141,39 +142,35 @@ export function AiSettingsSection() {
   };
 
   return (
-    <div className="border-t border-border pt-3" data-testid="ai-settings">
-      <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted">
-        <Sparkles size={13} /> AI 助手
+    <div className="space-y-4" data-testid="ai-settings">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold">
+        <Sparkles size={13} className="text-accent" /> 连接配置
       </div>
 
       {(error || message) && (
         <div
-          className={`mb-2 rounded border px-2 py-1.5 text-[11px] ${
-            error ? 'border-danger/40 bg-danger/10 text-danger' : 'border-success/40 bg-success/10 text-success'
+          className={`rounded-lg border px-3 py-2 text-[10.5px] leading-5 ${
+            error ? 'border-danger/35 bg-danger-soft text-danger' : 'border-success/35 bg-success-soft text-success'
           }`}
         >
           {error ?? message}
         </div>
       )}
 
-      <label className="mb-2 flex items-center justify-between gap-3">
-        <span className="text-xs">启用 AI 总结与自动标签</span>
-        <input
-          type="checkbox"
-          checked={draft.enabled}
-          onChange={(event) => setDraft((prev) => ({ ...prev, enabled: event.target.checked }))}
-          className="h-4 w-4"
-          data-testid="ai-enabled"
-        />
-      </label>
+      <ToggleSwitch
+        label="启用 AI 总结与自动标签"
+        checked={draft.enabled}
+        onChange={(value) => setDraft((prev) => ({ ...prev, enabled: value }))}
+        testId="ai-enabled"
+      />
 
-      <div className="space-y-2">
+      <div className="space-y-3 rounded-xl border border-border-subtle bg-panel/45 p-3.5">
         <label className="flex items-center justify-between gap-3">
-          <span className="shrink-0 text-xs text-muted">服务预设</span>
+          <span className="shrink-0 text-[10.5px] text-muted">服务预设</span>
           <select
             value={draft.preset}
             onChange={(event) => setPreset(event.target.value as AiProviderPreset)}
-            className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 text-xs"
+            className="select-base min-h-8 min-w-0 flex-1 max-w-64 text-[10.5px]"
             data-testid="ai-preset"
           >
             <option value={AI_PRESET_ALIBABA}>阿里云 Token Plan</option>
@@ -182,47 +179,47 @@ export function AiSettingsSection() {
         </label>
 
         <label className="flex items-center justify-between gap-3">
-          <span className="shrink-0 text-xs text-muted">Base URL</span>
+          <span className="shrink-0 text-[10.5px] text-muted">Base URL</span>
           <input
             value={draft.baseUrl}
             onChange={(event) => setDraft((prev) => ({ ...prev, baseUrl: event.target.value }))}
             placeholder="https://.../v1"
-            className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 text-xs"
+            className="input-base min-h-8 min-w-0 flex-1 text-[10.5px]"
             data-testid="ai-base-url"
           />
         </label>
 
         <label className="flex items-center justify-between gap-3">
-          <span className="shrink-0 text-xs text-muted">模型</span>
+          <span className="shrink-0 text-[10.5px] text-muted">模型</span>
           <input
             value={draft.model}
             onChange={(event) => setDraft((prev) => ({ ...prev, model: event.target.value }))}
             placeholder="qwen3.7-plus"
-            className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 text-xs"
+            className="input-base min-h-8 min-w-0 flex-1 text-[10.5px]"
             data-testid="ai-model"
           />
         </label>
 
         <label className="flex items-center justify-between gap-3">
-          <span className="shrink-0 text-xs text-muted">API Key</span>
+          <span className="shrink-0 text-[10.5px] text-muted">API Key</span>
           <input
             type="password"
             value={draft.apiKey}
             onChange={(event) => setDraft((prev) => ({ ...prev, apiKey: event.target.value }))}
             placeholder={config?.apiKeyConfigured ? `已保存 ${config.apiKeyHint}，留空不修改` : 'sk-…'}
             autoComplete="off"
-            className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 text-xs"
+            className="input-base min-h-8 min-w-0 flex-1 text-[10.5px]"
             data-testid="ai-api-key"
           />
         </label>
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={() => void saveConfig()}
           disabled={save.isPending}
-          className="rounded bg-accent px-2.5 py-1 text-[11px] font-medium text-accent-foreground disabled:opacity-50"
+          className="button-primary !min-h-8 !px-3 text-[10.5px]"
           data-testid="ai-save"
         >
           {save.isPending ? '保存中…' : '保存配置'}
@@ -231,7 +228,7 @@ export function AiSettingsSection() {
           type="button"
           onClick={() => void testConnection()}
           disabled={test.isPending}
-          className="flex items-center gap-1 rounded border border-border px-2.5 py-1 text-[11px] text-muted hover:bg-hover disabled:opacity-50"
+          className="button-secondary !min-h-8 !px-3 text-[10.5px]"
           data-testid="ai-test"
         >
           {test.isPending && <Loader2 size={11} className="animate-spin" />}
@@ -241,7 +238,7 @@ export function AiSettingsSection() {
           <button
             type="button"
             onClick={() => void deleteConfig()}
-            className="ml-auto flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-muted hover:text-danger"
+            className="ml-auto flex items-center gap-1 rounded-md px-2 py-1 text-[10.5px] text-muted transition-colors hover:bg-danger-soft hover:text-danger"
             data-testid="ai-clear"
           >
             <Trash2 size={11} /> 清空
@@ -249,8 +246,8 @@ export function AiSettingsSection() {
         )}
       </div>
 
-      <div className="mt-3 rounded border border-warning/40 bg-warning/10 px-2 py-1.5 text-[11px] leading-5 text-warning">
-        <div className="flex items-start gap-1.5">
+      <div className="rounded-lg border border-warning/35 bg-warning-soft px-3 py-2.5 text-[10.5px] leading-5 text-warning">
+        <div className="flex items-start gap-2">
           <AlertTriangle size={13} className="mt-0.5 shrink-0" />
           <span>
             个人版 Token Plan 可能不允许自定义后端或批量调用；回填请确认套餐授权并注意额度。
@@ -258,8 +255,8 @@ export function AiSettingsSection() {
         </div>
       </div>
 
-      <div className="mt-3 space-y-2 border-t border-border pt-3">
-        <div className="flex items-center justify-between text-[11px] text-muted">
+      <div className="space-y-2.5 border-t border-border-subtle pt-3">
+        <div className="flex items-center justify-between text-[10.5px] text-muted">
           <span>未打标签：{overview.data?.counts.untaggedNotes ?? 0}</span>
           <span>缺摘要：{overview.data?.counts.missingSummaryNotes ?? 0}</span>
         </div>
@@ -268,7 +265,7 @@ export function AiSettingsSection() {
           <span>已处理：{activeBackfill?.completed ?? 0}/{activeBackfill?.total ?? 0}</span>
         </div>
         {activeBackfill && (
-          <div className="h-1.5 overflow-hidden rounded bg-hover">
+          <div className="h-1.5 overflow-hidden rounded-full bg-active">
             <div
               className="h-full bg-accent transition-all"
               style={{
@@ -282,7 +279,7 @@ export function AiSettingsSection() {
             type="button"
             onClick={() => void startBackfill()}
             disabled={Boolean(activeBackfill) || backfill.isPending || !config?.enabled}
-            className="flex-1 rounded border border-border px-2 py-1 text-[11px] text-muted hover:bg-hover disabled:opacity-40"
+            className="button-secondary !min-h-8 flex-1 text-[10.5px]"
             data-testid="ai-backfill"
           >
             回填未处理笔记
@@ -292,7 +289,7 @@ export function AiSettingsSection() {
               type="button"
               onClick={() => void cancel.mutateAsync(activeBackfill.id)}
               disabled={cancel.isPending}
-              className="rounded border border-danger/40 px-2 py-1 text-[11px] text-danger hover:bg-danger/10 disabled:opacity-40"
+              className="rounded-md border border-danger/35 px-2.5 py-1 text-[10.5px] text-danger transition-colors hover:bg-danger-soft disabled:opacity-40"
               data-testid="ai-cancel-backfill"
             >
               取消

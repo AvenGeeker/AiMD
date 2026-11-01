@@ -1,28 +1,33 @@
 import {
+  AlertCircle,
   Cloud,
   CloudOff,
-  Columns2,
   Download,
-  Eye,
+  Import,
   Loader2,
   NotebookPen,
   RefreshCw,
-  AlertCircle,
-  PanelLeft,
-  PanelRight,
-  Pencil,
-  Settings,
   ShieldAlert,
-  Sparkles,
-  Upload,
 } from 'lucide-react';
 import type { SyncStatus } from '../lib/sync.js';
 import type { AppleNotesStatus, UserDto } from '@aimarkdown/shared';
 import { isDesktop, platform } from '../lib/platform.js';
 import type { EditorMode } from './MarkdownEditor.js';
 import { UserMenu } from './UserMenu.js';
+import { ActionMenu, MenuItem } from './ui/Menu.js';
+import { SegmentedControl } from './ui/SegmentedControl.js';
+import {
+  AiToolbarIcon,
+  EditToolbarIcon,
+  InspectorToolbarIcon,
+  MoreToolbarIcon,
+  PreviewToolbarIcon,
+  SettingsToolbarIcon,
+  SidebarToolbarIcon,
+  SplitToolbarIcon,
+} from './ui/ToolbarIcons.js';
 
-/** Top bar: sync state, view-mode switch, rail toggles and global actions. */
+/** Top bar: quiet workspace identity, sync state, view mode and global actions. */
 
 export interface TitleBarProps {
   syncStatus: SyncStatus;
@@ -35,7 +40,6 @@ export interface TitleBarProps {
   onToggleOutline(): void;
   onOpenSettings(): void;
   onOpenAi(): void;
-  onExportNote(): void;
   onExportVault(): void;
   onImport(): void;
   appleNotesAvailable?: boolean;
@@ -45,44 +49,95 @@ export interface TitleBarProps {
   onLogout(): void;
 }
 
-const STATUS_META: Record<SyncStatus, { label: string; icon: typeof Cloud; className: string }> = {
-  connected: { label: '已同步', icon: Cloud, className: 'text-success' },
-  connecting: { label: '同步中', icon: Loader2, className: 'text-muted animate-spin' },
-  disconnected: { label: '离线（已本地保存）', icon: CloudOff, className: 'text-warning' },
-  denied: { label: '同步被拒绝', icon: ShieldAlert, className: 'text-danger' },
+const STATUS_META: Record<
+  SyncStatus,
+  { label: string; shortLabel: string; icon: typeof Cloud; textClass: string; iconClass: string }
+> = {
+  connected: {
+    label: '已同步',
+    shortLabel: '已同步',
+    icon: Cloud,
+    textClass: 'text-success',
+    iconClass: 'text-success',
+  },
+  connecting: {
+    label: '同步中',
+    shortLabel: '同步中',
+    icon: Loader2,
+    textClass: 'text-muted',
+    iconClass: 'text-muted animate-spin',
+  },
+  disconnected: {
+    label: '离线（已本地保存）',
+    shortLabel: '离线',
+    icon: CloudOff,
+    textClass: 'text-warning',
+    iconClass: 'text-warning',
+  },
+  denied: {
+    label: '同步被拒绝',
+    shortLabel: '已拒绝',
+    icon: ShieldAlert,
+    textClass: 'text-danger',
+    iconClass: 'text-danger',
+  },
 };
 
-const MODES: { value: EditorMode; label: string; icon: typeof Columns2 }[] = [
-  { value: 'split', label: '分栏', icon: Columns2 },
-  { value: 'edit', label: '编辑', icon: Pencil },
-  { value: 'preview', label: '预览', icon: Eye },
+const MODES = [
+  { value: 'split' as const, label: '分栏', icon: SplitToolbarIcon },
+  { value: 'edit' as const, label: '编辑', icon: EditToolbarIcon },
+  { value: 'preview' as const, label: '预览', icon: PreviewToolbarIcon },
 ];
 
 export function TitleBar(props: TitleBarProps) {
   const status = STATUS_META[props.syncStatus];
   const StatusIcon = status.icon;
-  // `hiddenInset` keeps the macOS traffic lights over the renderer. Reserve their corner so the
-  // controls never sit underneath them; in a browser tab there is nothing to avoid.
   const macTitleBar = isDesktop() && platform() === 'darwin';
+  const appleAttention =
+    (props.appleNotesStatus?.conflictCount ?? 0) + (props.appleNotesStatus?.readOnlyCount ?? 0);
 
   return (
     <header
-      className="titlebar-drag flex h-12 shrink-0 items-center gap-2 border-b border-border bg-surface px-3"
+      className="titlebar titlebar-drag flex shrink-0 items-center gap-2 px-3"
       data-testid="title-bar"
     >
-      {macTitleBar && <div className="h-full w-[72px] shrink-0" aria-hidden />}
+      {macTitleBar && <div className="h-full w-[76px] shrink-0" aria-hidden />}
+
+      <div className="titlebar-no-drag flex items-center gap-1.5">
+        <button
+          type="button"
+          className={`icon-button ${props.sidebarVisible ? 'is-active' : ''}`}
+          onClick={props.onToggleSidebar}
+          title={props.sidebarVisible ? '隐藏左侧栏' : '显示左侧栏'}
+          aria-label={props.sidebarVisible ? '隐藏左侧栏' : '显示左侧栏'}
+          aria-pressed={props.sidebarVisible}
+          data-testid="toggle-sidebar"
+        >
+          <SidebarToolbarIcon size={18} active={props.sidebarVisible} />
+        </button>
+        <div className="ml-1 flex items-center gap-2.5">
+          <span className="brand-mark" aria-hidden>
+            M
+          </span>
+          <div className="hidden min-w-0 sm:block">
+            <div className="titlebar-wordmark">aiMarkdown</div>
+            <div className="titlebar-context">Markdown workspace</div>
+          </div>
+        </div>
+      </div>
+
       <div className="flex-1" />
 
-      <div className="titlebar-no-drag flex items-center gap-2">
+      <div className="titlebar-no-drag flex items-center gap-1.5">
         {props.appleNotesAvailable && (
           <button
             type="button"
-            className={`flex items-center gap-1 rounded border px-2 py-1 text-[11px] ${
+            className={`icon-button ${
               props.appleNotesStatus?.phase === 'error' || props.appleNotesStatus?.phase === 'needs-attention'
-                ? 'border-warning/50 bg-warning/10 text-warning'
+                ? 'text-warning'
                 : props.appleNotesStatus?.running
-                  ? 'border-accent/40 bg-accent/10 text-accent'
-                  : 'border-border text-muted hover:bg-hover'
+                  ? 'is-active'
+                  : ''
             }`}
             onClick={props.onAppleNotesSync}
             title={
@@ -92,139 +147,92 @@ export function TitleBar(props: TitleBarProps) {
                   : '立即同步 macOS 备忘录'
                 : '在设置中启用 macOS 备忘录同步'
             }
+            aria-label="macOS 备忘录同步"
             data-testid="apple-notes-sync"
           >
             {props.appleNotesStatus?.running ? (
-              <RefreshCw size={14} className="animate-spin" />
+              <RefreshCw size={16} className="animate-spin" />
             ) : props.appleNotesStatus?.phase === 'error' ||
               props.appleNotesStatus?.phase === 'needs-attention' ? (
-              <AlertCircle size={14} />
+              <AlertCircle size={16} />
             ) : (
-              <NotebookPen size={14} />
+              <NotebookPen size={16} />
             )}
-            备忘录
-            {(props.appleNotesStatus?.conflictCount ?? 0) + (props.appleNotesStatus?.readOnlyCount ?? 0) > 0 && (
-              <span className="rounded-full bg-danger px-1.5 text-[10px] leading-4 text-white">
-                {(props.appleNotesStatus?.conflictCount ?? 0) + (props.appleNotesStatus?.readOnlyCount ?? 0)}
+            {appleAttention > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 min-w-3.5 rounded-full bg-danger px-1 text-[9px] leading-3.5 text-white">
+                {appleAttention}
               </span>
             )}
           </button>
         )}
+
         <div
-          className="flex items-center gap-1.5 text-[11px]"
-          title={props.pendingCount > 0 ? `${props.pendingCount} 篇待同步` : undefined}
+          className={`status-pill ${status.textClass}`}
+          title={props.pendingCount > 0 ? `${props.pendingCount} 篇待同步` : status.label}
           data-testid="sync-status"
           data-status={props.syncStatus}
         >
-          <StatusIcon size={14} className={status.className} />
-          <span className={status.className === 'text-muted animate-spin' ? 'text-muted' : status.className}>
-            {status.label}
-          </span>
+          <StatusIcon size={13} className={status.iconClass} />
+          <span className="titlebar-label">{status.shortLabel}</span>
         </div>
 
-        <div className="flex items-center rounded border border-border p-0.5">
-          {MODES.map((entry) => {
-            const Icon = entry.icon;
-            const active = props.mode === entry.value;
-            return (
-              <button
-                key={entry.value}
-                type="button"
-                title={entry.label}
-                onClick={() => props.onModeChange(entry.value)}
-                className={`flex items-center gap-1 rounded px-2 py-1 text-[11px] ${
-                  active ? 'bg-accent text-accent-foreground' : 'text-muted hover:bg-hover'
-                }`}
-                data-testid={`mode-${entry.value}`}
-              >
-                <Icon size={13} />
-                {entry.label}
-              </button>
-            );
-          })}
-        </div>
+        <SegmentedControl
+          value={props.mode}
+          options={MODES}
+          onChange={props.onModeChange}
+          ariaLabel="编辑视图"
+          testIdPrefix="mode"
+        />
 
         <button
           type="button"
-          className={`rounded p-1.5 ${
-            props.sidebarVisible ? 'bg-accent/10 text-accent' : 'text-muted hover:bg-hover'
-          }`}
-          onClick={props.onToggleSidebar}
-          title={props.sidebarVisible ? '隐藏左侧栏' : '显示左侧栏'}
-          aria-label={props.sidebarVisible ? '隐藏左侧栏' : '显示左侧栏'}
-          aria-pressed={props.sidebarVisible}
-          data-testid="toggle-sidebar"
-        >
-          <PanelLeft size={16} />
-        </button>
-
-        <button
-          type="button"
-          className={`rounded p-1.5 ${
-            props.outlineVisible ? 'bg-accent/10 text-accent' : 'text-muted hover:bg-hover'
-          }`}
-          onClick={props.onToggleOutline}
-          title={props.outlineVisible ? '隐藏大纲' : '显示大纲'}
-          aria-label={props.outlineVisible ? '隐藏大纲' : '显示大纲'}
-          aria-pressed={props.outlineVisible}
-          data-testid="toggle-outline"
-        >
-          <PanelRight size={16} />
-        </button>
-
-        <button
-          type="button"
-          className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted hover:bg-hover"
-          onClick={props.onImport}
-          title="导入 Markdown / ZIP"
-          data-testid="import"
-        >
-          <Upload size={14} />
-          导入
-        </button>
-
-        <button
-          type="button"
-          className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted hover:bg-hover"
-          onClick={props.onExportNote}
-          title="导出当前笔记"
-          data-testid="export-note"
-        >
-          <Download size={14} />
-          导出
-        </button>
-
-        <button
-          type="button"
-          className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted hover:bg-hover"
-          onClick={props.onExportVault}
-          title="导出整个笔记库"
-          data-testid="export-vault"
-        >
-          <Download size={14} />
-          全部
-        </button>
-
-        <button
-          type="button"
-          className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted hover:bg-hover"
+          className="topbar-ai-button"
           onClick={props.onOpenAi}
           title="AI 总结与待办"
+          aria-label="AI 总结与待办"
           data-testid="open-ai"
         >
-          <Sparkles size={14} />
-          AI
+          <AiToolbarIcon size={17} />
+          <span className="titlebar-label">AI</span>
         </button>
 
-        <button
-          type="button"
-          className="rounded p-1.5 text-muted hover:bg-hover"
-          onClick={props.onOpenSettings}
-          title="设置"
-          data-testid="open-settings"
-        >
-          <Settings size={16} />
-        </button>
+        <div className="topbar-action-group">
+          <ActionMenu
+            label="更多操作"
+            testId="open-more"
+            trigger={<MoreToolbarIcon size={18} />}
+          >
+            <MenuItem icon={<Import size={14} />} onClick={props.onImport} testId="import">
+              导入 Markdown / ZIP
+            </MenuItem>
+            <MenuItem icon={<Download size={14} />} onClick={props.onExportVault} testId="export-vault">
+              导出整个笔记库
+            </MenuItem>
+          </ActionMenu>
+
+          <button
+            type="button"
+            className={`icon-button ${props.outlineVisible ? 'is-active' : ''}`}
+            onClick={props.onToggleOutline}
+            title={props.outlineVisible ? '隐藏大纲' : '显示大纲'}
+            aria-label={props.outlineVisible ? '隐藏大纲' : '显示大纲'}
+            aria-pressed={props.outlineVisible}
+            data-testid="toggle-outline"
+          >
+            <InspectorToolbarIcon size={18} active={props.outlineVisible} />
+          </button>
+
+          <button
+            type="button"
+            className="icon-button"
+            onClick={props.onOpenSettings}
+            title="设置"
+            aria-label="设置"
+            data-testid="open-settings"
+          >
+            <SettingsToolbarIcon size={18} />
+          </button>
+        </div>
 
         <UserMenu user={props.user} onLogout={props.onLogout} />
       </div>

@@ -4,14 +4,18 @@ import {
   Cloud,
   CloudOff,
   Eye,
+  Download,
   Loader2,
   Menu,
   Pencil,
+  Pin,
+  PinOff,
   Plus,
-  Settings,
+  RotateCcw,
   ShieldAlert,
   Sparkles,
   Tags,
+  Trash2,
   X,
 } from 'lucide-react';
 import * as Y from 'yjs';
@@ -32,6 +36,8 @@ import { CaptureList } from './CaptureList.js';
 import { MarkdownEditor, type EditorMode, type EditorReveal } from './MarkdownEditor.js';
 import { TagEditor } from './TagEditor.js';
 import { AiPanel } from './AiPanel.js';
+import { ActionMenu, MenuItem } from './ui/Menu.js';
+import { SettingsToolbarIcon } from './ui/ToolbarIcons.js';
 
 /**
  * Single-pane mobile shell.
@@ -85,6 +91,7 @@ export interface MobileShellProps {
   onSourceChange(source: string): void;
   onModeChange(mode: EditorMode): void;
   onOpenSettings(): void;
+  onExportNote(): void;
   onLogout(): void;
   onCreateTag(name: string): Promise<TagDto | undefined>;
   resolveWikilink?(target: string): Promise<string | null>;
@@ -155,6 +162,7 @@ export function MobileShell(props: MobileShellProps) {
     onSourceChange,
     onModeChange,
     onOpenSettings,
+    onExportNote,
     onLogout,
     onCreateTag,
     resolveWikilink,
@@ -192,13 +200,14 @@ export function MobileShell(props: MobileShellProps) {
   };
 
   const titleEditable = Boolean(selectedNoteId) && !inTrash;
+  const selectedNote = notes.find((note) => note.id === selectedNoteId);
 
   const headerButton =
     'flex h-11 w-11 shrink-0 items-center justify-center rounded text-muted active:bg-hover';
 
   return (
     <div
-      className="flex h-screen flex-col bg-background text-foreground"
+      className="flex h-screen flex-col bg-canvas text-foreground"
       data-testid="workspace"
       // Same contract as the desktop shell: exposes the active note without list-ordering
       // assumptions (the inbox note is pinned and always sorts first).
@@ -207,7 +216,7 @@ export function MobileShell(props: MobileShellProps) {
       {view === 'list' ? (
         /* ------------------------------- list view ------------------------------- */
         <div className="flex min-h-0 flex-1 flex-col">
-          <header className="flex h-14 shrink-0 items-center gap-1 border-b border-border bg-surface px-2 pt-[env(safe-area-inset-top)]">
+          <header className="mobile-header flex shrink-0 items-center gap-1 px-2 pt-[env(safe-area-inset-top)]">
             <button
               type="button"
               className={headerButton}
@@ -217,9 +226,12 @@ export function MobileShell(props: MobileShellProps) {
             >
               <Menu size={20} />
             </button>
-            <span className="min-w-0 flex-1 truncate pl-1 text-sm font-semibold tracking-tight">
-              {captureView ? '速记' : 'aiMarkdown'}
-            </span>
+            <div className="flex min-w-0 flex-1 items-center gap-2.5 pl-1">
+              <span className="brand-mark !h-7 !w-7 !rounded-lg !text-[11px]" aria-hidden>M</span>
+              <span className="truncate text-[13px] font-semibold tracking-tight">
+                {captureView ? '速记' : 'aiMarkdown'}
+              </span>
+            </div>
             <SyncBadge status={status} />
             <button
               type="button"
@@ -237,7 +249,7 @@ export function MobileShell(props: MobileShellProps) {
               onClick={onOpenSettings}
               data-testid="open-settings"
             >
-              <Settings size={20} />
+              <SettingsToolbarIcon size={20} />
             </button>
           </header>
 
@@ -272,6 +284,7 @@ export function MobileShell(props: MobileShellProps) {
                 onTogglePin={onTogglePin}
                 onDelete={onDeleteNote}
                 onRestore={onRestoreNote}
+                onCreateNote={() => void handleCreateNote()}
               />
             )}
           </div>
@@ -280,8 +293,11 @@ export function MobileShell(props: MobileShellProps) {
           {drawerOpen && (
             <div className="mobile-backdrop" onClick={closeDrawer} data-testid="drawer-backdrop">
               <div className="mobile-drawer" onClick={(event) => event.stopPropagation()}>
-                <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-3">
-                  <span className="text-sm font-semibold">导航</span>
+                <div className="flex h-14 shrink-0 items-center justify-between border-b border-border-subtle px-3">
+                  <div className="flex items-center gap-2.5">
+                    <span className="brand-mark" aria-hidden>M</span>
+                    <span className="text-sm font-semibold">导航</span>
+                  </div>
                   <button
                     type="button"
                     className={headerButton}
@@ -318,13 +334,16 @@ export function MobileShell(props: MobileShellProps) {
                     }}
                   />
                 </div>
-                <div className="flex h-12 shrink-0 items-center gap-2 border-t border-border px-3">
-                  <span className="min-w-0 flex-1 truncate text-xs text-muted">
+                <div className="flex h-14 shrink-0 items-center gap-2 border-t border-border-subtle px-4">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-soft text-[10px] font-semibold text-accent">
+                    {Array.from(user.displayName.trim())[0]?.toUpperCase() ?? '?'}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[11px] text-muted">
                     {user.displayName}
                   </span>
                   <button
                     type="button"
-                    className="rounded px-3 py-1.5 text-xs text-muted hover:bg-hover"
+                    className="button-ghost !min-h-8 px-2 text-[11px]"
                     onClick={onLogout}
                     data-testid="mobile-logout"
                   >
@@ -338,7 +357,7 @@ export function MobileShell(props: MobileShellProps) {
       ) : (
         /* ------------------------------ editor view ------------------------------ */
         <div className="flex min-h-0 flex-1 flex-col">
-          <header className="flex h-14 shrink-0 items-center gap-1 border-b border-border bg-surface px-2 pt-[env(safe-area-inset-top)]">
+          <header className="mobile-header flex shrink-0 items-center gap-1 px-2 pt-[env(safe-area-inset-top)]">
             <button
               type="button"
               className={headerButton}
@@ -353,10 +372,55 @@ export function MobileShell(props: MobileShellProps) {
               disabled={!titleEditable}
               onChange={(event) => onTitleChange(event.target.value)}
               placeholder="无标题"
-              className="min-w-0 flex-1 truncate rounded border border-transparent bg-transparent px-2 py-1.5 text-sm outline-none hover:border-border focus:border-accent disabled:cursor-default"
+              className="min-w-0 flex-1 truncate rounded-md border border-transparent bg-transparent px-2 py-1.5 text-[15px] font-semibold tracking-[-0.02em] outline-none transition-colors hover:border-border focus:border-accent focus:bg-background disabled:cursor-default"
               data-testid="note-title-input"
             />
+            {inTrash && (
+              <span className="rounded-full bg-danger-soft px-2 py-0.5 text-[9.5px] font-medium text-danger">
+                回收站
+              </span>
+            )}
             <SyncBadge status={status} />
+            {selectedNoteId && (
+              <ActionMenu label="笔记操作" testId="mobile-note-actions">
+                <MenuItem icon={<Download size={14} />} onClick={onExportNote}>
+                  导出当前笔记
+                </MenuItem>
+                {!inTrash && selectedNote && (
+                  <>
+                    <MenuItem
+                      icon={selectedNote.pinned ? <PinOff size={14} /> : <Pin size={14} />}
+                      onClick={() => onTogglePin(selectedNote)}
+                    >
+                      {selectedNote.pinned ? '取消置顶' : '置顶笔记'}
+                    </MenuItem>
+                    <div className="menu-separator" />
+                    <MenuItem
+                      icon={<Trash2 size={14} />}
+                      danger
+                      onClick={() => onDeleteNote(selectedNoteId)}
+                    >
+                      移到回收站
+                    </MenuItem>
+                  </>
+                )}
+                {inTrash && (
+                  <>
+                    <MenuItem icon={<RotateCcw size={14} />} onClick={() => onRestoreNote(selectedNoteId)}>
+                      恢复笔记
+                    </MenuItem>
+                    <div className="menu-separator" />
+                    <MenuItem
+                      icon={<Trash2 size={14} />}
+                      danger
+                      onClick={() => onDeleteNote(selectedNoteId)}
+                    >
+                      彻底删除
+                    </MenuItem>
+                  </>
+                )}
+              </ActionMenu>
+            )}
             <button
               type="button"
               className={headerButton}
@@ -364,7 +428,7 @@ export function MobileShell(props: MobileShellProps) {
               onClick={onOpenSettings}
               data-testid="open-settings"
             >
-              <Settings size={20} />
+              <SettingsToolbarIcon size={20} />
             </button>
           </header>
 
@@ -392,12 +456,15 @@ export function MobileShell(props: MobileShellProps) {
                 reveal={reveal}
               />
             ) : (
-              <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted">
-                <span>{loading ? '加载中…' : '选择或新建一篇笔记'}</span>
+              <div className="empty-state h-full">
+                <span className="empty-state-icon">
+                  <Sparkles size={19} />
+                </span>
+                <span className="text-[12px]">{loading ? '加载中…' : '选择或新建一篇笔记'}</span>
                 {!loading && (
                   <button
                     type="button"
-                    className="rounded bg-accent px-4 py-2 text-sm font-medium text-accent-foreground"
+                    className="button-secondary"
                     onClick={() => void handleCreateNote()}
                     data-testid="mobile-empty-create"
                   >
@@ -409,8 +476,8 @@ export function MobileShell(props: MobileShellProps) {
           </div>
 
           {/* touch-first bottom bar */}
-          <footer className="flex h-14 shrink-0 items-center gap-2 border-t border-border bg-surface px-3 pb-[env(safe-area-inset-bottom)]">
-            <div className="flex items-center rounded border border-border p-0.5">
+          <footer className="mobile-bottom-bar flex shrink-0 items-center gap-2 px-3 pb-[env(safe-area-inset-bottom)]">
+            <div className="segmented">
               {(['edit', 'preview'] as const).map((entry) => {
                 const Icon = entry === 'edit' ? Pencil : Eye;
                 const active = effectiveMode === entry;
@@ -419,9 +486,7 @@ export function MobileShell(props: MobileShellProps) {
                     key={entry}
                     type="button"
                     onClick={() => onModeChange(entry)}
-                    className={`flex h-9 items-center gap-1 rounded px-3 text-xs ${
-                      active ? 'bg-accent text-accent-foreground' : 'text-muted'
-                    }`}
+                    className={`segmented-button !h-8 !px-3 ${active ? 'is-active' : ''}`}
                     data-testid={`mode-${entry}`}
                   >
                     <Icon size={13} />
@@ -433,20 +498,20 @@ export function MobileShell(props: MobileShellProps) {
             <span className="min-w-0 flex-1" />
             <button
               type="button"
-              className="flex h-11 items-center gap-1.5 rounded px-3 text-xs text-muted active:bg-hover"
+              className="flex h-11 items-center gap-1.5 rounded-lg px-3 text-[11px] text-muted active:bg-hover"
               onClick={() => setAiOpen(true)}
               data-testid="open-ai-mobile"
             >
-              <Sparkles size={15} />
+              <Sparkles size={16} />
               AI
             </button>
             <button
               type="button"
-              className="flex h-11 items-center gap-1.5 rounded px-3 text-xs text-muted active:bg-hover"
+              className="flex h-11 items-center gap-1.5 rounded-lg px-3 text-[11px] text-muted active:bg-hover"
               onClick={() => setTagsOpen(true)}
               data-testid="open-tags"
             >
-              <Tags size={15} />
+              <Tags size={16} />
               标签
             </button>
           </footer>
@@ -459,11 +524,11 @@ export function MobileShell(props: MobileShellProps) {
                 onClick={(event) => event.stopPropagation()}
                 data-testid="tag-sheet"
               >
-                <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
+                <div className="flex h-14 shrink-0 items-center justify-between border-b border-border-subtle px-4">
                   <span className="text-sm font-medium">标签</span>
                   <button
                     type="button"
-                    className="rounded p-2 text-muted active:bg-hover"
+                    className="icon-button"
                     onClick={() => setTagsOpen(false)}
                     aria-label="关闭标签"
                   >
@@ -492,11 +557,11 @@ export function MobileShell(props: MobileShellProps) {
                 onClick={(event) => event.stopPropagation()}
                 data-testid="ai-sheet"
               >
-                <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
+                <div className="flex h-14 shrink-0 items-center justify-between border-b border-border-subtle px-4">
                   <span className="text-sm font-medium">AI 助手</span>
                   <button
                     type="button"
-                    className="rounded p-2 text-muted active:bg-hover"
+                    className="icon-button"
                     onClick={() => setAiOpen(false)}
                     aria-label="关闭 AI"
                   >

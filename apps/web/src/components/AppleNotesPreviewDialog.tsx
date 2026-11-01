@@ -32,16 +32,16 @@ export function AppleNotesPreviewDialog({
   ];
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" data-testid="apple-notes-preview-dialog">
-      <div className="flex max-h-[88vh] w-full max-w-lg flex-col rounded-lg border border-border bg-surface shadow-xl">
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 className="text-sm font-semibold">macOS 备忘录同步预览</h2>
-          <button type="button" className="rounded p-1 text-muted hover:bg-hover" onClick={onClose} aria-label="关闭">
+    <div className="dialog-overlay !z-[60]" data-testid="apple-notes-preview-dialog">
+      <div className="dialog-panel flex max-h-[88vh] w-full max-w-xl flex-col">
+        <div className="dialog-header">
+          <h2 className="text-[13px] font-semibold">macOS 备忘录同步预览</h2>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="关闭">
             <X size={16} />
           </button>
         </div>
-        <div className="space-y-3 overflow-auto px-4 py-4 text-xs">
-          <div className="grid grid-cols-2 gap-2 rounded border border-border bg-background/50 p-2">
+        <div className="space-y-3 overflow-auto px-5 py-5 text-[11px]">
+          <div className="grid grid-cols-2 gap-2 rounded-lg border border-border-subtle bg-panel p-3 text-muted-strong">
             <span>aiMarkdown：{preview.counts.appNotes} 篇 / {preview.counts.appFolders} 个目录</span>
             <span>Apple 备忘录：{preview.counts.appleNotes} 篇 / {preview.counts.appleFolders} 个目录</span>
           </div>
@@ -54,7 +54,7 @@ export function AppleNotesPreviewDialog({
             ))}
           </div>
           {preview.warnings.length > 0 && (
-            <div className="space-y-1 rounded border border-warning/40 bg-warning/10 p-2 text-warning">
+            <div className="space-y-1 rounded-lg border border-warning/35 bg-warning-soft p-3 text-warning">
               <div className="flex items-center gap-1 font-medium"><AlertTriangle size={13} /> 需要只读/跳过的笔记</div>
               {preview.warnings.slice(0, 8).map((warning) => <div key={warning}>{warning}</div>)}
               {preview.warnings.length > 8 && <div>还有 {preview.warnings.length - 8} 条…</div>}
@@ -64,7 +64,7 @@ export function AppleNotesPreviewDialog({
             <div className="space-y-1">
               <div className="text-muted">示例</div>
               {preview.samples.slice(0, 8).map((sample, index) => (
-                <div key={`${sample.title}-${index}`} className="truncate rounded bg-hover px-2 py-1">
+                <div key={`${sample.title}-${index}`} className="truncate rounded-md bg-hover px-2.5 py-1.5">
                   {sample.direction === 'app-to-apple' ? '→ 备忘录' :
                     sample.direction === 'apple-to-app' ? '← 备忘录' :
                       sample.direction === 'conflict' ? '⚠ 冲突' : '只读'}：{sample.title}
@@ -72,7 +72,7 @@ export function AppleNotesPreviewDialog({
               ))}
             </div>
           )}
-          <label className="flex items-start gap-2 rounded border border-border p-2">
+          <label className="flex items-start gap-2.5 rounded-lg border border-border bg-panel/55 p-3">
             <input
               type="checkbox"
               checked={confirmed}
@@ -85,13 +85,13 @@ export function AppleNotesPreviewDialog({
             </span>
           </label>
         </div>
-        <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
-          <button type="button" className="rounded border border-border px-3 py-1.5 text-xs hover:bg-hover" onClick={onClose}>
+        <div className="dialog-footer">
+          <button type="button" className="button-secondary" onClick={onClose}>
             取消
           </button>
           <button
             type="button"
-            className="rounded bg-accent px-3 py-1.5 text-xs text-accent-foreground disabled:opacity-50"
+            className="button-primary"
             disabled={!confirmed || controller.busy}
             onClick={() => void controller.apply(preview.token)}
             data-testid="apple-notes-apply"

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, X } from 'lucide-react';
+import { Plus, Tags, X } from 'lucide-react';
 import type { TagDto } from '@aimarkdown/shared';
 
 /**
@@ -47,32 +47,38 @@ export function TagEditor({ allTags, selectedIds, onToggle, onCreate, busy }: Ta
   };
 
   return (
-    <div className="border-t border-border px-3 py-2" data-testid="tag-editor">
-      <div className="mb-1.5 text-[11px] uppercase tracking-wide text-muted">标签</div>
+    <div className="border-t border-border-subtle px-3 py-3" data-testid="tag-editor">
+      <div className="mb-2 flex items-center justify-between px-0.5">
+        <span className="flex items-center gap-1.5 text-[10.5px] font-semibold tracking-wide text-muted">
+          <Tags size={12} />
+          标签
+        </span>
+        <span className="text-[10px] tabular-nums text-muted/60">{selected.length}</span>
+      </div>
 
-      <div className="flex flex-wrap gap-1">
-        {selected.length === 0 && <span className="text-xs text-muted/70">未添加标签</span>}
+      <div className="flex flex-wrap gap-1.5">
+        {selected.length === 0 && <span className="px-1 text-[11px] text-muted/65">未添加标签</span>}
         {selected.map((tag) => (
           <span
             key={tag.id}
-            className="flex items-center gap-1 rounded-full border border-border bg-hover px-2 py-0.5 text-[11px]"
+            className="chip is-active"
             data-testid={`assigned-tag-${tag.name}`}
           >
-            <span className="inline-block h-2 w-2 rounded-full" style={{ background: tag.color }} />
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: tag.color }} />
             {tag.name}
             <button
               type="button"
-              className="text-muted hover:text-danger"
+              className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full text-muted hover:bg-danger-soft hover:text-danger"
               onClick={() => onToggle(tag.id, selectedIds.filter((id) => id !== tag.id))}
               aria-label={`移除标签 ${tag.name}`}
             >
-              <X size={11} />
+              <X size={10} />
             </button>
           </span>
         ))}
       </div>
 
-      <div className="mt-2 flex items-center gap-1">
+      <div className="mt-2.5 flex items-center gap-1.5">
         <input
           value={draft}
           disabled={busy || creating}
@@ -84,14 +90,14 @@ export function TagEditor({ allTags, selectedIds, onToggle, onCreate, busy }: Ta
             }
           }}
           placeholder={suggestions.length > 0 ? '筛选或新建标签…' : '新建标签后回车'}
-          className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 text-xs outline-none focus:border-accent"
+          className="input-base min-h-8 px-2.5 text-[11px]"
           data-testid="tag-input"
         />
         <button
           type="button"
           disabled={busy || creating || draft.trim().length === 0}
           onClick={() => void commit()}
-          className="rounded border border-border p-1 text-muted hover:bg-hover disabled:opacity-40"
+          className="icon-button !h-8 !w-8 border-border"
           aria-label="添加标签"
           data-testid="tag-add"
         >
@@ -100,7 +106,7 @@ export function TagEditor({ allTags, selectedIds, onToggle, onCreate, busy }: Ta
       </div>
 
       {draft.trim().length > 0 && suggestions.length > 0 && (
-        <div className="mt-1 flex flex-wrap gap-1">
+        <div className="mt-2 flex flex-wrap gap-1.5">
           {suggestions.slice(0, 8).map((tag) => (
             <button
               key={tag.id}
@@ -109,8 +115,9 @@ export function TagEditor({ allTags, selectedIds, onToggle, onCreate, busy }: Ta
                 onToggle(tag.id, [...selectedIds, tag.id]);
                 setDraft('');
               }}
-              className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted hover:bg-hover"
+              className="chip"
             >
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: tag.color }} />
               {tag.name}
             </button>
           ))}

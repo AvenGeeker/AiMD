@@ -5,24 +5,16 @@ import {
   drawSelection,
   dropCursor,
   highlightActiveLine,
-  highlightActiveLineGutter,
   highlightSpecialChars,
   keymap,
-  lineNumbers,
   rectangularSelection,
 } from '@codemirror/view';
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
-import {
-  bracketMatching,
-  defaultHighlightStyle,
-  foldGutter,
-  indentOnInput,
-  syntaxHighlighting,
-} from '@codemirror/language';
+import { bracketMatching, HighlightStyle, indentOnInput, syntaxHighlighting } from '@codemirror/language';
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
-import { oneDark } from '@codemirror/theme-one-dark';
+import { tags } from '@lezer/highlight';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import * as Y from 'yjs';
 import type { Awareness } from 'y-protocols/awareness';
@@ -30,6 +22,16 @@ import { NOTE_KEYS } from '@aimarkdown/shared';
 import { uploadAttachment } from '../lib/queries.js';
 import { isImageMime } from '@aimarkdown/shared';
 import { Preview, useYTextValue } from './Preview.js';
+import {
+  Bold,
+  Code2,
+  Heading2,
+  Italic,
+  Link2,
+  List,
+  ListChecks,
+  type LucideIcon,
+} from 'lucide-react';
 
 /**
  * The markdown editor.
@@ -50,6 +52,57 @@ export interface EditorReveal {
   stampLabel: string | null;
   /** Changes on every click so selecting the same capture twice reveals it again. */
   nonce: number;
+}
+
+function editorHighlightStyle(dark: boolean) {
+  const c = dark
+    ? {
+        heading1: '#aeb8ff',
+        heading: '#8fa2e8',
+        strong: '#e4c27f',
+        emphasis: '#d2a7ec',
+        link: '#8ec1ff',
+        code: '#91d8bd',
+        punctuation: '#7c8390',
+        quote: '#9aa1ad',
+        keyword: '#c7a1ff',
+        string: '#a8d89a',
+        number: '#f0b184',
+        name: '#c9cdd5',
+        comment: '#7c828d',
+      }
+    : {
+        heading1: '#3f54c4',
+        heading: '#5668aa',
+        strong: '#8a5216',
+        emphasis: '#7b4c96',
+        link: '#2d6cc0',
+        code: '#1f7a5f',
+        punctuation: '#8d95a2',
+        quote: '#697180',
+        keyword: '#8442b8',
+        string: '#247650',
+        number: '#a6521a',
+        name: '#45505f',
+        comment: '#8c929c',
+      };
+
+  return HighlightStyle.define([
+    { tag: tags.heading1, color: c.heading1, fontWeight: '650' },
+    { tag: [tags.heading2, tags.heading3, tags.heading4, tags.heading5, tags.heading6], color: c.heading, fontWeight: '600' },
+    { tag: tags.strong, color: c.strong, fontWeight: '650' },
+    { tag: tags.emphasis, color: c.emphasis, fontStyle: 'italic' },
+    { tag: [tags.link, tags.url], color: c.link },
+    { tag: tags.monospace, color: c.code },
+    { tag: tags.quote, color: c.quote },
+    { tag: [tags.punctuation, tags.meta], color: c.punctuation },
+    { tag: [tags.keyword, tags.operator], color: c.keyword },
+    { tag: [tags.string, tags.character], color: c.string },
+    { tag: [tags.number, tags.bool, tags.null, tags.atom], color: c.number },
+    { tag: [tags.variableName, tags.typeName, tags.className, tags.propertyName], color: c.name },
+    { tag: tags.comment, color: c.comment, fontStyle: 'italic' },
+    { tag: tags.invalid, color: 'var(--danger)' },
+  ]);
 }
 
 export interface MarkdownEditorProps {
@@ -133,27 +186,19 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     };
 
     const extensions: Extension[] = [
-      lineNumbers(),
       highlightSpecialChars(),
-      foldGutter(),
       drawSelection(),
       dropCursor(),
       rectangularSelection(),
       indentOnInput(),
       bracketMatching(),
       highlightActiveLine(),
-      highlightActiveLineGutter(),
       highlightSelectionMatches(),
-      syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+      syntaxHighlighting(editorHighlightStyle(dark)),
       markdown({ base: markdownLanguage, codeLanguages: languages, addKeymap: true }),
       keymap.of([...defaultKeymap, ...searchKeymap, indentWithTab]),
       EditorView.lineWrapping,
       EditorState.readOnly.of(false),
-      EditorView.theme({
-        '&': { height: '100%', fontSize: `${fontSize}px` },
-        '.cm-scroller': { overflow: 'auto', fontFamily: 'var(--font-mono)' },
-        '.cm-content': { padding: '16px 0' },
-      }),
     ];
 
     // CRDT binding must come after the base extensions so its transaction handling wins.
@@ -162,7 +207,25 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     extensions.push(collab);
     extensions.push(keymap.of([...yUndoManagerKeymap]));
 
-    if (dark) extensions.push(oneDark);
+
+    // Keep the app's paper-like writing surface while the token palette stays muted.
+    extensions.push(
+      EditorView.theme(
+        {
+          '&': { height: '100%', fontSize: `${fontSize}px`, backgroundColor: 'transparent' },
+          '.cm-scroller': { overflow: 'auto', fontFamily: 'var(--font-editor)' },
+          '.cm-activeLine': {
+            backgroundColor: 'color-mix(in srgb, var(--accent) 4.5%, transparent)',
+          },
+          '.cm-selectionBackground, .cm-content ::selection': {
+            backgroundColor: 'var(--selection) !important',
+          },
+          '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--accent)' },
+          '&.cm-focused': { outline: 'none' },
+        },
+        { dark },
+      ),
+    );
 
     extensions.push(
       EditorView.domEventHandlers({
@@ -317,7 +380,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         {showEditor && (
           <div
             ref={editorHostRef}
-            className="editor-host min-h-0 flex-1 overflow-hidden"
+            className="editor-host editor-pane min-h-0 flex-1 overflow-hidden"
             data-testid="editor-host"
             // Publishes which note the mounted CodeMirror instance is bound to. The view is torn
             // down and rebuilt when the selection changes, so without this a caller (or a test)
@@ -325,9 +388,9 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
             data-note-id={noteId}
           />
         )}
-        {mode === 'split' && <div className="w-px shrink-0 bg-border" />}
+        {mode === 'split' && <div className="split-divider shrink-0" aria-hidden />}
         {showPreview && (
-          <div ref={previewScrollRef} className="preview-scroll min-h-0 flex-1 overflow-auto p-6">
+          <div ref={previewScrollRef} className="preview-scroll preview-pane min-h-0 flex-1 overflow-auto px-8 py-8">
             <Preview source={source} dark={dark} onRendered={handlePreviewRendered} />
           </div>
         )}
@@ -343,32 +406,38 @@ interface ToolbarProps {
   disabled: boolean;
 }
 
-const BUTTONS: { key: string; label: string; title: string }[] = [
-  { key: 'heading', label: 'H', title: '标题（循环 1-6 级）' },
-  { key: 'bold', label: 'B', title: '粗体 ⌘B' },
-  { key: 'italic', label: 'I', title: '斜体 ⌘I' },
-  { key: 'code', label: '</>', title: '行内代码' },
-  { key: 'link', label: '🔗', title: '链接' },
-  { key: 'bullet', label: '•', title: '无序列表' },
-  { key: 'task', label: '☑', title: '任务列表' },
+const BUTTONS: { key: string; label: string; title: string; icon: LucideIcon }[] = [
+  { key: 'heading', label: '标题', title: '标题（循环 1-6 级）', icon: Heading2 },
+  { key: 'bold', label: '粗体', title: '粗体 ⌘B', icon: Bold },
+  { key: 'italic', label: '斜体', title: '斜体 ⌘I', icon: Italic },
+  { key: 'code', label: '行内代码', title: '行内代码', icon: Code2 },
+  { key: 'link', label: '链接', title: '链接', icon: Link2 },
+  { key: 'bullet', label: '无序列表', title: '无序列表', icon: List },
+  { key: 'task', label: '任务列表', title: '任务列表', icon: ListChecks },
 ];
 
 function Toolbar({ onCommand, disabled }: ToolbarProps) {
   return (
-    <div className="flex items-center gap-1 border-b border-border bg-surface px-3 py-1.5" data-testid="editor-toolbar">
-      {BUTTONS.map((button) => (
-        <button
-          key={button.key}
-          type="button"
-          title={button.title}
-          disabled={disabled}
-          onClick={() => onCommand[button.key]?.()}
-          className="rounded px-2 py-1 text-xs text-muted hover:bg-hover disabled:opacity-40"
-        >
-          {button.label}
-        </button>
-      ))}
-      <span className="ml-auto text-[11px] text-muted/70">图片可直接粘贴或拖入</span>
+    <div className="editor-toolbar flex shrink-0 items-center gap-0.5 px-4" data-testid="editor-toolbar">
+      {BUTTONS.map((button, index) => {
+        const Icon = button.icon;
+        return (
+          <div key={button.key} className="flex items-center">
+            {index === 4 && <span className="mx-1 h-4 w-px bg-border-subtle" aria-hidden />}
+            <button
+              type="button"
+              title={button.title}
+              aria-label={button.label}
+              disabled={disabled}
+              onClick={() => onCommand[button.key]?.()}
+              className="toolbar-button"
+            >
+              <Icon size={15} />
+            </button>
+          </div>
+        );
+      })}
+      <span className="toolbar-hint ml-auto text-[10.5px] text-muted/65">图片可直接粘贴或拖入</span>
     </div>
   );
 }
