@@ -1,4 +1,4 @@
-# aiMarkdown production stack: Caddy (auto HTTPS) -> app (REST + CRDT) -> Postgres.
+# AiMD production stack: Caddy (auto HTTPS) -> app (REST + CRDT) -> Postgres.
 #
 # Bring it up with ../scripts/deploy.sh, which generates .env with random secrets first.
 

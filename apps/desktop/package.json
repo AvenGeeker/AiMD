@@ -2,7 +2,7 @@
   "name": "@aimarkdown/desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "aiMarkdown desktop shell: main window, tray and a global-hotkey quick-capture window.",
+  "description": "AiMD desktop shell: main window, tray and a global-hotkey quick-capture window.",
   "main": "dist/main/index.js",
   "scripts": {
     "build": "pnpm build:web && pnpm build:main && node scripts/copy-renderer.mjs",
@@ -30,7 +30,7 @@
   },
   "build": {
     "appId": "com.aimarkdown.desktop",
-    "productName": "aiMarkdown",
+    "productName": "AiMD",
     "directories": {
       "output": "release",
       "buildResources": "resources"

@@ -2,7 +2,7 @@ import { AbilityConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 
-const TAG = 'aiMarkdown';
+const TAG = 'AiMD';
 
 /**
  * Standard Stage-model entry ability. The whole app is one Web component (ArkWeb) hosting the

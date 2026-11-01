@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
-         Sideload-only: self-hosted aiMarkdown servers commonly run plain http on a LAN.
+         Sideload-only: self-hosted AiMD servers commonly run plain http on a LAN.
          Remove android:usesCleartextTraffic before any public store distribution (see
          apps/mobile/README.md).
     -->

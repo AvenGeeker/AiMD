@@ -10,7 +10,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import type { SyncStatus } from '../lib/sync.js';
-import type { AppleNotesStatus, UserDto } from '@aimarkdown/shared';
+import { APP_NAME, type AppleNotesStatus, type UserDto } from '@aimarkdown/shared';
 import { isDesktop, platform } from '../lib/platform.js';
 import type { EditorMode } from './MarkdownEditor.js';
 import { UserMenu } from './UserMenu.js';
@@ -120,7 +120,7 @@ export function TitleBar(props: TitleBarProps) {
             M
           </span>
           <div className="hidden min-w-0 sm:block">
-            <div className="titlebar-wordmark">aiMarkdown</div>
+            <div className="titlebar-wordmark">{APP_NAME}</div>
             <div className="titlebar-context">Markdown workspace</div>
           </div>
         </div>

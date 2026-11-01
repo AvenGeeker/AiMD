@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Cloud, Command, LockKeyhole, Server, ShieldCheck, Sparkles } from 'lucide-react';
+import { APP_NAME } from '@aimarkdown/shared';
 import { useAuth } from '../lib/auth.js';
 import { isDesktop, isMobile } from '../lib/platform.js';
 import { SegmentedControl } from './ui/SegmentedControl.js';
@@ -77,7 +78,7 @@ export function AuthView() {
                 M
               </span>
               <div>
-                <div className="text-[15px] font-semibold tracking-tight">aiMarkdown</div>
+                <div className="text-[15px] font-semibold tracking-tight">{APP_NAME}</div>
                 <div className="mt-0.5 text-[11px] text-muted">自托管的 Markdown 笔记本</div>
               </div>
             </div>
@@ -137,7 +138,7 @@ export function AuthView() {
                   M
                 </span>
                 <div>
-                  <div className="text-sm font-semibold">aiMarkdown</div>
+                  <div className="text-sm font-semibold">{APP_NAME}</div>
                   <div className="text-[10.5px] text-muted">多端同步的 Markdown 笔记本</div>
                 </div>
               </div>
@@ -174,7 +175,7 @@ export function AuthView() {
                 </label>
                 <p className="rounded-lg bg-panel px-3 py-2.5 text-[10.5px] leading-5 text-muted">
                   {needsServerUrl
-                    ? '填入你自己部署的 aiMarkdown 服务地址，保存后继续登录。'
+                    ? `填入你自己部署的 ${APP_NAME} 服务地址，保存后继续登录。`
                     : '更改服务器地址后需要重新登录。'}
                 </p>
               </>

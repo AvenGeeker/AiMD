@@ -3,6 +3,7 @@ import { getHotkeyStates } from './hotkey.js';
 import { createMainWindow, showMainWindow, toggleCaptureWindow, getCaptureWindow } from './windows.js';
 import { getState, isPlaintextFallback } from './store.js';
 import { setQuitting } from './lifecycle.js';
+import { APP_NAME } from './app-name.js';
 import type { AppleNotesStatus } from '@aimarkdown/shared';
 
 /**
@@ -106,7 +107,7 @@ function rebuildMenu(): void {
       : []),
     { type: 'separator' },
     {
-      label: '退出 aiMarkdown',
+      label: `退出 ${APP_NAME}`,
       click: () => {
         setQuitting(true);
         if (onQuit) onQuit();
@@ -116,7 +117,7 @@ function rebuildMenu(): void {
   ]);
 
   tray.setContextMenu(menu);
-  tray.setToolTip(`aiMarkdown — ${syncLabel}`);
+  tray.setToolTip(`${APP_NAME} — ${syncLabel}`);
 }
 
 export function createTray(): Tray {

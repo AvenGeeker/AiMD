@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>aiMarkdown</string>
+        <string>AiMD</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -25,7 +25,7 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<!--
-	     Sideload-only: self-hosted aiMarkdown servers commonly run plain http on a LAN.
+	     Sideload-only: self-hosted AiMD servers commonly run plain http on a LAN.
 	     Remove NSAppTransportSecurity before any public store distribution (see
 	     apps/mobile/README.md).
 	-->

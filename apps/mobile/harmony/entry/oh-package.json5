@@ -1,7 +1,7 @@
 {
   "name": "entry",
   "version": "0.1.0",
-  "description": "aiMarkdown entry module",
+  "description": "AiMD entry module",
   "main": "",
   "dependencies": {},
   "devDependencies": {}

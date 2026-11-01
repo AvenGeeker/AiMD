@@ -35,9 +35,9 @@ server 和 web 才能 typecheck（它们是 workspace 依赖，走 `main`/`types
 
 ## 每次修改后：替换并重启本机桌面 App（强制）
 
-**每次修改完成后都必须重新构建桌面 App、替换 `/Applications/aiMarkdown.app` 并重新启动，除非用户当次
+**每次修改完成后都必须重新构建桌面 App、替换 `/Applications/AiMD.app` 并重新启动，除非用户当次
 明确说不用。** 只重新构建 Web 不够：Electron 读取的是 stage 后的 `apps/desktop/renderer`，而本机
-安装版运行的是 `/Applications/aiMarkdown.app` 里的包。
+安装版运行的是 `/Applications/AiMD.app` 里的包。
 
 ```bash
 # 1. 构建 web renderer + Electron 主进程，并重新 stage 到 apps/desktop/renderer
@@ -47,20 +47,23 @@ pnpm --filter @aimarkdown/desktop build
 HOST_ARCH="$(uname -m | sed 's/x86_64/x64/')"
 (cd apps/desktop && pnpm exec electron-builder --mac dir --"$HOST_ARCH")
 
-# 3. 退出正在运行的安装版
+# 3. 退出正在运行的安装版（改名前的 aiMarkdown 也一并清掉）
 osascript -e 'if application "aiMarkdown" is running then tell application "aiMarkdown" to quit' 2>/dev/null || true
-sleep 1
 pkill -x aiMarkdown 2>/dev/null || true
+osascript -e 'if application "AiMD" is running then tell application "AiMD" to quit' 2>/dev/null || true
+sleep 1
+pkill -x AiMD 2>/dev/null || true
 
-# 4. 替换 /Applications 里的 App 并启动
-APP_DIR="apps/desktop/release/$([ "$(uname -m)" = "arm64" ] && echo mac-arm64 || echo mac)/aiMarkdown.app"
-BACKUP="/tmp/aiMarkdown.app.backup.$(date +%Y%m%d-%H%M%S)"
-[ ! -d /Applications/aiMarkdown.app ] || mv /Applications/aiMarkdown.app "$BACKUP"
-ditto "$APP_DIR" /Applications/aiMarkdown.app
-open -a /Applications/aiMarkdown.app
+# 4. 替换 /Applications 里的 App 并启动；旧名安装包移到 /tmp 备份
+APP_DIR="apps/desktop/release/$([ "$(uname -m)" = "arm64" ] && echo mac-arm64 || echo mac)/AiMD.app"
+[ ! -d /Applications/aiMarkdown.app ] || mv /Applications/aiMarkdown.app "/tmp/aiMarkdown.app.backup.$(date +%Y%m%d-%H%M%S)"
+BACKUP="/tmp/AiMD.app.backup.$(date +%Y%m%d-%H%M%S)"
+[ ! -d /Applications/AiMD.app ] || mv /Applications/AiMD.app "$BACKUP"
+ditto "$APP_DIR" /Applications/AiMD.app
+open -a /Applications/AiMD.app
 ```
 
-启动后用 `pgrep -x aiMarkdown` 确认进程存在。构建、替换或重启失败必须在回复里明确说明，不能把
+启动后用 `pgrep -x AiMD` 确认进程存在。构建、替换或重启失败必须在回复里明确说明，不能把
 “代码改完”当成“桌面 App 已更新”。
 
 ---
@@ -152,7 +155,7 @@ open -a /Applications/aiMarkdown.app
 - 同步引擎只在 Electron 主进程；renderer 不得直接起 `osascript`，IPC 只接收枚举/布尔值/预览 token。
 - 笔记内容一律通过临时 JSON/文件传给 JXA，**不要拼进脚本源码或 shell 字符串**；批量结果也写临时文件，避免 stdout 溢出。
 - 需要 `NSAppleEventsUsageDescription`；未签名重建后 TCC 自动化权限可能重置，设置页必须提供“请求授权”和打开系统设置的入口。macOS 只有第一次真正发送 Apple Event 后才会在自动化列表里显示应用。
-- Apple Notes 的 `body` 是 HTML；脚本 `delete` 在不同 macOS 版本上是否进入“最近删除”未验证，因此删除笔记默认移动到 `aiMarkdown 回收站 (App)` 目录，保证可恢复。文件夹/笔记移动、附件导出仍必须先在真实 Notes 上冒烟验证。
+- Apple Notes 的 `body` 是 HTML；脚本 `delete` 在不同 macOS 版本上是否进入“最近删除”未验证，因此删除笔记默认移动到 `AiMD 回收站 (App)` 目录，保证可恢复。文件夹/笔记移动、附件导出仍必须先在真实 Notes 上冒烟验证。
 - 冲突副本/只读笔记用 `Apple 同步冲突` / `Apple 同步只读` 标签标识；这两个标签不参与镜像，否则会反复复制。
 - 映射存 `userData/apple-notes-sync.json`，按 serverUrl + userId + Apple accountId 隔离；同一账号只应一台 Mac 启用。
 - 扫描不完整时禁止执行删除；Apple 返回 0 条但本地映射非空必须中止，这是防止一次权限/网络故障清空全库的安全阀。

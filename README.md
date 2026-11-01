@@ -1,4 +1,4 @@
-# aiMarkdown
+# AiMD
 
 自托管的多端同步 Markdown 笔记本。一套 React 代码同时作为**浏览器端**和 **Electron 桌面端**（macOS / Windows）的界面，服务端是 **Fastify + Hocuspocus + Postgres**，用 **Docker Compose 一键部署**。
 
@@ -19,7 +19,7 @@
 | **无域名 / IP 直连** | 没有域名，只想先跑起来 | `http://服务器IP:端口/`，纯 HTTP，浏览器会提示“不安全”，忽略即可 |
 
 ```bash
-git clone <your-repo> aiMarkdown && cd aiMarkdown
+git clone <your-repo> AiMD && cd AiMD
 ./scripts/deploy.sh
 ```
 
@@ -60,7 +60,7 @@ make down            # 停止（保留数据卷）
 备份脚本导出 `pg_dump`（custom 格式）与附件卷，并快照 `deploy/.env`。定时备份示例：
 
 ```cron
-30 3 * * * cd /path/to/aiMarkdown && ./scripts/backup.sh --keep 14 >> /var/log/aimarkdown-backup.log 2>&1
+30 3 * * * cd /path/to/AiMD && ./scripts/backup.sh --keep 14 >> /var/log/aimarkdown-backup.log 2>&1
 ```
 
 ---
@@ -111,8 +111,8 @@ pnpm --filter @aimarkdown/desktop dev
 ```bash
 pnpm --filter @aimarkdown/desktop dist:mac
 # 产物在 apps/desktop/release/：
-#   aiMarkdown-0.1.0.dmg          (x64，Intel)
-#   aiMarkdown-0.1.0-arm64.dmg    (Apple Silicon)
+#   AiMD-0.1.0.dmg              (x64，Intel)
+#   AiMD-0.1.0-arm64.dmg        (Apple Silicon)
 ```
 
 只想打本机架构、省一半时间：
@@ -233,13 +233,13 @@ REST 写操作（移动目录、置顶、打标签）不会绕过 CRDT：服务�
 
 macOS 桌面端标题栏有「备忘录」按钮，设置里有「macOS 备忘录同步（仅此 Mac）」：
 
-- 默认 Apple 备忘录账户与当前 aiMarkdown 用户**全库双向镜像**：文件夹双向，笔记新建/编辑/删除双向；包含收集箱和归档，排除回收站（删除会进入 app 回收站和 Apple 的 `aiMarkdown 回收站 (App)` 目录，可恢复）
+- 默认 Apple 备忘录账户与当前 AiMD 用户**全库双向镜像**：文件夹双向，笔记新建/编辑/删除双向；包含收集箱和归档，排除回收站（删除会进入 app 回收站和 Apple 的 `AiMD 回收站 (App)` 目录，可恢复）
 - 首次启用必须先扫描预览，确认后才写入；之后支持手动、启动时和定时同步（默认 30 分钟）
 - 笔记正文/文件夹冲突按最新修改优先；失败版本会复制到 app 并打「Apple 同步冲突」标签
 - 图片、PDF、普通文件尽量双向同步；Apple Notes 无法导出的绘图/扫描件/录音、加密或共享内容会让对应笔记进入只读并打「Apple 同步只读」标签
 - 同步引擎运行在 Electron 主进程，映射保存在本机 `userData/apple-notes-sync.json`。同一账号只应在一台 Mac 上启用；换 Mac 前先停用旧机器
-- 首次同步/重建未签名 app 后，点设置里的「请求授权」或「预览差异」才会触发 macOS「控制备忘录」授权框；授权前「系统设置 → 隐私与安全性 → 自动化」里不会出现 aiMarkdown。拒绝或重置后可在那里重新授权
-- 定时同步要求 aiMarkdown 保持运行；关闭窗口驻留托盘即可。笔记排序、置顶、标签和 Apple 智能文件夹不参与同步
+- 首次同步/重建未签名 app 后，点设置里的「请求授权」或「预览差异」才会触发 macOS「控制备忘录」授权框；授权前「系统设置 → 隐私与安全性 → 自动化」里不会出现 AiMD。拒绝或重置后可在那里重新授权
+- 定时同步要求 AiMD 保持运行；关闭窗口驻留托盘即可。笔记排序、置顶、标签和 Apple 智能文件夹不参与同步
 
 ### 打包
 

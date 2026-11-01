@@ -24,6 +24,7 @@ import { startAppleNotesScheduler, stopAppleNotesScheduler } from './apple-notes
 import { setAppleNotesStatus } from './tray.js';
 import { installApplicationMenu, setAppMenuQuitHandler } from './app-menu.js';
 import { ensureRegularActivation } from './activation.js';
+import { APP_NAME } from './app-name.js';
 import type { AppleNotesChangedEvent, AppleNotesStatus } from '@aimarkdown/shared';
 
 /**
@@ -47,6 +48,7 @@ if (!gotLock) {
   });
 
   const bootstrap = (): void => {
+    app.setAboutPanelOptions({ applicationName: APP_NAME, applicationVersion: app.getVersion() });
     ensureRegularActivation();
     loadState();
     const state = getState();
@@ -54,7 +56,7 @@ if (!gotLock) {
     // calling this unconditionally on every boot produces a spurious "Operation not permitted".
     const loginItem = setLaunchAtLogin(state.launchAtLogin);
     if (!loginItem.applied && state.launchAtLogin) {
-      console.warn(`[aiMarkdown] 无法设置登录时启动：${loginItem.error ?? '未知原因'}`);
+      console.warn(`[${APP_NAME}] 无法设置登录时启动：${loginItem.error ?? '未知原因'}`);
     }
 
     const broadcast = (channel: string, payload: unknown) => {
@@ -111,7 +113,7 @@ if (!gotLock) {
       // repeats them and the settings dialog offers a way to record a different combination.
       for (const failure of failed) {
         console.warn(
-          `[aiMarkdown] global hotkey "${failure.accelerator}" not registered: ${failure.error}`,
+          `[${APP_NAME}] global hotkey "${failure.accelerator}" not registered: ${failure.error}`,
         );
       }
       const window = BrowserWindow.getAllWindows()[0];

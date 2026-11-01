@@ -2,7 +2,7 @@
   "name": "@aimarkdown/mobile",
   "version": "0.1.0",
   "private": true,
-  "description": "aiMarkdown mobile shell: one Capacitor app sharing the web renderer across Android, iOS and HarmonyOS.",
+  "description": "AiMD mobile shell: one Capacitor app sharing the web renderer across Android, iOS and HarmonyOS.",
   "type": "module",
   "scripts": {
     "build": "pnpm --filter @aimarkdown/web build && node scripts/copy-renderer.mjs && cap sync",

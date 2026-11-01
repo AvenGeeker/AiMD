@@ -1,3 +1,4 @@
+import { APP_NAME } from '@aimarkdown/shared';
 import { loadConfig } from './config.js';
 import { createServerContext } from './context.js';
 import { createDb, ping } from './db/client.js';
@@ -65,7 +66,7 @@ async function main(): Promise<void> {
   await app.listen({ host: config.HOST, port: config.REST_PORT });
   log.info(
     { rest: config.REST_PORT, collab: config.COLLAB_PORT, env: config.NODE_ENV },
-    'aiMarkdown server ready',
+    `${APP_NAME} server ready`,
   );
 
   let shuttingDown = false;
@@ -126,7 +127,7 @@ function reportStartupFailure(error: unknown): never {
     const address = typeof err.address === 'string' ? err.address : '';
     const port = err.port ?? (address ? '' : '');
     console.error(
-      `[aiMarkdown] 端口 ${port ?? '(未知)'} 已被占用，无法启动。\n` +
+      `[${APP_NAME}] 端口 ${port ?? '(未知)'} 已被占用，无法启动。\n` +
         `  查看占用者：lsof -nP -iTCP:${port} -sTCP:LISTEN\n` +
         `  本服务使用两个端口：REST_PORT（默认 3000）与 COLLAB_PORT（默认 1234）。\n` +
         `  用环境变量改掉其中之一即可，例如：COLLAB_PORT=1235 node dist/index.js`,
@@ -135,20 +136,20 @@ function reportStartupFailure(error: unknown): never {
   }
 
   if (err?.name === 'ConfigError') {
-    console.error(`[aiMarkdown] 配置有误：\n${err.message}`);
+    console.error(`[${APP_NAME}] 配置有误：\n${err.message}`);
     process.exit(1);
   }
 
   if (/not reachable|ECONNREFUSED|getaddrinfo/i.test(err?.message ?? '')) {
     console.error(
-      `[aiMarkdown] ${err.message}\n` +
+      `[${APP_NAME}] ${err.message}\n` +
         '  本地开发请先启动数据库：make db-up\n' +
         '  并确认 DATABASE_URL 指向正确的地址与凭据。',
     );
     process.exit(1);
   }
 
-  console.error('[aiMarkdown] failed to start:', error);
+  console.error(`[${APP_NAME}] failed to start:`, error);
   process.exit(1);
 }
 

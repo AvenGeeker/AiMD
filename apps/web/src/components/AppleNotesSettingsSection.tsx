@@ -1,5 +1,5 @@
 import { AlertTriangle, NotebookPen, RefreshCw, ShieldCheck } from 'lucide-react';
-import type { AppleNotesSchedule } from '@aimarkdown/shared';
+import { APP_NAME, type AppleNotesSchedule } from '@aimarkdown/shared';
 import type { AppleNotesController } from '../hooks/useAppleNotes.js';
 import { ToggleSwitch } from './ui/ToggleSwitch.js';
 
@@ -32,7 +32,7 @@ export function AppleNotesSettingsSection({ controller }: { controller: AppleNot
           <span className="rounded-full bg-hover px-2 py-0.5 text-[9.5px] text-muted">仅此 Mac</span>
         </div>
         <p className="mt-3 text-[10.5px] leading-5 text-muted">
-          默认 Apple 备忘录账户与 aiMarkdown 全库双向镜像；包含收集箱和归档，排除回收站。第一次启用会先预览，确认后才写入。
+          {`默认 Apple 备忘录账户与 ${APP_NAME} 全库双向镜像；包含收集箱和归档，排除回收站。第一次启用会先预览，确认后才写入。`}
           同一账号只应在一台 Mac 上启用。
         </p>
 

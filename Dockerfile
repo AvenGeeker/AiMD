@@ -1,4 +1,4 @@
-# aiMarkdown application image: REST API + CRDT collaboration server + built web client.
+# AiMD application image: REST API + CRDT collaboration server + built web client.
 #
 # Multi-stage so the runtime image carries no toolchain. The only native module is
 # @node-rs/argon2, which ships prebuilt NAPI binaries for linux-x64-musl and linux-arm64-musl, so

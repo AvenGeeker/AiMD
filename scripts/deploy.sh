@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# One-command deployment for aiMarkdown.
+# One-command deployment for AiMD.
 #
 #   ./scripts/deploy.sh                 # first run: generate .env, build, start, health-check
 #   ./scripts/deploy.sh --rebuild       # pull/rebuild images and restart
@@ -52,7 +52,7 @@ ok "compose file present"
 # ports are overridable via HTTP_PORT / HTTPS_PORT in deploy/.env.
 for port in "${HTTP_PORT:-80}" "${HTTPS_PORT:-443}"; do
   if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
-    warn "port $port is already in use — set HTTP_PORT/HTTPS_PORT in ${ENV_FILE}, or front aiMarkdown with your existing proxy"
+    warn "port $port is already in use — set HTTP_PORT/HTTPS_PORT in ${ENV_FILE}, or front AiMD with your existing proxy"
   fi
 done
 

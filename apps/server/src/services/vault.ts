@@ -2,6 +2,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import type { Sql } from 'postgres';
 import {
   ApiError,
+  APP_NAME,
   ERROR_CODES,
   firstKey,
   keyAfter,
@@ -238,7 +239,7 @@ export async function collectVaultFiles(deps: VaultDeps, ownerId: string): Promi
   files.push({
     path: 'README.md',
     content: [
-      '# aiMarkdown 导出说明',
+      `# ${APP_NAME} 导出说明`,
       '',
       `- 导出时间：${new Date().toISOString()}`,
       `- 笔记数量：${noteRows.length}`,

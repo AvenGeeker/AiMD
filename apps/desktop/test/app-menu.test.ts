@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock('electron', () => ({
-  app: { name: 'aiMarkdown', quit: vi.fn() },
+  app: { name: 'AiMD', quit: vi.fn() },
   Menu: {
     buildFromTemplate: (template: unknown) => template,
     setApplicationMenu: mocks.setApplicationMenu,

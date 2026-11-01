@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
+import { APP_NAME } from '@aimarkdown/shared';
 import type { AppleNotesController } from '../hooks/useAppleNotes.js';
 
 export function AppleNotesPreviewDialog({
@@ -16,7 +17,7 @@ export function AppleNotesPreviewDialog({
   const plan = preview.plan;
   const rows: Array<[string, number]> = [
     ['从备忘录导入笔记', plan.createAppNotes],
-    ['把 aiMarkdown 笔记写入备忘录', plan.createAppleNotes],
+    [`把 ${APP_NAME} 笔记写入备忘录`, plan.createAppleNotes],
     ['更新 app 笔记', plan.updateAppNotes],
     ['更新备忘录', plan.updateAppleNotes],
     ['删除 app 笔记（进回收站）', plan.trashAppNotes],
@@ -42,7 +43,7 @@ export function AppleNotesPreviewDialog({
         </div>
         <div className="space-y-3 overflow-auto px-5 py-5 text-[11px]">
           <div className="grid grid-cols-2 gap-2 rounded-lg border border-border-subtle bg-panel p-3 text-muted-strong">
-            <span>aiMarkdown：{preview.counts.appNotes} 篇 / {preview.counts.appFolders} 个目录</span>
+            <span>{APP_NAME}：{preview.counts.appNotes} 篇 / {preview.counts.appFolders} 个目录</span>
             <span>Apple 备忘录：{preview.counts.appleNotes} 篇 / {preview.counts.appleFolders} 个目录</span>
           </div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-1">
@@ -81,7 +82,7 @@ export function AppleNotesPreviewDialog({
               data-testid="apple-notes-confirm"
             />
             <span>
-              我已了解：确认后会双向创建、修改和删除笔记与目录；删除会进入 app 回收站或 Apple 的 aiMarkdown 回收站目录，冲突会生成副本。
+              {`我已了解：确认后会双向创建、修改和删除笔记与目录；删除会进入 app 回收站或 Apple 的 ${APP_NAME} 回收站目录，冲突会生成副本。`}
             </span>
           </label>
         </div>

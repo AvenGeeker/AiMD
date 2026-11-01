@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">aiMarkdown</string>
-    <string name="title_activity_main">aiMarkdown</string>
+    <string name="app_name">AiMD</string>
+    <string name="title_activity_main">AiMD</string>
     <string name="package_name">com.aimarkdown.mobile</string>
     <string name="custom_url_scheme">com.aimarkdown.mobile</string>
 </resources>

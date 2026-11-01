@@ -286,7 +286,7 @@ export function useQuickCapture() {
 
 export async function downloadVault(): Promise<void> {
   const blob = await requestBlob('/export/vault');
-  triggerDownload(blob, `aimarkdown-${new Date().toISOString().slice(0, 10)}.zip`);
+  triggerDownload(blob, `aimd-${new Date().toISOString().slice(0, 10)}.zip`);
 }
 
 export async function downloadNote(id: string, title: string): Promise<void> {

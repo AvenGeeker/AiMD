@@ -10,7 +10,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.aimarkdown.mobile',
-  appName: 'aiMarkdown',
+  appName: 'AiMD',
   webDir: 'www',
   backgroundColor: '#ffffff',
   android: {

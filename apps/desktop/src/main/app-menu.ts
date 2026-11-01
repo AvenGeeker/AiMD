@@ -1,6 +1,7 @@
 import { app, Menu, type MenuItemConstructorOptions } from 'electron';
 import { createMainWindow, getMainWindow, showMainWindow, toggleCaptureWindow } from './windows.js';
 import { setQuitting } from './lifecycle.js';
+import { APP_NAME } from './app-name.js';
 
 /**
  * Native application menu.
@@ -326,20 +327,20 @@ function buildTemplate(): MenuItemConstructorOptions[] {
 
   if (isMac) {
     template.push({
-      label: app.name,
+      label: APP_NAME,
       submenu: [
-        { role: 'about', label: `关于 ${app.name}` },
+        { role: 'about', label: `关于 ${APP_NAME}` },
         { type: 'separator' },
         commandItem('设置…', 'open-settings', { accelerator: 'CmdOrCtrl+,' }),
         { type: 'separator' },
         { role: 'services', label: '服务' },
         { type: 'separator' },
-        { role: 'hide', label: `隐藏 ${app.name}` },
+        { role: 'hide', label: `隐藏 ${APP_NAME}` },
         { role: 'hideOthers', label: '隐藏其他' },
         { role: 'unhide', label: '显示全部' },
         { type: 'separator' },
         {
-          label: `退出 ${app.name}`,
+          label: `退出 ${APP_NAME}`,
           accelerator: 'CmdOrCtrl+Q',
           click: () => quitApplication(),
         },
@@ -364,7 +365,7 @@ function buildTemplate(): MenuItemConstructorOptions[] {
       ...(!isMac
         ? [
             { type: 'separator' as const },
-            { label: '退出 aiMarkdown', click: () => quitApplication() },
+            { label: `退出 ${APP_NAME}`, click: () => quitApplication() },
           ]
         : []),
     ],
@@ -407,7 +408,7 @@ function buildTemplate(): MenuItemConstructorOptions[] {
   });
 
   if (!isMac) {
-    template.push({ label: '帮助', submenu: [{ role: 'about', label: `关于 ${app.name}` }] });
+    template.push({ label: '帮助', submenu: [{ role: 'about', label: `关于 ${APP_NAME}` }] });
   }
 
   return template;

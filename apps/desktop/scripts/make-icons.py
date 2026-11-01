@@ -1,4 +1,4 @@
-"""Generate the aiMarkdown app and tray icons.
+"""Generate the AiMD app and tray icons.
 
 The app icon is a deterministic vector-like composition rendered with Pillow at 2x and
 downsampled for crisp macOS/Taskbar edges: a blue squircle, layered paper, an M mark and an AI

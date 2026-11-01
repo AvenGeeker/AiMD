@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { getState } from './store.js';
 import { isQuitting } from './lifecycle.js';
 import { ensureRegularActivation } from './activation.js';
+import { APP_NAME } from './app-name.js';
 
 /** Window management: the main shell and the always-on-top quick-capture panel. */
 
@@ -56,7 +57,7 @@ export function createMainWindow(): BrowserWindow {
     minHeight: 560,
     show: false,
     backgroundColor: '#ffffff',
-    title: 'aiMarkdown',
+    title: APP_NAME,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     webPreferences: {
       preload: MAIN_PRELOAD,

@@ -1,4 +1,4 @@
-# aiMarkdown — common tasks. Run `make help` for the list.
+# AiMD — common tasks. Run `make help` for the list.
 
 COMPOSE_DEV := docker compose -f deploy/docker-compose.dev.yml
 COMPOSE_PROD := docker compose -f deploy/docker-compose.yml --env-file deploy/.env

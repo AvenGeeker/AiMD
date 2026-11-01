@@ -1,6 +1,6 @@
 /** Application-wide constants shared by server, web and desktop. */
 
-export const APP_NAME = 'aiMarkdown';
+export const APP_NAME = 'AiMD';
 
 /** REST prefix. Everything else on the server is static assets or the health probe. */
 export const API_PREFIX = '/api';

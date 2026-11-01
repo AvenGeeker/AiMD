@@ -53,8 +53,12 @@ import {
   type SyncNamespace,
 } from './state.js';
 
-const SPECIAL_ROOT_FOLDER = 'aiMarkdown 根笔记 (App)';
-const MANAGED_TRASH_FOLDER = 'aiMarkdown 回收站 (App)';
+const SPECIAL_ROOT_FOLDER = 'AiMD 根笔记 (App)';
+const MANAGED_TRASH_FOLDER = 'AiMD 回收站 (App)';
+// Folders created before the rename stay usable: the stored ids take priority, and these names
+// are the fallback when the local mapping has been lost.
+const LEGACY_SPECIAL_ROOT_FOLDERS = ['aiMarkdown 根笔记 (App)'];
+const LEGACY_MANAGED_TRASH_FOLDERS = ['aiMarkdown 回收站 (App)'];
 const CONFLICT_TAG = 'Apple 同步冲突';
 const READ_ONLY_TAG = 'Apple 同步只读';
 const CONFLICT_COLOR = '#dc2626';
@@ -452,7 +456,7 @@ export class AppleNotesSyncEngine {
       this.callbacks.onChanged('applied');
       if (result.conflicts > 0 || result.readOnly > 0 || result.errors.length > 0) {
         this.callbacks.onNotify?.(
-          'aiMarkdown 备忘录同步',
+          'AiMD 备忘录同步',
           `完成：冲突 ${result.conflicts}，只读 ${result.readOnly}，错误 ${result.errors.length}`,
         );
       }
@@ -464,7 +468,7 @@ export class AppleNotesSyncEngine {
         this.phase = 'needs-attention';
         this.lastError = { code: error.kind.toUpperCase(), message: error.message };
         saveState({ appleNotesLastResult: result });
-        this.callbacks.onNotify?.('aiMarkdown 备忘录同步已暂停', error.message);
+        this.callbacks.onNotify?.('AiMD 备忘录同步已暂停', error.message);
       } else {
         this.fail(error);
       }
@@ -498,7 +502,7 @@ export class AppleNotesSyncEngine {
     } else if (/登录已过期|AUTH_REQUIRED/i.test(message)) {
       this.lastError = { code: 'AUTH_REQUIRED', message: '登录已过期，请在主窗口重新登录' };
     }
-    this.callbacks.onNotify?.('aiMarkdown 备忘录同步失败', this.lastError.message);
+    this.callbacks.onNotify?.('AiMD 备忘录同步失败', this.lastError.message);
     this.emit();
   }
 
@@ -545,7 +549,7 @@ export class AppleNotesSyncEngine {
     const state = existingState ?? loadSyncState(ns) ?? emptyState(ns);
     this.step('正在准备同步标签', 0, 1);
     await this.ensureTags(signal);
-    this.step('正在读取 aiMarkdown 目录和笔记', 1, 4);
+    this.step('正在读取 AiMD 目录和笔记', 1, 4);
     const appTree = await api.getTree(signal);
     const appNotes = await this.scanAppNotes(appTree, state, deep, signal);
     const appTrash = await api.listNotes('only', signal);
@@ -644,7 +648,12 @@ export class AppleNotesSyncEngine {
       const byId = tree.folders.find((folder) => folder.id === state.rootAppleFolderId && !folder.shared);
       if (byId) return byId;
     }
-    return tree.folders.find((folder) => !folder.parentId && !folder.shared && folder.name === SPECIAL_ROOT_FOLDER) ?? null;
+    return tree.folders.find(
+      (folder) =>
+        !folder.parentId &&
+        !folder.shared &&
+        [SPECIAL_ROOT_FOLDER, ...LEGACY_SPECIAL_ROOT_FOLDERS].includes(folder.name),
+    ) ?? null;
   }
 
   private async scanAppNotes(
@@ -664,7 +673,7 @@ export class AppleNotesSyncEngine {
     }
     const bodies = new Map<string, NoteBodyDto>();
     for (let i = 0; i < needBodies.length; i += 50) {
-      this.step('正在读取 aiMarkdown 笔记正文', i, needBodies.length);
+      this.step('正在读取 AiMD 笔记正文', i, needBodies.length);
       const batch = needBodies.slice(i, i + 50);
       try {
         const result = await api.readBodies(batch.map((note) => note.id), signal);
@@ -1297,7 +1306,12 @@ export class AppleNotesSyncEngine {
   private async ensureManagedTrashFolder(state: AppleNotesState, signal?: AbortSignal): Promise<string | null> {
     if (state.managedTrashFolderId) return state.managedTrashFolderId;
     const tree = await listAppleTree(false, { signal });
-    const existing = tree.folders.find((folder) => !folder.parentId && !folder.shared && folder.name === MANAGED_TRASH_FOLDER);
+    const existing = tree.folders.find(
+      (folder) =>
+        !folder.parentId &&
+        !folder.shared &&
+        [MANAGED_TRASH_FOLDER, ...LEGACY_MANAGED_TRASH_FOLDERS].includes(folder.name),
+    );
     if (existing) {
       state.managedTrashFolderId = existing.id;
       return existing.id;
@@ -1744,7 +1758,7 @@ export class AppleNotesSyncEngine {
       }
       body = body.split(attachment.placeholder).join(url);
     }
-    if (body.length > 2_000_000) throw new Error('正文超过 aiMarkdown 2MB 限制');
+    if (body.length > 2_000_000) throw new Error('正文超过 AiMD 2MB 限制');
     return {
       title: apple.title,
       body,

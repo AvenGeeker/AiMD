@@ -20,12 +20,13 @@ import {
 } from 'lucide-react';
 import * as Y from 'yjs';
 import type { Awareness } from 'y-protocols/awareness';
-import type {
-  NoteSummaryDto,
-  SettingsDto,
-  TagDto,
-  TreeDto,
-  UserDto,
+import {
+  APP_NAME,
+  type NoteSummaryDto,
+  type SettingsDto,
+  type TagDto,
+  type TreeDto,
+  type UserDto,
 } from '@aimarkdown/shared';
 import type { SyncStatus } from '../lib/sync.js';
 import { writeNoteTagIds } from '../hooks/useNoteDocument.js';
@@ -229,7 +230,7 @@ export function MobileShell(props: MobileShellProps) {
             <div className="flex min-w-0 flex-1 items-center gap-2.5 pl-1">
               <span className="brand-mark !h-7 !w-7 !rounded-lg !text-[11px]" aria-hidden>M</span>
               <span className="truncate text-[13px] font-semibold tracking-tight">
-                {captureView ? '速记' : 'aiMarkdown'}
+                {captureView ? '速记' : APP_NAME}
               </span>
             </div>
             <SyncBadge status={status} />

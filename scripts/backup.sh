@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# Back up an aiMarkdown deployment: Postgres dump + attachment volume.
+# Back up an AiMD deployment: Postgres dump + attachment volume.
 #
 #   ./scripts/backup.sh                 # -> ./backups/aimarkdown-<timestamp>.tar.gz
 #   ./scripts/backup.sh --out /mnt/nas  # -> /mnt/nas/aimarkdown-<timestamp>.tar.gz
 #
 # Cron example (daily at 03:30, keep 14 days):
-#   30 3 * * * cd /path/to/aiMarkdown && ./scripts/backup.sh --keep 14 >> /var/log/aimarkdown-backup.log 2>&1
+#   30 3 * * * cd /path/to/AiMD && ./scripts/backup.sh --keep 14 >> /var/log/aimarkdown-backup.log 2>&1
 
 set -euo pipefail
 

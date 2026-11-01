@@ -24,7 +24,7 @@ export function registerVaultRoutes(app: FastifyInstance, deps: VaultDeps): void
     return reply
       .header('content-type', 'application/zip')
       .header('content-length', String(archive.byteLength))
-      .header('content-disposition', `attachment; filename="aimarkdown-${stamp}.zip"`)
+      .header('content-disposition', `attachment; filename="aimd-${stamp}.zip"`)
       .send(Buffer.from(archive));
   });
 

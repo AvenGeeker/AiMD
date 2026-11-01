@@ -1,4 +1,4 @@
--- aiMarkdown initial schema.
+-- AiMD initial schema.
 --
 -- Authority model: the Y.Doc (note_documents.ydoc) is the single source of truth for note
 -- content and metadata, and for the workspace folder tree / tags / settings. Every other

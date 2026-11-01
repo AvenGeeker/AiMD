@@ -3,7 +3,7 @@ import { webview } from '@kit.ArkWeb';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
-const TAG = 'aiMarkdown';
+const TAG = 'AiMD';
 
 /**
  * Native ⇄ renderer token bridge.
