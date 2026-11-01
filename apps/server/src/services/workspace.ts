@@ -287,6 +287,10 @@ export async function getSettings(deps: WorkspaceDeps, ownerId: string): Promise
   return {
     inboxNoteId: typeof source.inboxNoteId === 'string' ? source.inboxNoteId : null,
     hotkey: typeof source.hotkey === 'string' ? source.hotkey : DEFAULT_SETTINGS.hotkey,
+    mainWindowHotkey:
+      typeof source.mainWindowHotkey === 'string'
+        ? source.mainWindowHotkey
+        : DEFAULT_SETTINGS.mainWindowHotkey,
     theme: pickEnum(source.theme, ['light', 'dark', 'system'], DEFAULT_SETTINGS.theme),
     editorMode: pickEnum(source.editorMode, ['split', 'edit', 'preview'], DEFAULT_SETTINGS.editorMode),
     fontSize: typeof source.fontSize === 'number' ? source.fontSize : DEFAULT_SETTINGS.fontSize,

@@ -1,10 +1,26 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
-import { DEFAULT_HOTKEY, EDITOR_MODES, STAMP_FORMATS, THEMES, type SettingsDto } from '@aimarkdown/shared';
-import { formatHotkey, getBridge, isDesktop, platform } from '../lib/platform.js';
+import {
+  DEFAULT_HOTKEY,
+  DEFAULT_MAIN_WINDOW_HOTKEY,
+  EDITOR_MODES,
+  STAMP_FORMATS,
+  THEMES,
+  type SettingsDto,
+} from '@aimarkdown/shared';
+import {
+  formatHotkey,
+  getBridge,
+  isDesktop,
+  platform,
+  type HotkeyState,
+  type HotkeyStates,
+  type HotkeyTarget,
+} from '../lib/platform.js';
 import { describeError } from '../lib/api.js';
 import { AppleNotesSettingsSection } from './AppleNotesSettingsSection.js';
 import { AiSettingsSection } from './AiSettingsSection.js';
+import { HotkeyRecorder } from './HotkeyRecorder.js';
 import type { AppleNotesController } from '../hooks/useAppleNotes.js';
 
 /** Preferences dialog. Values are persisted through the API, which writes the workspace CRDT. */
@@ -18,9 +34,7 @@ export interface SettingsDialogProps {
 
 export function SettingsDialog({ settings, onSave, onClose, appleNotes }: SettingsDialogProps) {
   const [draft, setDraft] = useState<SettingsDto>(settings);
-  const [hotkeyState, setHotkeyState] = useState<{ accelerator: string; registered: boolean; error?: string } | null>(
-    null,
-  );
+  const [hotkeyStates, setHotkeyStates] = useState<HotkeyStates | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const desktop = isDesktop();
@@ -29,20 +43,32 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes }: Settin
 
   useEffect(() => {
     if (!desktop) return;
+    const bridge = getBridge();
+    if (!bridge) return;
     let cancelled = false;
-    void getBridge()
-      ?.getHotkeyState()
-      .then((state) => {
-        if (!cancelled) setHotkeyState(state);
-      });
+    void (async () => {
+      if (bridge.getHotkeyStates) {
+        const states = await bridge.getHotkeyStates();
+        if (!cancelled) setHotkeyStates(states);
+        return;
+      }
+      // Older desktop shell: expose its one capture shortcut under the new shape.
+      const legacy = await bridge.getHotkeyState?.();
+      if (!cancelled && legacy) {
+        setHotkeyStates({
+          capture: legacy,
+          main: { accelerator: '', registered: false, error: '当前桌面版本不支持主窗口快捷键' },
+        });
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [desktop, settings.hotkey]);
+  }, [desktop, settings.hotkey, settings.mainWindowHotkey]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape' && !event.defaultPrevented) onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -61,20 +87,40 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes }: Settin
     }
   };
 
-  const applyHotkey = async (accelerator: string) => {
-    setDraft((prev) => ({ ...prev, hotkey: accelerator }));
+  const applyHotkey = async (target: HotkeyTarget, accelerator: string) => {
+    const patch = target === 'capture' ? { hotkey: accelerator } : { mainWindowHotkey: accelerator };
+    setDraft((prev) => ({ ...prev, ...patch }));
     if (desktop) {
-      const result = await getBridge()?.setHotkey(accelerator);
-      setHotkeyState({
+      const result = await getBridge()?.setHotkey(target, accelerator);
+      const state: HotkeyState = {
         accelerator,
         registered: Boolean(result?.ok),
         error: result && !result.ok ? (result.error ?? '注册失败') : undefined,
-      });
+      };
+      setHotkeyStates((prev) => ({
+        capture: prev?.capture ?? { accelerator: '', registered: false },
+        main: prev?.main ?? { accelerator: '', registered: false },
+        [target]: state,
+      }));
     }
-    await persist({ hotkey: accelerator });
+    await persist(patch);
   };
 
-  const defaultHotkey = DEFAULT_HOTKEY[platform() === 'darwin' ? 'darwin' : platform() === 'win32' ? 'win32' : 'linux'];
+  const currentPlatform = platform() === 'darwin' ? 'darwin' : platform() === 'win32' ? 'win32' : 'linux';
+  const defaultHotkey = DEFAULT_HOTKEY[currentPlatform];
+  const defaultMainHotkey = DEFAULT_MAIN_WINDOW_HOTKEY;
+
+  const hotkeyWarning = (label: string, state: HotkeyState | undefined) =>
+    state && !state.registered ? (
+      <div className="ml-2 flex items-start gap-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1.5 text-[11px] text-warning">
+        <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+        <span>
+          {label} <code>{formatHotkey(state.accelerator)}</code> 注册失败
+          {state.error ? `（${state.error}）` : ''}
+          ，可能被其他应用占用，请换一个组合。
+        </span>
+      </div>
+    ) : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" data-testid="settings-dialog">
@@ -161,43 +207,54 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes }: Settin
           <div className="border-t border-border pt-3">
             <div className="mb-2 text-xs font-medium text-muted">桌面端</div>
 
-            <Row label="全局快捷键">
+            <Row label="打开主窗口">
               <div className="flex items-center gap-2">
-                <input
-                  value={draft.hotkey}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, hotkey: event.target.value }))}
-                  onBlur={() => void applyHotkey(draft.hotkey)}
-                  className="w-40 rounded border border-border bg-background px-2 py-1 text-xs"
-                  data-testid="hotkey-input"
+                <HotkeyRecorder
+                  value={draft.mainWindowHotkey}
+                  onChange={(accelerator) => void applyHotkey('main', accelerator)}
+                  testId="hotkey-main-input"
                 />
                 <button
                   type="button"
-                  onClick={() => void applyHotkey(defaultHotkey)}
+                  onClick={() => void applyHotkey('main', defaultMainHotkey)}
                   className="rounded border border-border px-2 py-1 text-xs text-muted hover:bg-hover"
                 >
                   恢复默认
                 </button>
               </div>
             </Row>
+            {hotkeyWarning('主窗口快捷键', hotkeyStates?.main)}
 
-            {hotkeyState && !hotkeyState.registered && (
-              <div className="ml-2 flex items-start gap-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1.5 text-[11px] text-warning">
-                <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-                <span>
-                  快捷键 <code>{formatHotkey(hotkeyState.accelerator)}</code> 注册失败
-                  {hotkeyState.error ? `（${hotkeyState.error}）` : ''}
-                  ，可能被其他应用占用，请换一个组合。
-                </span>
+            <Row label="打开数据窗口">
+              <div className="flex items-center gap-2">
+                <HotkeyRecorder
+                  value={draft.hotkey}
+                  onChange={(accelerator) => void applyHotkey('capture', accelerator)}
+                  testId="hotkey-input"
+                />
+                <button
+                  type="button"
+                  onClick={() => void applyHotkey('capture', defaultHotkey)}
+                  className="rounded border border-border px-2 py-1 text-xs text-muted hover:bg-hover"
+                >
+                  恢复默认
+                </button>
               </div>
-            )}
-            {hotkeyState?.registered && (
+            </Row>
+            {hotkeyWarning('数据窗口快捷键', hotkeyStates?.capture)}
+
+            <div className="ml-2 text-[11px] text-muted">
+              点击快捷键框后直接按下组合键完成录制，Esc 取消。
+              {!desktop && (
+                <>
+                  {' '}全局快捷键仅在桌面客户端生效；当前预览为 {formatHotkey(draft.mainWindowHotkey)} /{' '}
+                  {formatHotkey(draft.hotkey)}。
+                </>
+              )}
+            </div>
+            {hotkeyStates?.main.registered && hotkeyStates.capture.registered && (
               <div className="ml-2 text-[11px] text-success">
-                已注册 {formatHotkey(hotkeyState.accelerator)}
-              </div>
-            )}
-            {!desktop && (
-              <div className="ml-2 text-[11px] text-muted">
-                全局快捷键仅在桌面客户端生效；当前预览效果 {formatHotkey(draft.hotkey)}。
+                两个快捷键均已生效
               </div>
             )}
 

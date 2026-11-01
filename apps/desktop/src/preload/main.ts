@@ -6,6 +6,7 @@ import type {
   AppleNotesStatus,
   AppleNotesSyncOptions,
 } from '@aimarkdown/shared';
+import type { HotkeyStates, HotkeyTarget } from '../main/hotkey.js';
 
 /**
  * Preload for the main window.
@@ -32,8 +33,10 @@ const api = {
     invoke<boolean>('amd:set-tokens', tokens),
   refreshSession: () =>
     invoke<{ accessToken: string; refreshToken: string } | null>('amd:refresh-session'),
-  setHotkey: (accelerator: string) =>
-    invoke<{ ok: boolean; error?: string }>('amd:set-hotkey', accelerator),
+  setHotkey: (target: HotkeyTarget, accelerator: string) =>
+    invoke<{ ok: boolean; error?: string }>('amd:set-hotkey', target, accelerator),
+  getHotkeyStates: () => invoke<HotkeyStates>('amd:get-hotkey-states'),
+  // Legacy single-shortcut getter, retained for older renderer bundles.
   getHotkeyState: () =>
     invoke<{ accelerator: string; registered: boolean; error?: string }>('amd:get-hotkey-state'),
   showMainWindow: () => invoke<boolean>('amd:show-main'),
@@ -43,7 +46,7 @@ const api = {
   },
   /** Mirror server-synced settings into the shell (hotkey, inbox, tray behaviour). */
   applySettings: (settings: Record<string, unknown>) =>
-    invoke<{ accelerator: string; registered: boolean; error?: string }>('amd:apply-settings', settings),
+    invoke<{ hotkeys: HotkeyStates; loginItemError?: string }>('amd:apply-settings', settings),
   appleNotes: {
     getStatus: () => invoke<AppleNotesStatus>('amd:apple-notes:get-status'),
     setSettings: (patch: Partial<AppleNotesSettings>) =>
@@ -67,9 +70,8 @@ const api = {
       return () => ipcRenderer.removeListener('amd:apple-notes:changed', listener);
     },
   },
-  onHotkeyWarning: (callback: (state: { accelerator: string; registered: boolean; error?: string }) => void) => {
-    const listener = (_event: unknown, state: { accelerator: string; registered: boolean; error?: string }) =>
-      callback(state);
+  onHotkeyWarning: (callback: (states: HotkeyStates) => void) => {
+    const listener = (_event: unknown, states: HotkeyStates) => callback(states);
     ipcRenderer.on('amd:hotkey-warning', listener);
     return () => ipcRenderer.removeListener('amd:hotkey-warning', listener);
   },

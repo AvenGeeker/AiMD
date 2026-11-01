@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { HotkeyStates, HotkeyTarget } from '../main/hotkey.js';
 
 /**
  * Preload for the quick-capture window.
@@ -21,7 +22,9 @@ const api = {
   getTokens: () => invoke<{ accessToken: string | null; refreshToken: string | null }>('amd:get-tokens'),
   setTokens: (tokens: { accessToken: string | null; refreshToken: string | null }) =>
     invoke<boolean>('amd:set-tokens', tokens),
-  setHotkey: (accelerator: string) => invoke<{ ok: boolean; error?: string }>('amd:set-hotkey', accelerator),
+  setHotkey: (target: HotkeyTarget, accelerator: string) =>
+    invoke<{ ok: boolean; error?: string }>('amd:set-hotkey', target, accelerator),
+  getHotkeyStates: () => invoke<HotkeyStates>('amd:get-hotkey-states'),
   getHotkeyState: () =>
     invoke<{ accelerator: string; registered: boolean; error?: string }>('amd:get-hotkey-state'),
   showMainWindow: () => invoke<boolean>('amd:show-main'),

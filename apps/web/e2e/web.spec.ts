@@ -322,4 +322,72 @@ test.describe('desktop server settings', () => {
     await expect(page.getByTestId('edit-server-url')).toBeVisible();
     await expect(page.getByTestId('auth-error')).toHaveCount(0);
   });
+
+  test('records separate main-window and data-window shortcuts from the keyboard', async ({
+    page,
+    baseURL,
+  }) => {
+    expect(baseURL).toBeTruthy();
+
+    await page.addInitScript((initialServerUrl) => {
+      const state = {
+        serverUrl: initialServerUrl,
+        accessToken: null as string | null,
+        refreshToken: null as string | null,
+        hotkeys: {
+          capture: { accelerator: 'Alt+Space', registered: true },
+          main: { accelerator: 'CommandOrControl+Shift+M', registered: true },
+        },
+      };
+      const changes: Array<[string, string]> = [];
+      (window as unknown as { __hotkeyChanges: Array<[string, string]> }).__hotkeyChanges = changes;
+      (window as unknown as { aiMarkdown: unknown }).aiMarkdown = {
+        platform: 'win32',
+        appVersion: 'test',
+        getServerUrl: async () => state.serverUrl,
+        setServerUrl: async (url: string) => {
+          state.serverUrl = url;
+        },
+        getTokens: async () => ({
+          accessToken: state.accessToken,
+          refreshToken: state.refreshToken,
+        }),
+        setTokens: async (tokens: { accessToken: string | null; refreshToken: string | null }) => {
+          state.accessToken = tokens.accessToken;
+          state.refreshToken = tokens.refreshToken;
+        },
+        getHotkeyStates: async () => state.hotkeys,
+        setHotkey: async (target: 'capture' | 'main', accelerator: string) => {
+          changes.push([target, accelerator]);
+          state.hotkeys = {
+            ...state.hotkeys,
+            [target]: { accelerator, registered: true },
+          };
+          return { ok: true };
+        },
+        applySettings: async () => ({ hotkeys: state.hotkeys }),
+        showMainWindow: async () => {},
+        hideQuickCapture: async () => {},
+      };
+    }, baseURL!);
+
+    await registerThroughUi(page);
+    await page.getByTestId('open-settings').click();
+
+    await page.getByTestId('hotkey-main-input').click();
+    await page.keyboard.press('Control+Shift+K');
+    await expect(page.getByTestId('hotkey-main-input')).toContainText('Ctrl + Shift + K');
+
+    await page.getByTestId('hotkey-input').click();
+    await page.keyboard.press('Control+Alt+P');
+    await expect(page.getByTestId('hotkey-input')).toContainText('Ctrl + Alt + P');
+
+    const changes = await page.evaluate(
+      () => (window as unknown as { __hotkeyChanges: Array<[string, string]> }).__hotkeyChanges,
+    );
+    expect(changes).toEqual([
+      ['main', 'CommandOrControl+Shift+K'],
+      ['capture', 'CommandOrControl+Alt+P'],
+    ]);
+  });
 });

@@ -14,6 +14,16 @@ import type {
  * the OS keychain, register a global hotkey, and drive the quick-capture window.
  */
 
+export type HotkeyTarget = 'capture' | 'main';
+
+export interface HotkeyState {
+  accelerator: string;
+  registered: boolean;
+  error?: string;
+}
+
+export type HotkeyStates = Record<HotkeyTarget, HotkeyState>;
+
 export interface DesktopBridge {
   /** Platform reported by the Electron main process. */
   platform: NodeJS.Platform;
@@ -26,9 +36,11 @@ export interface DesktopBridge {
   /** Desktop-only single-flight refresh shared by the renderer and background sync. */
   refreshSession?(): Promise<{ accessToken: string; refreshToken: string } | null>;
   setTokens(tokens: { accessToken: string | null; refreshToken: string | null }): Promise<void>;
-  /** Ask the main process to re-register the global quick-capture hotkey. */
-  setHotkey(accelerator: string): Promise<{ ok: boolean; error?: string }>;
-  getHotkeyState(): Promise<{ accelerator: string; registered: boolean; error?: string }>;
+  /** Re-register one of the two global window shortcuts. */
+  setHotkey(target: HotkeyTarget, accelerator: string): Promise<{ ok: boolean; error?: string }>;
+  getHotkeyStates(): Promise<HotkeyStates>;
+  /** Legacy single-shortcut getter for older desktop shells. */
+  getHotkeyState?(): Promise<HotkeyState>;
   showMainWindow(): Promise<void>;
   hideQuickCapture(): Promise<void>;
   /**
@@ -101,29 +113,35 @@ export function platform(): NodeJS.Platform {
 
 /** Human-readable accelerator hint for the current platform, e.g. `⌥Space`. */
 export function formatHotkey(accelerator: string): string {
-  if (platform() !== 'darwin') return accelerator.replace(/\+/g, ' + ');
+  const isMac = platform() === 'darwin';
   return accelerator
     .split('+')
     .map((part) => {
-      switch (part.trim().toLowerCase()) {
+      const key = part.trim();
+      switch (key.toLowerCase()) {
+        case 'commandorcontrol':
+        case 'cmdorctrl':
+          return isMac ? '⌘' : 'Ctrl';
         case 'command':
         case 'cmd':
-          return '⌘';
+        case 'super':
+        case 'meta':
+          return isMac ? '⌘' : key;
         case 'alt':
         case 'option':
-          return '⌥';
+          return isMac ? '⌥' : 'Alt';
         case 'shift':
-          return '⇧';
+          return isMac ? '⇧' : 'Shift';
         case 'control':
         case 'ctrl':
-          return '⌃';
+          return isMac ? '⌃' : 'Ctrl';
         case 'space':
           return 'Space';
         default:
-          return part.trim();
+          return key;
       }
     })
-    .join('');
+    .join(isMac ? '' : ' + ');
 }
 
 /* ------------------------------ mobile shell ------------------------------ */

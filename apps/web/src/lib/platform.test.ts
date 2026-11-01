@@ -91,6 +91,12 @@ describe('formatHotkey', () => {
     expect(formatHotkey('Ctrl+Alt+Space')).toBe('Ctrl + Alt + Space');
   });
 
+  it('renders portable CommandOrControl on the current platform', () => {
+    const formatted = formatHotkey('CommandOrControl+Shift+M');
+    expect(formatted.replace(/\s/g, '')).toContain('Shift');
+    expect(formatted.replace(/\s/g, '')).not.toContain('CommandOrControl');
+  });
+
   it('leaves a single key untouched', () => {
     expect(formatHotkey('F12')).toBe('F12');
   });

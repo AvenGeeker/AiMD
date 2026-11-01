@@ -1,5 +1,5 @@
 import { Menu, Tray, app, nativeImage } from 'electron';
-import { getHotkeyState } from './hotkey.js';
+import { getHotkeyStates } from './hotkey.js';
 import { createMainWindow, showMainWindow, toggleCaptureWindow, getCaptureWindow } from './windows.js';
 import { getState, isPlaintextFallback } from './store.js';
 import { setQuitting } from './lifecycle.js';
@@ -24,6 +24,11 @@ let onAppleNotesSync: (() => void) | null = null;
 
 export function setSyncLabel(label: string): void {
   syncLabel = label;
+  rebuildMenu();
+}
+
+/** Rebuild after a shortcut registration result changes. */
+export function refreshTrayMenu(): void {
   rebuildMenu();
 }
 
@@ -55,12 +60,9 @@ function trayImage(): Electron.NativeImage {
 
 function rebuildMenu(): void {
   if (!tray) return;
-  const hotkey = getHotkeyState();
+  const hotkeys = getHotkeyStates();
   const state = getState();
-
-  const hotkeyLabel = hotkey.registered
-    ? `速记快捷键：${hotkey.accelerator}`
-    : `快捷键未注册：${hotkey.accelerator || '（未设置）'}`;
+  const failedHotkeys = [hotkeys.capture, hotkeys.main].filter((hotkey) => !hotkey.registered);
 
   const menu = Menu.buildFromTemplate([
     {
@@ -74,17 +76,21 @@ function rebuildMenu(): void {
     { type: 'separator' },
     { label: syncLabel, enabled: false },
     {
-      label: hotkeyLabel,
+      label: hotkeys.capture.registered
+        ? `速记窗口快捷键：${hotkeys.capture.accelerator}`
+        : `速记窗口快捷键未注册：${hotkeys.capture.accelerator || '（未设置）'}`,
       enabled: false,
     },
-    ...(hotkey.registered
-      ? []
-      : [
-          {
-            label: hotkey.error ? `⚠ ${hotkey.error}` : '⚠ 快捷键注册失败，请在设置中更换',
-            enabled: false,
-          },
-        ]),
+    {
+      label: hotkeys.main.registered
+        ? `主窗口快捷键：${hotkeys.main.accelerator}`
+        : `主窗口快捷键未注册：${hotkeys.main.accelerator || '（未设置）'}`,
+      enabled: false,
+    },
+    ...failedHotkeys.map((hotkey) => ({
+      label: hotkey.error ? `⚠ ${hotkey.error}` : '⚠ 快捷键注册失败，请在设置中更换',
+      enabled: false,
+    })),
     ...(appleNotesStatus
       ? [
           { type: 'separator' as const },

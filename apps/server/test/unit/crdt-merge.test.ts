@@ -237,6 +237,7 @@ describe('workspace document', () => {
     expect(settings.inboxNoteId).toBeNull();
     expect(settings.editorMode).toBe('split');
     expect(settings.theme).toBe('system');
+    expect(settings.mainWindowHotkey).toBe('CommandOrControl+Shift+M');
   });
 
   it('ignores invalid values instead of propagating them', () => {
@@ -257,9 +258,14 @@ describe('workspace document', () => {
 
     writeSettings(a, { theme: 'dark' });
     writeSettings(b, { fontSize: 18 });
+    writeSettings(b, { mainWindowHotkey: 'CommandOrControl+Alt+M' });
     merge(a, b);
 
-    expect(readSettings(a)).toMatchObject({ theme: 'dark', fontSize: 18 });
+    expect(readSettings(a)).toMatchObject({
+      theme: 'dark',
+      fontSize: 18,
+      mainWindowHotkey: 'CommandOrControl+Alt+M',
+    });
     expect(readSettings(b)).toMatchObject({ theme: 'dark', fontSize: 18 });
   });
 

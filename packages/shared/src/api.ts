@@ -76,6 +76,7 @@ export const BEARER_TRANSPORT = 'bearer';
 export const settingsDto = z.object({
   inboxNoteId: idSchema.nullable(),
   hotkey: z.string().min(1).max(64),
+  mainWindowHotkey: z.string().min(1).max(64),
   theme: z.enum(THEMES),
   editorMode: z.enum(EDITOR_MODES),
   fontSize: z.number().int().min(10).max(24),

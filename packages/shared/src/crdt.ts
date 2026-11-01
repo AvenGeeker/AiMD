@@ -1,4 +1,12 @@
-import { CRDT_SCHEMA_VERSION, DEFAULT_HOTKEY, THEMES, EDITOR_MODES, STAMP_FORMATS, INBOX_NOTE_TITLE } from './constants.js';
+import {
+  CRDT_SCHEMA_VERSION,
+  DEFAULT_HOTKEY,
+  DEFAULT_MAIN_WINDOW_HOTKEY,
+  THEMES,
+  EDITOR_MODES,
+  STAMP_FORMATS,
+  INBOX_NOTE_TITLE,
+} from './constants.js';
 import type { AiStatus } from './ai.js';
 
 /**
@@ -110,8 +118,10 @@ export const NOTE_META_DEFAULTS: NoteMetaMap = {
 export interface WorkspaceSettings {
   /** Note that the global-hotkey quick-capture window appends to. */
   inboxNoteId: string | null;
-  /** Electron accelerator, e.g. `Alt+Space`. */
+  /** Electron accelerator for the quick-capture (data-entry) window, e.g. `Alt+Space`. */
   hotkey: string;
+  /** Electron accelerator for bringing the main workspace window to the front. */
+  mainWindowHotkey: string;
   theme: (typeof THEMES)[number];
   editorMode: (typeof EDITOR_MODES)[number];
   fontSize: number;
@@ -128,6 +138,7 @@ export interface WorkspaceSettings {
 export const DEFAULT_SETTINGS: WorkspaceSettings = {
   inboxNoteId: null,
   hotkey: DEFAULT_HOTKEY.darwin,
+  mainWindowHotkey: DEFAULT_MAIN_WINDOW_HOTKEY,
   theme: 'system',
   editorMode: 'split',
   fontSize: 14,

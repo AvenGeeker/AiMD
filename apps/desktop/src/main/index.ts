@@ -1,7 +1,13 @@
 import { app, BrowserWindow, Notification } from 'electron';
 import { getState, loadState, saveState } from './store.js';
 import { isQuitting } from './lifecycle.js';
-import { registerHotkey, unregisterAll, getHotkeyState } from './hotkey.js';
+import {
+  registerHotkey,
+  unregisterAll,
+  getHotkeyState,
+  getHotkeyStates,
+  type HotkeyTarget,
+} from './hotkey.js';
 import {
   createCaptureWindow,
   createMainWindow,
@@ -72,8 +78,13 @@ if (!gotLock) {
 
     appleNotesEngineRef = appleNotesEngine;
 
+    const applyHotkey = (target: HotkeyTarget, accelerator: string) =>
+      registerHotkey(target, accelerator, () =>
+        target === 'capture' ? toggleCaptureWindow() : showMainWindow(),
+      );
+
     registerIpc({
-      onHotkeyChange: () => toggleCaptureWindow(),
+      onHotkeyChange: applyHotkey,
       appleNotes: appleNotesEngine,
     });
 
@@ -83,17 +94,24 @@ if (!gotLock) {
     // Pre-create (hidden) so the first hotkey press is instant rather than paying window+webview
     // startup the moment the user is trying to jot something down.
     createCaptureWindow();
-    createTray();
     setQuitHandler(() => shutdown());
 
-    const hotkeyState = registerHotkey(state.hotkey, () => toggleCaptureWindow());
-    if (!hotkeyState.registered) {
-      // Surface the failure instead of silently having no hotkey; the tray menu repeats it and
-      // the settings dialog offers a way to change the combination.
-      console.warn(`[aiMarkdown] global hotkey "${state.hotkey}" not registered: ${hotkeyState.error}`);
+    const captureState = applyHotkey('capture', state.hotkey);
+    const mainState = applyHotkey('main', state.mainWindowHotkey);
+    const failed = [captureState, mainState].filter((hotkey) => !hotkey.registered);
+    // Create the tray after registration so its shortcut labels reflect the real state.
+    createTray();
+    if (failed.length > 0) {
+      // Surface failures instead of silently leaving a shortcut unavailable; the tray menu
+      // repeats them and the settings dialog offers a way to record a different combination.
+      for (const failure of failed) {
+        console.warn(
+          `[aiMarkdown] global hotkey "${failure.accelerator}" not registered: ${failure.error}`,
+        );
+      }
       const window = BrowserWindow.getAllWindows()[0];
       window?.webContents.once('did-finish-load', () => {
-        window.webContents.send('amd:hotkey-warning', hotkeyState);
+        window.webContents.send('amd:hotkey-warning', getHotkeyStates());
       });
     }
   };
@@ -133,4 +151,4 @@ if (!gotLock) {
   process.on('SIGTERM', () => shutdown());
 }
 
-export { getHotkeyState, saveState };
+export { getHotkeyState, getHotkeyStates, saveState };

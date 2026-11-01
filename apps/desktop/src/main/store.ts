@@ -19,8 +19,10 @@ export interface PersistedState {
   serverUrl: string;
   accessToken: string | null;
   refreshToken: string | null;
-  /** Accelerator currently registered for quick capture. */
+  /** Accelerator currently registered for the quick-capture (data-entry) window. */
   hotkey: string;
+  /** Accelerator currently registered for bringing the main window forward. */
+  mainWindowHotkey: string;
   inboxNoteId: string | null;
   stampFormat: string;
   launchAtLogin: boolean;
@@ -44,6 +46,8 @@ const DEFAULTS: PersistedState = {
   accessToken: null,
   refreshToken: null,
   hotkey: process.platform === 'darwin' ? 'Alt+Space' : 'Ctrl+Alt+Space',
+  // Keep defaults local: the packaged main process must not require the workspace package at runtime.
+  mainWindowHotkey: 'CommandOrControl+Shift+M',
   inboxNoteId: null,
   stampFormat: 'heading',
   launchAtLogin: false,
@@ -128,6 +132,7 @@ export function loadState(): PersistedState {
       accessToken: decrypt(str('accessToken', '')) ?? null,
       refreshToken: decrypt(str('refreshToken', '')) ?? null,
       hotkey: str('hotkey', DEFAULTS.hotkey),
+      mainWindowHotkey: str('mainWindowHotkey', DEFAULTS.mainWindowHotkey),
       inboxNoteId: strOrNull('inboxNoteId'),
       stampFormat: str('stampFormat', DEFAULTS.stampFormat),
       launchAtLogin: bool('launchAtLogin', DEFAULTS.launchAtLogin),
@@ -155,6 +160,7 @@ export function saveState(patch: Partial<PersistedState>): PersistedState {
     accessToken: next.accessToken ? encrypt(next.accessToken) : '',
     refreshToken: next.refreshToken ? encrypt(next.refreshToken) : '',
     hotkey: next.hotkey,
+    mainWindowHotkey: next.mainWindowHotkey,
     inboxNoteId: next.inboxNoteId,
     stampFormat: next.stampFormat,
     launchAtLogin: next.launchAtLogin,

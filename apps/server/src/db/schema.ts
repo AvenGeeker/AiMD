@@ -110,6 +110,7 @@ export interface WorkspaceDocumentRow {
 
 export interface UserSettingsRow {
   user_id: string;
+  /** JSON projection of WorkspaceSettings, including both desktop window shortcuts. */
   settings: Record<string, unknown>;
   updated_at: Date;
 }

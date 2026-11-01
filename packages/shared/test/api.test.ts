@@ -164,5 +164,9 @@ describe('settings patch', () => {
   it('rejects an unknown editor mode', () => {
     expect(settingsPatchInput.safeParse({ editorMode: 'zen' }).success).toBe(false);
     expect(settingsPatchInput.safeParse({ editorMode: 'preview' }).success).toBe(true);
+    expect(settingsPatchInput.safeParse({ mainWindowHotkey: 'CommandOrControl+Shift+M' }).success).toBe(
+      true,
+    );
+    expect(settingsPatchInput.safeParse({ mainWindowHotkey: '' }).success).toBe(false);
   });
 });

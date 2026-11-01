@@ -217,6 +217,10 @@ export function readSettings(doc: Y.Doc): WorkspaceSettings {
   if (inboxNoteId === null || typeof inboxNoteId === 'string') base.inboxNoteId = inboxNoteId;
   const hotkey = get('hotkey');
   if (typeof hotkey === 'string' && hotkey.length > 0) base.hotkey = hotkey;
+  const mainWindowHotkey = get('mainWindowHotkey');
+  if (typeof mainWindowHotkey === 'string' && mainWindowHotkey.length > 0) {
+    base.mainWindowHotkey = mainWindowHotkey;
+  }
   const theme = get('theme');
   if (theme === 'light' || theme === 'dark' || theme === 'system') base.theme = theme;
   const editorMode = get('editorMode');

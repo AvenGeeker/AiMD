@@ -1,9 +1,15 @@
 import { app, ipcMain, shell } from 'electron';
 import { clearTokens, getState, saveState } from './store.js';
-import { getHotkeyState, registerHotkey } from './hotkey.js';
+import {
+  getHotkeyState,
+  getHotkeyStates,
+  HOTKEY_TARGETS,
+  type HotkeyState,
+  type HotkeyTarget,
+} from './hotkey.js';
 import { setLaunchAtLogin } from './login-item.js';
 import { hideCaptureWindow, showMainWindow } from './windows.js';
-import { setSyncLabel, setAppleNotesStatus } from './tray.js';
+import { setSyncLabel, setAppleNotesStatus, refreshTrayMenu } from './tray.js';
 import { refreshDesktopSession } from './auth.js';
 import type { AppleNotesSyncEngine } from './apple-notes/sync.js';
 import { reconfigureAppleNotesScheduler } from './apple-notes/scheduler.js';
@@ -19,9 +25,17 @@ import type { AppleNotesSchedule } from '@aimarkdown/shared';
 const asString = (value: unknown, fallback = ''): string => (typeof value === 'string' ? value : fallback);
 
 export interface IpcDeps {
-  /** Called after the hotkey preference changes so the main process re-registers it. */
-  onHotkeyChange(accelerator: string): void;
+  /** Re-register one window shortcut and return its registration result. */
+  onHotkeyChange(target: HotkeyTarget, accelerator: string): HotkeyState;
   appleNotes: AppleNotesSyncEngine;
+}
+
+function isHotkeyTarget(value: unknown): value is HotkeyTarget {
+  return typeof value === 'string' && (HOTKEY_TARGETS as readonly string[]).includes(value);
+}
+
+function hotkeyPatch(target: HotkeyTarget, accelerator: string): Record<string, string> {
+  return target === 'capture' ? { hotkey: accelerator } : { mainWindowHotkey: accelerator };
 }
 
 const APPLE_NOTES_SCHEDULES = new Set(['off', '15m', '30m', '1h', '6h', 'daily']);
@@ -58,15 +72,22 @@ export function registerIpc(deps: IpcDeps): void {
     return true;
   });
 
-  ipcMain.handle('amd:get-hotkey-state', () => getHotkeyState());
+  ipcMain.handle('amd:get-hotkey-states', () => getHotkeyStates());
+  // Kept for older renderer bundles that only knew about the capture shortcut.
+  ipcMain.handle('amd:get-hotkey-state', () => getHotkeyState('capture'));
 
-  ipcMain.handle('amd:set-hotkey', (_event, accelerator: unknown) => {
+  ipcMain.handle('amd:set-hotkey', (_event, target: unknown, accelerator: unknown) => {
+    if (!isHotkeyTarget(target)) {
+      return { ok: false, error: '无效的快捷键目标', state: null };
+    }
     const next = asString(accelerator).trim();
-    const state = registerHotkey(next, () => deps.onHotkeyChange(next));
+    if (!next) return { ok: false, error: '快捷键不能为空', state: null };
+    const state = deps.onHotkeyChange(target, next);
     // Persist even when registration failed, so the user sees the value they asked for and the
     // warning next to it.
-    saveState({ hotkey: next });
-    return { ok: state.registered, error: state.error ?? null };
+    saveState(hotkeyPatch(target, next));
+    refreshTrayMenu();
+    return { ok: state.registered, error: state.error ?? null, state };
   });
 
   ipcMain.handle('amd:show-main', () => {
@@ -115,6 +136,9 @@ export function registerIpc(deps: IpcDeps): void {
     if (typeof value.hotkey === 'string' && value.hotkey.trim().length > 0) {
       patch.hotkey = value.hotkey.trim();
     }
+    if (typeof value.mainWindowHotkey === 'string' && value.mainWindowHotkey.trim().length > 0) {
+      patch.mainWindowHotkey = value.mainWindowHotkey.trim();
+    }
     if (typeof value.inboxNoteId === 'string' || value.inboxNoteId === null) {
       patch.inboxNoteId = value.inboxNoteId;
     }
@@ -130,12 +154,22 @@ export function registerIpc(deps: IpcDeps): void {
 
     saveState(patch);
 
-    const nextHotkey = typeof patch.hotkey === 'string' ? patch.hotkey : getState().hotkey;
-    if (nextHotkey !== getHotkeyState().accelerator || !getHotkeyState().registered) {
-      registerHotkey(nextHotkey, () => deps.onHotkeyChange(nextHotkey));
+    const current = getState();
+    if (current.hotkey !== getHotkeyState('capture').accelerator || !getHotkeyState('capture').registered) {
+      deps.onHotkeyChange('capture', current.hotkey);
     }
-    // Surface a login-item failure to the settings dialog instead of swallowing it.
-    return { ...getHotkeyState(), ...(loginItemError ? { loginItemError } : {}) };
+    if (
+      current.mainWindowHotkey !== getHotkeyState('main').accelerator ||
+      !getHotkeyState('main').registered
+    ) {
+      deps.onHotkeyChange('main', current.mainWindowHotkey);
+    }
+    refreshTrayMenu();
+    // Surface a login-item failure and both registration results to the settings dialog.
+    return {
+      hotkeys: getHotkeyStates(),
+      ...(loginItemError ? { loginItemError } : {}),
+    };
   });
 
   /* ------------------------- macOS Notes integration ------------------------ */

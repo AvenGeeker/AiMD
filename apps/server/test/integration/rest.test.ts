@@ -37,6 +37,33 @@ describeDb('REST API against a real Postgres', () => {
       expect(tree.body.settings.inboxNoteId).toBe(notes.body.items[0]?.id);
     });
 
+    it('persists both desktop window shortcuts through the workspace doc', async () => {
+      const client = await register(server);
+      const updated = await api<{ hotkey: string; mainWindowHotkey: string }>(
+        server,
+        client,
+        'PATCH',
+        '/api/settings',
+        { hotkey: 'Alt+Shift+Space', mainWindowHotkey: 'CommandOrControl+Alt+M' },
+      );
+      expect(updated.status).toBe(200);
+      expect(updated.body).toMatchObject({
+        hotkey: 'Alt+Shift+Space',
+        mainWindowHotkey: 'CommandOrControl+Alt+M',
+      });
+
+      const fetched = await api<{ hotkey: string; mainWindowHotkey: string }>(
+        server,
+        client,
+        'GET',
+        '/api/settings',
+      );
+      expect(fetched.body).toMatchObject({
+        hotkey: 'Alt+Shift+Space',
+        mainWindowHotkey: 'CommandOrControl+Alt+M',
+      });
+    });
+
     it('rejects a duplicate email with EMAIL_TAKEN', async () => {
       const email = uniqueEmail('dupe');
       await register(server, email);

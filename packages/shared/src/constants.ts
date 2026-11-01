@@ -60,12 +60,19 @@ export type Theme = (typeof THEMES)[number];
 export const STAMP_FORMATS = ['none', 'heading', 'bullet'] as const;
 export type StampFormat = (typeof STAMP_FORMATS)[number];
 
-/** Default global hotkey per platform (Electron accelerator syntax). */
+/** Default global quick-capture hotkey per platform (Electron accelerator syntax). */
 export const DEFAULT_HOTKEY: Record<'darwin' | 'win32' | 'linux', string> = {
   darwin: 'Alt+Space',
   win32: 'Ctrl+Alt+Space',
   linux: 'Ctrl+Alt+Space',
 };
+
+/**
+ * Default global shortcut for opening the main window.
+ *
+ * `CommandOrControl` keeps the synced preference portable between macOS and Windows/Linux.
+ */
+export const DEFAULT_MAIN_WINDOW_HOTKEY = 'CommandOrControl+Shift+M';
 
 /** List sort orders accepted by `GET /api/notes`. */
 export const NOTE_SORTS = ['updated', 'created', 'title', 'position'] as const;

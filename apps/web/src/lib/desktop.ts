@@ -1,6 +1,6 @@
 import type { SettingsDto } from '@aimarkdown/shared';
 import type { SyncStatus } from './sync.js';
-import { getBridge, isDesktop } from './platform.js';
+import { getBridge, isDesktop, type HotkeyStates } from './platform.js';
 
 /**
  * Web-bundle ↔ Electron-shell integration.
@@ -14,9 +14,7 @@ import { getBridge, isDesktop } from './platform.js';
 interface ExtendedBridge {
   reportSyncStatus?(payload: { status: string; pending: number }): void;
   applySettings?(settings: Record<string, unknown>): Promise<unknown>;
-  onHotkeyWarning?(
-    callback: (state: { accelerator: string; registered: boolean; error?: string }) => void,
-  ): () => void;
+  onHotkeyWarning?(callback: (states: HotkeyStates) => void): () => void;
 }
 
 function bridge(): (ReturnType<typeof getBridge> & Partial<ExtendedBridge>) | null {
@@ -31,20 +29,18 @@ export function reportSyncStatus(status: SyncStatus, pending: number): void {
 /**
  * Push settings into the shell.
  *
- * Returns the resulting hotkey registration state so the settings dialog can warn when the
- * accelerator is already owned by another application.
+ * Returns both registration results so the settings dialog can warn when an accelerator is
+ * already owned by another application.
  */
 export async function applySettingsToShell(
   settings: SettingsDto,
-): Promise<{ accelerator: string; registered: boolean; error?: string } | null> {
+): Promise<HotkeyStates | null> {
   if (!isDesktop()) return null;
   const result = await bridge()?.applySettings?.({ ...settings });
-  return (result as { accelerator: string; registered: boolean; error?: string } | undefined) ?? null;
+  return (result as { hotkeys?: HotkeyStates } | undefined)?.hotkeys ?? null;
 }
 
-export function subscribeHotkeyWarning(
-  callback: (state: { accelerator: string; registered: boolean; error?: string }) => void,
-): () => void {
+export function subscribeHotkeyWarning(callback: (states: HotkeyStates) => void): () => void {
   if (!isDesktop()) return () => undefined;
   return bridge()?.onHotkeyWarning?.(callback) ?? (() => undefined);
 }

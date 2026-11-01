@@ -1,12 +1,16 @@
 import { globalShortcut } from 'electron';
 
 /**
- * Global quick-capture hotkey.
+ * Global desktop shortcuts.
  *
- * Registration can fail — another app (Raycast, Alfred, a window manager) may already own the
- * combination. That must never be silent: the result is reported to the tray and the settings UI
- * so the user knows to pick a different accelerator.
+ * Two independent bindings live in the shell: one for the quick-capture (data-entry) window and
+ * one for bringing the main workspace window forward. Registration can fail — another app
+ * (Raycast, Alfred, a window manager) may already own the combination. That must never be
+ * silent: each result is reported to the tray and the settings UI.
  */
+
+export const HOTKEY_TARGETS = ['capture', 'main'] as const;
+export type HotkeyTarget = (typeof HOTKEY_TARGETS)[number];
 
 export interface HotkeyState {
   accelerator: string;
@@ -14,8 +18,18 @@ export interface HotkeyState {
   error?: string;
 }
 
-let current: HotkeyState = { accelerator: '', registered: false };
-let handler: (() => void) | null = null;
+export type HotkeyStates = Record<HotkeyTarget, HotkeyState>;
+
+const TARGET_LABEL: Record<HotkeyTarget, string> = {
+  capture: '打开数据窗口',
+  main: '打开主窗口',
+};
+
+let states: HotkeyStates = {
+  capture: { accelerator: '', registered: false },
+  main: { accelerator: '', registered: false },
+};
+const handlers: Partial<Record<HotkeyTarget, () => void>> = {};
 
 /** Validate an Electron accelerator loosely; the real check is whether registration succeeds. */
 export function looksLikeAccelerator(value: string): boolean {
@@ -29,40 +43,83 @@ export function looksLikeAccelerator(value: string): boolean {
   return hasModifier || isFunctionKey;
 }
 
-export function getHotkeyState(): HotkeyState {
-  return current;
+export function getHotkeyStates(): HotkeyStates {
+  return {
+    capture: { ...states.capture },
+    main: { ...states.main },
+  };
 }
 
-/** Register `accelerator` to trigger `onTrigger`. Unregisters any previous binding first. */
-export function registerHotkey(accelerator: string, onTrigger: () => void): HotkeyState {
-  handler = onTrigger;
+export function getHotkeyState(target: HotkeyTarget): HotkeyState {
+  return { ...states[target] };
+}
 
-  if (!looksLikeAccelerator(accelerator)) {
-    current = {
-      accelerator,
+/** True when both configured shortcuts are valid and currently owned by this app. */
+export function allHotkeysRegistered(): boolean {
+  return HOTKEY_TARGETS.every((target) => states[target].registered);
+}
+
+function sameAccelerator(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/**
+ * Register one target's accelerator. The other target is left untouched so changing one
+ * shortcut cannot silently disable the other.
+ */
+export function registerHotkey(
+  target: HotkeyTarget,
+  accelerator: string,
+  onTrigger: () => void,
+): HotkeyState {
+  handlers[target] = onTrigger;
+  const next = accelerator.trim();
+
+  if (!next) {
+    unregisterHotkey(target);
+    states[target] = { accelerator: '', registered: false, error: '尚未设置快捷键' };
+    return { ...states[target] };
+  }
+
+  if (!looksLikeAccelerator(next)) {
+    unregisterHotkey(target);
+    states[target] = {
+      accelerator: next,
       registered: false,
       error: '快捷键格式无效，需要包含修饰键（如 Alt+Space）或功能键（如 F12）',
     };
-    return current;
+    return { ...states[target] };
   }
 
-  unregisterHotkey();
+  const other: HotkeyTarget = target === 'capture' ? 'main' : 'capture';
+  if (states[other].accelerator && sameAccelerator(states[other].accelerator, next)) {
+    unregisterHotkey(target);
+    states[target] = {
+      accelerator: next,
+      registered: false,
+      error: `该组合键已用于${TARGET_LABEL[other]}`,
+    };
+    return { ...states[target] };
+  }
+
+  unregisterHotkey(target);
   try {
-    const ok = globalShortcut.register(accelerator, () => handler?.());
-    current = ok
-      ? { accelerator, registered: true }
-      : { accelerator, registered: false, error: '该组合键已被其他应用占用' };
+    const ok = globalShortcut.register(next, () => handlers[target]?.());
+    states[target] = ok
+      ? { accelerator: next, registered: true }
+      : { accelerator: next, registered: false, error: '该组合键已被其他应用占用' };
   } catch (error) {
-    current = {
-      accelerator,
+    states[target] = {
+      accelerator: next,
       registered: false,
       error: error instanceof Error ? error.message : String(error),
     };
   }
-  return current;
+  return { ...states[target] };
 }
 
-export function unregisterHotkey(): void {
+export function unregisterHotkey(target: HotkeyTarget): void {
+  const current = states[target];
   if (current.registered && current.accelerator) {
     try {
       globalShortcut.unregister(current.accelerator);
@@ -70,7 +127,7 @@ export function unregisterHotkey(): void {
       /* already released */
     }
   }
-  current = { ...current, registered: false };
+  states[target] = { ...current, registered: false };
 }
 
 export function unregisterAll(): void {
@@ -79,5 +136,8 @@ export function unregisterAll(): void {
   } catch {
     /* ignore */
   }
-  current = { accelerator: current.accelerator, registered: false };
+  states = {
+    capture: { accelerator: states.capture.accelerator, registered: false },
+    main: { accelerator: states.main.accelerator, registered: false },
+  };
 }

@@ -93,6 +93,7 @@ describe('document shape constants', () => {
   it('provides complete default settings', () => {
     expect(DEFAULT_SETTINGS.inboxNoteId).toBeNull();
     expect(DEFAULT_SETTINGS.hotkey).toBe('Alt+Space');
+    expect(DEFAULT_SETTINGS.mainWindowHotkey).toBe('CommandOrControl+Shift+M');
     expect(DEFAULT_SETTINGS.editorMode).toBe('split');
     expect(DEFAULT_SETTINGS.stampFormat).toBe('heading');
     expect(DEFAULT_SETTINGS.fontSize).toBe(14);
