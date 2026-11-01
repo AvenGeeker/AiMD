@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, Notification } from 'electron';
 import { getState, loadState, saveState } from './store.js';
 import { isQuitting } from './lifecycle.js';
 import { registerHotkey, unregisterAll, getHotkeyState } from './hotkey.js';
@@ -13,6 +13,10 @@ import { createTray, destroyTray, setQuitHandler } from './tray.js';
 import { registerIpc } from './ipc.js';
 import { setQuitting } from './lifecycle.js';
 import { setLaunchAtLogin } from './login-item.js';
+import { AppleNotesSyncEngine } from './apple-notes/sync.js';
+import { startAppleNotesScheduler, stopAppleNotesScheduler } from './apple-notes/scheduler.js';
+import { setAppleNotesStatus } from './tray.js';
+import type { AppleNotesChangedEvent, AppleNotesStatus } from '@aimarkdown/shared';
 
 /**
  * Desktop shell entrypoint.
@@ -21,6 +25,8 @@ import { setLaunchAtLogin } from './login-item.js';
  * keeps the app alive after the window closes, and keychain-backed token storage. Everything else
  * — including the editor itself — is the same web bundle the browser loads.
  */
+
+let appleNotesEngineRef: AppleNotesSyncEngine | null = null;
 
 const gotLock = app.requestSingleInstanceLock();
 
@@ -42,9 +48,36 @@ if (!gotLock) {
       console.warn(`[aiMarkdown] 无法设置登录时启动：${loginItem.error ?? '未知原因'}`);
     }
 
+    const broadcast = (channel: string, payload: unknown) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) window.webContents.send(channel, payload);
+      }
+    };
+    const appleNotesEngine = new AppleNotesSyncEngine({
+      onStatus: (status: AppleNotesStatus) => {
+        broadcast('amd:apple-notes:status', status);
+        setAppleNotesStatus(status, () => void appleNotesEngine.syncNow({}));
+      },
+      onChanged: (reason: AppleNotesChangedEvent['reason']) => {
+        broadcast('amd:apple-notes:changed', { reason, at: new Date().toISOString() });
+      },
+      onNotify: (title, body) => {
+        try {
+          if (Notification.isSupported()) new Notification({ title, body }).show();
+        } catch {
+          /* notifications are best-effort */
+        }
+      },
+    });
+
+    appleNotesEngineRef = appleNotesEngine;
+
     registerIpc({
       onHotkeyChange: () => toggleCaptureWindow(),
+      appleNotes: appleNotesEngine,
     });
+
+    startAppleNotesScheduler(appleNotesEngine);
 
     createMainWindow();
     // Pre-create (hidden) so the first hotkey press is instant rather than paying window+webview
@@ -67,6 +100,7 @@ if (!gotLock) {
 
   const shutdown = (): void => {
     setQuitting(true);
+    stopAppleNotesScheduler();
     unregisterAll();
     destroyAllWindows();
     destroyTray();
@@ -88,6 +122,7 @@ if (!gotLock) {
 
   app.on('before-quit', () => {
     setQuitting(true);
+    appleNotesEngineRef?.cancel();
   });
 
   app.on('will-quit', () => {

@@ -91,14 +91,23 @@ describeDb('attachments', () => {
     expect(fetched.headers['x-content-type-options']).toBe('nosniff');
   });
 
-  it('rejects a non-image mime type', async () => {
+  it('accepts a non-image attachment but serves it as a sandboxed download', async () => {
+    const data = Buffer.from('<script>alert(1)</script>');
     const response = await upload(server, client, {
       filename: 'evil.html',
       contentType: 'text/html',
-      data: Buffer.from('<script>alert(1)</script>'),
+      data,
     });
-    expect(response.statusCode).toBe(415);
-    expect(response.json()).toMatchObject({ code: 'UNSUPPORTED_MEDIA_TYPE' });
+    expect(response.statusCode).toBe(201);
+    const body = response.json() as AttachmentDto;
+    const fetched = await server.app.inject({
+      method: 'GET',
+      url: `/api/attachments/${body.id}`,
+      headers: client.header,
+    });
+    expect(fetched.statusCode).toBe(200);
+    expect(fetched.headers['content-disposition']).toContain('attachment');
+    expect(fetched.headers['content-security-policy']).toContain('sandbox');
   });
 
   it('serves an uploaded SVG with a locked-down CSP so it cannot script the app', async () => {

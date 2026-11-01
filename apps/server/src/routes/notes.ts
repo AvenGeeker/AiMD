@@ -3,6 +3,10 @@ import {
   ApiError,
   ERROR_CODES,
   createNoteInput,
+  createNotesBatchInput,
+  createNotesBatchDto,
+  noteBodyBatchInput,
+  noteBodyBatchDto,
   listNotesQuery,
   noteDto,
   noteListDto,
@@ -22,6 +26,7 @@ import {
   patchNoteMeta,
   positionBetween,
   readNoteBody,
+  readNoteBodies,
   toSummary,
   type NotesDeps,
 } from '../services/notes.js';
@@ -53,6 +58,43 @@ export function registerNoteRoutes(app: FastifyInstance, deps: NotesDeps, ws: Wo
     return reply.code(201).send(noteDto.parse({ ...toSummary(record), body: record.bodyText }));
   });
 
+  /**
+   * Batch body reads for the macOS sync host. Bodies come from the authoritative Y.Doc, not the
+   * projection, and the response is intentionally bounded so one huge note cannot exhaust memory.
+   */
+  app.post('/api/notes/bodies', opts, async (request, reply) => {
+    const input = parse(noteBodyBatchInput, request.body ?? {}, '批量读取笔记参数');
+    const items = await readNoteBodies(deps, currentUser(request).id, input.ids);
+    const total = items.reduce((sum, item) => sum + item.body.length, 0);
+    if (total > 16 * 1024 * 1024) {
+      throw new ApiError(ERROR_CODES.PAYLOAD_TOO_LARGE, '本批笔记正文过大，请减小批次');
+    }
+    return reply.send(noteBodyBatchDto.parse({ items }));
+  });
+
+  /** Idempotent batch creation used for first imports; each item reports its own result. */
+  app.post('/api/notes/batch-create', { ...opts, bodyLimit: 64 * 1024 * 1024 }, async (request, reply) => {
+    const input = parse(createNotesBatchInput, request.body ?? {}, '批量新建笔记参数');
+    const ownerId = currentUser(request).id;
+    const items = [];
+    for (const [index, item] of input.items.entries()) {
+      try {
+        const record = await createNote(deps, ownerId, item);
+        items.push({
+          index,
+          ok: true,
+          note: { ...toSummary(record), body: record.bodyText },
+        });
+      } catch (error) {
+        const body = error instanceof ApiError
+          ? error.toJSON()
+          : { code: ERROR_CODES.INTERNAL, message: error instanceof Error ? error.message : String(error) };
+        items.push({ index, ok: false, error: { code: body.code, message: body.message } });
+      }
+    }
+    return reply.code(201).send(createNotesBatchDto.parse({ items }));
+  });
+
   app.get('/api/notes/:id', opts, async (request, reply) => {
     const { id } = request.params as { id: string };
     const record = await getNote(deps, currentUser(request).id, id);
@@ -62,7 +104,7 @@ export function registerNoteRoutes(app: FastifyInstance, deps: NotesDeps, ws: Wo
     return reply.send(noteDto.parse({ ...toSummary(record), body }));
   });
 
-  app.patch('/api/notes/:id', opts, async (request, reply) => {
+  app.patch('/api/notes/:id', { ...opts, bodyLimit: 4 * 1024 * 1024 }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const input = parse(updateNoteInput, request.body ?? {}, '更新笔记参数');
     const ownerId = currentUser(request).id;
@@ -78,6 +120,8 @@ export function registerNoteRoutes(app: FastifyInstance, deps: NotesDeps, ws: Wo
       ...(input.archived !== undefined ? { archived: input.archived } : {}),
       ...(input.tagIds !== undefined ? { tagIds: input.tagIds } : {}),
       ...(input.title !== undefined ? { title: input.title } : {}),
+      ...(input.body !== undefined ? { body: input.body } : {}),
+      ...(input.expectedStateHash !== undefined ? { expectedStateHash: input.expectedStateHash } : {}),
       ...(position ? { position } : {}),
     });
     return reply.send(noteSummaryDto.parse(toSummary(record)));

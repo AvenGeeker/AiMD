@@ -45,6 +45,7 @@ export function registerTreeRoutes(app: FastifyInstance, ws: WorkspaceDeps): voi
   app.post('/api/folders', opts, async (request, reply) => {
     const input = parse(createFolderInput, request.body ?? {}, '新建目录');
     const created = await createFolder(ws, currentUser(request).id, {
+      ...(input.id ? { id: input.id } : {}),
       name: input.name,
       parentId: input.parentId ?? null,
     });

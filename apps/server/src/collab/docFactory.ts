@@ -263,6 +263,40 @@ export function appendToBody(doc: Y.Doc, text: string, separator = '\n\n'): numb
   return payload.length;
 }
 
+/**
+ * Replace the whole body with a minimal prefix/suffix diff.
+ *
+ * Full delete+insert would destroy the CRDT identity of unchanged text. A prefix/suffix diff
+ * keeps the common edges intact; the caller must still guard concurrent edits with a state hash
+ * when the replacement comes from an external system.
+ */
+export function replaceBody(doc: Y.Doc, next: string): number {
+  const body = doc.getText(NOTE_KEYS.body);
+  const current = body.toString();
+  if (current === next) return 0;
+
+  let prefix = 0;
+  const maxPrefix = Math.min(current.length, next.length);
+  while (prefix < maxPrefix && current.charCodeAt(prefix) === next.charCodeAt(prefix)) prefix++;
+
+  let suffix = 0;
+  const maxSuffix = Math.min(current.length - prefix, next.length - prefix);
+  while (
+    suffix < maxSuffix &&
+    current.charCodeAt(current.length - 1 - suffix) === next.charCodeAt(next.length - 1 - suffix)
+  ) {
+    suffix++;
+  }
+
+  const deleteCount = current.length - prefix - suffix;
+  const inserted = next.slice(prefix, next.length - suffix);
+  doc.transact(() => {
+    if (deleteCount > 0) body.delete(prefix, deleteCount);
+    if (inserted.length > 0) body.insert(prefix, inserted);
+  });
+  return Math.max(deleteCount, inserted.length);
+}
+
 export function writeFolder(doc: Y.Doc, entry: FolderEntry): void {
   doc.getMap(WORKSPACE_KEYS.folders).set(entry.id, { ...entry });
 }

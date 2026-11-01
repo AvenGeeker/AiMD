@@ -1,6 +1,8 @@
 import { app, safeStorage } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import type { AppleNotesSchedule, AppleNotesSyncResult } from '@aimarkdown/shared';
 
 /**
  * Persisted desktop state.
@@ -12,6 +14,8 @@ import { dirname, join } from 'node:path';
  */
 
 export interface PersistedState {
+  /** Stable per-install id; useful for logs and future sync-host election. */
+  deviceId: string;
   serverUrl: string;
   accessToken: string | null;
   refreshToken: string | null;
@@ -23,11 +27,19 @@ export interface PersistedState {
   minimizeToTray: boolean;
   /** Hide the capture panel when it loses focus. */
   hideOnBlur: boolean;
+  /** macOS Notes integration is intentionally local to this Mac. */
+  appleNotesEnabled: boolean;
+  appleNotesSchedule: AppleNotesSchedule;
+  appleNotesSyncOnLaunch: boolean;
+  appleNotesFirstSyncConfirmedAt: string | null;
+  appleNotesLastSyncAt: string | null;
+  appleNotesLastResult: AppleNotesSyncResult | null;
 }
 
 const FILE = 'state.json';
 
 const DEFAULTS: PersistedState = {
+  deviceId: '',
   serverUrl: '',
   accessToken: null,
   refreshToken: null,
@@ -37,10 +49,32 @@ const DEFAULTS: PersistedState = {
   launchAtLogin: false,
   minimizeToTray: true,
   hideOnBlur: true,
+  appleNotesEnabled: false,
+  appleNotesSchedule: '30m',
+  appleNotesSyncOnLaunch: true,
+  appleNotesFirstSyncConfirmedAt: null,
+  appleNotesLastSyncAt: null,
+  appleNotesLastResult: null,
 };
 
 let cache: PersistedState | null = null;
 let usingPlaintextFallback = false;
+
+const APPLE_NOTES_SCHEDULES = new Set(['off', '15m', '30m', '1h', '6h', 'daily']);
+
+function appleNotesSchedule(value: unknown, fallback: AppleNotesSchedule): AppleNotesSchedule {
+  return typeof value === 'string' && APPLE_NOTES_SCHEDULES.has(value)
+    ? (value as AppleNotesSchedule)
+    : fallback;
+}
+
+function resultOrNull(value: unknown): AppleNotesSyncResult | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<AppleNotesSyncResult>;
+  return typeof candidate.startedAt === 'string' && typeof candidate.finishedAt === 'string'
+    ? (candidate as AppleNotesSyncResult)
+    : null;
+}
 
 function filePath(): string {
   return join(app.getPath('userData'), FILE);
@@ -75,7 +109,8 @@ export function loadState(): PersistedState {
   if (cache) return cache;
   const path = filePath();
   if (!existsSync(path)) {
-    cache = { ...DEFAULTS };
+    cache = { ...DEFAULTS, deviceId: randomUUID() };
+    saveState({});
     return cache;
   }
   try {
@@ -88,6 +123,7 @@ export function loadState(): PersistedState {
       typeof raw[key] === 'boolean' ? (raw[key] as boolean) : fallback;
 
     cache = {
+      deviceId: str('deviceId', '') || randomUUID(),
       serverUrl: str('serverUrl', DEFAULTS.serverUrl),
       accessToken: decrypt(str('accessToken', '')) ?? null,
       refreshToken: decrypt(str('refreshToken', '')) ?? null,
@@ -97,9 +133,15 @@ export function loadState(): PersistedState {
       launchAtLogin: bool('launchAtLogin', DEFAULTS.launchAtLogin),
       minimizeToTray: bool('minimizeToTray', DEFAULTS.minimizeToTray),
       hideOnBlur: bool('hideOnBlur', DEFAULTS.hideOnBlur),
+      appleNotesEnabled: bool('appleNotesEnabled', DEFAULTS.appleNotesEnabled),
+      appleNotesSchedule: appleNotesSchedule(raw.appleNotesSchedule, DEFAULTS.appleNotesSchedule),
+      appleNotesSyncOnLaunch: bool('appleNotesSyncOnLaunch', DEFAULTS.appleNotesSyncOnLaunch),
+      appleNotesFirstSyncConfirmedAt: strOrNull('appleNotesFirstSyncConfirmedAt'),
+      appleNotesLastSyncAt: strOrNull('appleNotesLastSyncAt'),
+      appleNotesLastResult: resultOrNull(raw.appleNotesLastResult),
     };
   } catch {
-    cache = { ...DEFAULTS };
+    cache = { ...DEFAULTS, deviceId: randomUUID() };
   }
   return cache;
 }
@@ -108,6 +150,7 @@ export function saveState(patch: Partial<PersistedState>): PersistedState {
   const next = { ...loadState(), ...patch };
   cache = next;
   const serialised: Record<string, unknown> = {
+    deviceId: next.deviceId,
     serverUrl: next.serverUrl,
     accessToken: next.accessToken ? encrypt(next.accessToken) : '',
     refreshToken: next.refreshToken ? encrypt(next.refreshToken) : '',
@@ -117,6 +160,12 @@ export function saveState(patch: Partial<PersistedState>): PersistedState {
     launchAtLogin: next.launchAtLogin,
     minimizeToTray: next.minimizeToTray,
     hideOnBlur: next.hideOnBlur,
+    appleNotesEnabled: next.appleNotesEnabled,
+    appleNotesSchedule: next.appleNotesSchedule,
+    appleNotesSyncOnLaunch: next.appleNotesSyncOnLaunch,
+    appleNotesFirstSyncConfirmedAt: next.appleNotesFirstSyncConfirmedAt,
+    appleNotesLastSyncAt: next.appleNotesLastSyncAt,
+    appleNotesLastResult: next.appleNotesLastResult,
   };
   const path = filePath();
   mkdirSync(dirname(path), { recursive: true });

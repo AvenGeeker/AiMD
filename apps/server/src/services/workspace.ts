@@ -111,17 +111,37 @@ export async function isDescendant(
 export async function createFolder(
   deps: WorkspaceDeps,
   ownerId: string,
-  input: { name: string; parentId?: string | null },
+  input: { id?: string; name: string; parentId?: string | null },
 ): Promise<FolderDto> {
   const name = input.name.trim();
   if (name.length === 0) throw new ApiError(ERROR_CODES.VALIDATION_ERROR, '目录名不能为空');
   const parentId = input.parentId ?? null;
+  const id = input.id ?? newId();
+  const existing = await deps.sql`
+    select id, name, parent_id, position, created_at from folders
+    where id = ${id} and owner_id = ${ownerId}
+  `;
+  if (existing[0]) {
+    const row = existing[0];
+    const counts = await deps.sql`
+      select count(*)::int as c from notes
+      where owner_id = ${ownerId} and folder_id = ${id} and deleted_at is null
+    `;
+    return {
+      id,
+      name: String(row.name),
+      parentId: row.parent_id == null ? null : String(row.parent_id),
+      position: String(row.position),
+      noteCount: Number(counts[0]?.c ?? 0),
+      createdAt: row.created_at ? toDateOr(row.created_at, new Date()).toISOString() : new Date().toISOString(),
+    };
+  }
+  const other = await deps.sql`select id from folders where id = ${id}`;
+  if (other.length > 0) throw new ApiError(ERROR_CODES.CONFLICT, '目录 ID 已被占用');
   if (parentId) {
     const rows = await deps.sql`select id from folders where id = ${parentId} and owner_id = ${ownerId}`;
     if (rows.length === 0) throw new ApiError(ERROR_CODES.NOT_FOUND, '父目录不存在');
   }
-
-  const id = newId();
   const positions = await siblingPositions(deps.sql, ownerId, parentId);
   const position = positions.length > 0 ? keyBetween(positions[positions.length - 1] ?? null, null) : firstKey();
   const createdAt = new Date().toISOString();

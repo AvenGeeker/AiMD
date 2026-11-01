@@ -5,6 +5,9 @@ import {
   Download,
   Eye,
   Loader2,
+  NotebookPen,
+  RefreshCw,
+  AlertCircle,
   PanelLeft,
   PanelRight,
   Pencil,
@@ -13,6 +16,7 @@ import {
   Upload,
 } from 'lucide-react';
 import type { SyncStatus } from '../lib/sync.js';
+import type { AppleNotesStatus } from '@aimarkdown/shared';
 import { isDesktop, platform } from '../lib/platform.js';
 import type { EditorMode } from './MarkdownEditor.js';
 
@@ -31,6 +35,9 @@ export interface TitleBarProps {
   onExportNote(): void;
   onExportVault(): void;
   onImport(files: File[]): void;
+  appleNotesAvailable?: boolean;
+  appleNotesStatus?: AppleNotesStatus | null;
+  onAppleNotesSync?(): void;
   userName: string;
   onLogout(): void;
 }
@@ -64,6 +71,42 @@ export function TitleBar(props: TitleBarProps) {
       <div className="flex-1" />
 
       <div className="titlebar-no-drag flex items-center gap-2">
+        {props.appleNotesAvailable && (
+          <button
+            type="button"
+            className={`flex items-center gap-1 rounded border px-2 py-1 text-[11px] ${
+              props.appleNotesStatus?.phase === 'error' || props.appleNotesStatus?.phase === 'needs-attention'
+                ? 'border-warning/50 bg-warning/10 text-warning'
+                : props.appleNotesStatus?.running
+                  ? 'border-accent/40 bg-accent/10 text-accent'
+                  : 'border-border text-muted hover:bg-hover'
+            }`}
+            onClick={props.onAppleNotesSync}
+            title={
+              props.appleNotesStatus?.settings.enabled
+                ? props.appleNotesStatus.running
+                  ? '正在同步 macOS 备忘录'
+                  : '立即同步 macOS 备忘录'
+                : '在设置中启用 macOS 备忘录同步'
+            }
+            data-testid="apple-notes-sync"
+          >
+            {props.appleNotesStatus?.running ? (
+              <RefreshCw size={14} className="animate-spin" />
+            ) : props.appleNotesStatus?.phase === 'error' ||
+              props.appleNotesStatus?.phase === 'needs-attention' ? (
+              <AlertCircle size={14} />
+            ) : (
+              <NotebookPen size={14} />
+            )}
+            备忘录
+            {(props.appleNotesStatus?.conflictCount ?? 0) + (props.appleNotesStatus?.readOnlyCount ?? 0) > 0 && (
+              <span className="rounded-full bg-danger px-1.5 text-[10px] leading-4 text-white">
+                {(props.appleNotesStatus?.conflictCount ?? 0) + (props.appleNotesStatus?.readOnlyCount ?? 0)}
+              </span>
+            )}
+          </button>
+        )}
         <div
           className="flex items-center gap-1.5 text-[11px]"
           title={props.pendingCount > 0 ? `${props.pendingCount} 篇待同步` : undefined}

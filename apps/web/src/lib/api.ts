@@ -122,6 +122,18 @@ export async function refreshAccessToken(): Promise<boolean> {
   if (!refreshing) {
     refreshing = (async () => {
       try {
+        if (isDesktop()) {
+          const bridge = getBridge();
+          if (bridge?.refreshSession) {
+            const result = await bridge.refreshSession();
+            if (!result) {
+              await clearTokens();
+              return false;
+            }
+            await setTokens(result);
+            return true;
+          }
+        }
         const base = apiBase(resolvedBase);
         // Desktop and mobile have no usable cookie jar, so they present the refresh token in
         // the body and ask for the rotated one back in the response body.

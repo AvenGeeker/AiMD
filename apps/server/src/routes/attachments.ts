@@ -1,10 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import {
-  ALLOWED_ATTACHMENT_MIME,
   ApiError,
   ERROR_CODES,
   MAX_ATTACHMENT_BYTES,
   attachmentDto,
+  isImageMime,
 } from '@aimarkdown/shared';
 import { requireAuth, currentUser } from '../plugins/auth.js';
 import { newId } from '../utils/ids.js';
@@ -42,25 +42,26 @@ export function registerAttachmentRoutes(app: FastifyInstance, deps: AttachmentD
     const file = await request.file();
     if (!file) throw new ApiError(ERROR_CODES.BAD_REQUEST, '未收到文件');
 
-    const mime = file.mimetype;
-    if (!(ALLOWED_ATTACHMENT_MIME as readonly string[]).includes(mime)) {
-      throw new ApiError(ERROR_CODES.UNSUPPORTED_MEDIA_TYPE, `不支持的文件类型：${mime}`);
-    }
-
+    const mime = (file.mimetype || 'application/octet-stream').toLowerCase();
     const buffer = await file.toBuffer();
     if (buffer.byteLength === 0) throw new ApiError(ERROR_CODES.BAD_REQUEST, '文件为空');
     if (buffer.byteLength > MAX_ATTACHMENT_BYTES) {
-      throw new ApiError(ERROR_CODES.PAYLOAD_TOO_LARGE, '文件超过 10MB 限制');
+      throw new ApiError(ERROR_CODES.PAYLOAD_TOO_LARGE, '文件超过 100MB 限制');
     }
 
     const id = newId();
-    const ext = MIME_TO_EXT[mime] ?? 'bin';
-    const original = (file.filename || `image.${ext}`).replace(/[\\/:*?"<>|\0]/g, '_').slice(0, 120);
+    const nameExt = (file.filename || '').match(/\.([A-Za-z0-9]{1,12})$/)?.[1]?.toLowerCase();
+    const ext = MIME_TO_EXT[mime] ?? (nameExt || 'bin');
+    const original = (file.filename || `attachment.${ext}`).replace(/[\\/:*?"<>|\0]/g, '_').slice(0, 120);
     const storageKey = `${ownerId}/${id}.${ext}`;
 
-    await deps.storage.save(storageKey, new Uint8Array(buffer));
-
     const noteIdParam = (request.query as Record<string, string> | undefined)?.noteId;
+    if (noteIdParam) {
+      const owned = await deps.sql`select id from notes where id = ${noteIdParam} and owner_id = ${ownerId}`;
+      if (owned.length === 0) throw new ApiError(ERROR_CODES.NOT_FOUND, '目标笔记不存在');
+    }
+
+    await deps.storage.save(storageKey, new Uint8Array(buffer));
     await deps.sql`
       insert into attachments (id, owner_id, note_id, filename, mime, size, storage_key, created_at)
       values (${id}, ${ownerId}, ${noteIdParam ?? null}, ${original}, ${mime}, ${buffer.byteLength}, ${storageKey}, now())
@@ -93,15 +94,19 @@ export function registerAttachmentRoutes(app: FastifyInstance, deps: AttachmentD
     if (!data) throw new ApiError(ERROR_CODES.NOT_FOUND, '附件文件缺失');
 
     const filename = String(row.filename);
-    const isSvg = String(row.mime) === 'image/svg+xml';
+    const mime = String(row.mime);
+    const inlineImage = isImageMime(mime) && mime !== 'image/svg+xml';
+    const disposition = inlineImage
+      ? `inline; filename*=UTF-8''${encodeURIComponent(filename)}`
+      : contentDisposition(filename.replace(/\.[^.]+$/, ''), extOf(filename));
 
     return reply
-      .header('content-type', String(row.mime))
+      .header('content-type', mime)
       .header('content-length', String(data.byteLength))
-      .header('content-disposition', contentDisposition(filename.replace(/\.[^.]+$/, ''), extOf(filename)))
-      // SVG can carry script; never let it render inline in the app's own origin.
+      .header('content-disposition', disposition)
+      // Active content (SVG/HTML) must never execute in the app's own origin.
       .header('x-content-type-options', 'nosniff')
-      .header('content-security-policy', isSvg ? "default-src 'none'; sandbox" : "default-src 'none'")
+      .header('content-security-policy', "default-src 'none'; sandbox")
       .send(Buffer.from(data));
   });
 }

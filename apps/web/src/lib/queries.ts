@@ -24,7 +24,7 @@ export interface NoteFilter {
   rootOnly?: boolean;
   tagIds?: string[];
   q?: string;
-  archived?: 'true' | 'false' | 'only';
+  archived?: 'true' | 'false' | 'only' | 'all';
   sort?: NoteSort;
   limit?: number;
   cursor?: string | null;

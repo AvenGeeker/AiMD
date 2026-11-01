@@ -12,12 +12,14 @@ import {
   type NoteSort,
   type StampFormat,
 } from '@aimarkdown/shared';
-import { NOTE_KEYS, type NoteSummaryDto } from '@aimarkdown/shared';
+import { NOTE_KEYS, type NoteBodyDto, type NoteSummaryDto } from '@aimarkdown/shared';
 import type { Logger } from '../utils/logger.js';
 import { newId } from '../utils/ids.js';
 import { decodeBytea, encodeBytea } from '../db/bytea.js';
-import { createNoteDoc, appendToBody, readBody, writeNoteMeta, setTagIds } from '../collab/docFactory.js';
+import { createNoteDoc, appendToBody, readBody, replaceBody, writeNoteMeta, setTagIds } from '../collab/docFactory.js';
 import { mirrorNote } from '../collab/persistence.js';
+import { projectNote } from '../collab/projection.js';
+import { noteStateHash } from '../utils/hash.js';
 import { docFromSnapshot, mutateDocument } from '../collab/direct.js';
 import type { Hocuspocus } from '@hocuspocus/server';
 
@@ -55,6 +57,10 @@ export interface NoteRecord {
 }
 
 export interface CreateNoteInput {
+  /** Stable client id for idempotent sync imports. */
+  id?: string;
+  /** Original creation timestamp for imported notes. */
+  createdAt?: string;
   title?: string;
   folderId?: string | null;
   tagIds?: string[];
@@ -69,10 +75,25 @@ export async function createNote(
   input: CreateNoteInput = {},
 ): Promise<NoteRecord> {
   const { sql } = deps;
-  const id = newId();
+  const id = input.id ?? newId();
   const now = new Date();
+  const createdAt = input.createdAt ? new Date(input.createdAt) : now;
+  if (Number.isNaN(createdAt.getTime())) {
+    throw new ApiError(ERROR_CODES.VALIDATION_ERROR, '创建时间格式不正确');
+  }
   const body = input.body ?? '';
   const titleManual = typeof input.title === 'string' && input.title.trim().length > 0;
+
+  // Idempotent sync imports retry with the same client-generated id. Returning the existing
+  // note prevents a lost HTTP response from creating a duplicate on the next run.
+  const existingRows = await sql`select owner_id from notes where id = ${id}`;
+  if (existingRows.length > 0) {
+    if (String(existingRows[0]?.owner_id) !== ownerId) {
+      throw new ApiError(ERROR_CODES.CONFLICT, '笔记 ID 已被占用');
+    }
+    const existing = await getNote(deps, ownerId, id, { includeDeleted: true });
+    if (existing) return existing;
+  }
 
   const doc = createNoteDoc({
     meta: {
@@ -83,7 +104,7 @@ export async function createNote(
       archived: false,
       deletedAt: null,
       position: input.position ?? firstKey(),
-      createdAt: now.toISOString(),
+      createdAt: createdAt.toISOString(),
     },
     tagIds: input.tagIds ?? [],
     body,
@@ -91,18 +112,22 @@ export async function createNote(
 
   await sql.begin(async (tx) => {
     await assertFolderUsable(tx, ownerId, input.folderId ?? null);
-    await tx`
+    const inserted = await tx`
       insert into notes (
         id, owner_id, folder_id, title, body_text, is_pinned, is_archived,
         position, word_count, created_at, content_updated_at, updated_at
       ) values (
         ${id}, ${ownerId}, ${input.folderId ?? null}, ${'无标题'}, ${''}, false, false,
-        ${input.position ?? firstKey()}, ${0}, ${now}, ${now}, ${now}
+        ${input.position ?? firstKey()}, ${0}, ${createdAt}, ${now}, ${now}
       )
+      on conflict (id) do nothing
+      returning id
     `;
+    if (inserted.length === 0) return;
     await tx`
       insert into note_documents (note_id, ydoc, updated_at)
       values (${id}, ${encodeBytea(encodeDocBytes(doc))}::bytea, ${now})
+      on conflict (note_id) do nothing
     `;
     // Project immediately so the very first GET /notes reflects the created note.
     await mirrorNote(tx, id, ownerId, doc, now);
@@ -196,7 +221,7 @@ export interface ListNotesInput {
   /** When provided, restrict to notes carrying *all* of these tags. */
   tagIds?: string[];
   q?: string | null;
-  archived?: 'true' | 'false' | 'only';
+  archived?: 'true' | 'false' | 'only' | 'all';
   sort?: NoteSort;
   limit?: number;
   cursor?: string | null;
@@ -299,8 +324,9 @@ export async function listNotes(
  * Trash vs. archive are distinct states: `deleted_at` marks the trash, `is_archived` is a
  * user-facing flag on a live note. The three modes map onto those two columns.
  */
-function visibilityClause(sql: Sql, mode: 'true' | 'false' | 'only') {
+function visibilityClause(sql: Sql, mode: 'true' | 'false' | 'only' | 'all') {
   if (mode === 'only') return sql`n.deleted_at is not null`;
+  if (mode === 'all') return sql`n.deleted_at is null`;
   if (mode === 'true') return sql`n.deleted_at is null and n.is_archived = true`;
   return sql`n.deleted_at is null and n.is_archived = false`;
 }
@@ -387,6 +413,9 @@ export interface NoteMetaPatch {
   deletedAt?: string | null;
   position?: string;
   title?: string;
+  body?: string;
+  /** Atomic optimistic-concurrency guard for external sync writes. */
+  expectedStateHash?: string;
   tagIds?: string[];
 }
 
@@ -426,7 +455,17 @@ export async function patchNoteMeta(
 
   if (hocuspocus) {
     const { snapshot } = await mutateDocument(hocuspocus, docName, (doc) => {
+      if (patch.expectedStateHash) {
+        const before = projectNote(doc);
+        const actual = noteStateHash(before.title, before.folderId, before.bodyText);
+        if (actual !== patch.expectedStateHash) {
+          throw new ApiError(ERROR_CODES.CONFLICT, '笔记在同步期间已被修改，请重试', {
+            currentStateHash: actual,
+          });
+        }
+      }
       writeNoteMeta(doc, metaPatch);
+      if (patch.body !== undefined) replaceBody(doc, patch.body);
       if (patch.tagIds) setTagIds(doc, patch.tagIds);
     });
     const projected = docFromSnapshot(snapshot);
@@ -434,7 +473,17 @@ export async function patchNoteMeta(
   } else {
     // No collab server (unit-test path): mutate a detached doc seeded from storage.
     const doc = await loadStoredDoc(deps.sql, noteId);
+    if (patch.expectedStateHash) {
+      const before = projectNote(doc);
+      const actual = noteStateHash(before.title, before.folderId, before.bodyText);
+      if (actual !== patch.expectedStateHash) {
+        throw new ApiError(ERROR_CODES.CONFLICT, '笔记在同步期间已被修改，请重试', {
+          currentStateHash: actual,
+        });
+      }
+    }
     writeNoteMeta(doc, metaPatch);
+    if (patch.body !== undefined) replaceBody(doc, patch.body);
     if (patch.tagIds) setTagIds(doc, patch.tagIds);
     await deps.sql.begin(async (tx) => {
       await tx`
@@ -457,6 +506,49 @@ export async function loadStoredDoc(sql: Sql, noteId: string): Promise<Y.Doc> {
   const doc = new Y.Doc();
   if (bytes && bytes.byteLength > 0) Y.applyUpdate(doc, bytes);
   return doc;
+}
+
+/**
+ * Read authoritative bodies for a bounded set of notes in one query.
+ *
+ * The desktop sync engine needs this instead of N single-note GETs. Foreign or deleted ids are
+ * omitted, which is both a tenant boundary and the correct behaviour for stale local mappings.
+ */
+export async function readNoteBodies(
+  deps: NotesDeps,
+  ownerId: string,
+  ids: string[],
+): Promise<NoteBodyDto[]> {
+  if (ids.length === 0) return [];
+  const rows = await deps.sql`
+    select
+      n.id, n.owner_id, n.folder_id, n.title, n.body_text, n.is_pinned, n.is_archived,
+      n.deleted_at, n.position, n.word_count, n.created_at, n.content_updated_at, n.updated_at,
+      d.ydoc,
+      coalesce(array_agg(nt.tag_id) filter (where nt.tag_id is not null), '{}') as tag_ids
+    from notes n
+    left join note_documents d on d.note_id = n.id
+    left join note_tags nt on nt.note_id = n.id
+    where n.owner_id = ${ownerId} and n.id = any(${ids}::text[])
+    group by n.id, d.ydoc
+  `;
+  const out: NoteBodyDto[] = [];
+  for (const row of rows) {
+    const record = mapRow(row);
+    const bytes = decodeBytea(row.ydoc);
+    const doc = new Y.Doc();
+    if (bytes && bytes.byteLength > 0) Y.applyUpdate(doc, bytes);
+    const projection = projectNote(doc);
+    const summary = toSummary(record);
+    out.push({
+      ...summary,
+      title: projection.title,
+      folderId: projection.folderId,
+      body: projection.bodyText,
+      stateHash: noteStateHash(projection.title, projection.folderId, projection.bodyText),
+    });
+  }
+  return out;
 }
 
 /** Read the authoritative markdown body straight from the CRDT document. */

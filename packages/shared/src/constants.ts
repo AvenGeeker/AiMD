@@ -23,18 +23,20 @@ export const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 export const ACCESS_COOKIE = 'amd_at';
 export const REFRESH_COOKIE = 'amd_rt';
 
-/** Maximum attachment size in bytes (10 MiB). */
-export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+/** Maximum attachment size in bytes (100 MiB). */
+export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+
+/** MIME types the editor renders inline as images. Everything else is inserted as a link. */
+export const IMAGE_MIME_TYPES = [
+  'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'image/avif',
+] as const;
+
+export function isImageMime(mime: string): boolean {
+  return (IMAGE_MIME_TYPES as readonly string[]).includes((mime || '').toLowerCase().split(';', 1)[0]!.trim());
+}
 
 /** Allowed attachment MIME types for image paste/drop. */
-export const ALLOWED_ATTACHMENT_MIME = [
-  'image/png',
-  'image/jpeg',
-  'image/gif',
-  'image/webp',
-  'image/svg+xml',
-  'image/avif',
-] as const;
+export const ALLOWED_ATTACHMENT_MIME = IMAGE_MIME_TYPES;
 
 /** Minimum length of a search query. `pg_trgm` needs enough characters to be useful. */
 export const MIN_SEARCH_QUERY_LENGTH = 2;

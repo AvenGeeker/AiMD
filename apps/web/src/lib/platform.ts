@@ -1,3 +1,11 @@
+import type {
+  AppleNotesChangedEvent,
+  AppleNotesPreview,
+  AppleNotesSettings,
+  AppleNotesStatus,
+  AppleNotesSyncOptions,
+} from '@aimarkdown/shared';
+
 /**
  * Runtime platform abstraction.
  *
@@ -15,6 +23,8 @@ export interface DesktopBridge {
   setServerUrl(url: string): Promise<void>;
   /** Tokens live in the OS keychain via `safeStorage`, never in localStorage. */
   getTokens(): Promise<{ accessToken: string | null; refreshToken: string | null }>;
+  /** Desktop-only single-flight refresh shared by the renderer and background sync. */
+  refreshSession?(): Promise<{ accessToken: string; refreshToken: string } | null>;
   setTokens(tokens: { accessToken: string | null; refreshToken: string | null }): Promise<void>;
   /** Ask the main process to re-register the global quick-capture hotkey. */
   setHotkey(accelerator: string): Promise<{ ok: boolean; error?: string }>;
@@ -36,6 +46,20 @@ export interface DesktopBridge {
     onFlush?(callback: () => void): () => void;
     /** Fired when the window becomes visible so the editor can be re-focused. */
     onShown?(callback: () => void): () => void;
+  };
+  /** macOS Notes integration; absent on browser, mobile and older desktop builds. */
+  appleNotes?: {
+    getStatus(): Promise<AppleNotesStatus>;
+    probe(): Promise<AppleNotesStatus>;
+    setSettings(patch: Partial<AppleNotesSettings>): Promise<AppleNotesStatus>;
+    preview(deep?: boolean): Promise<AppleNotesPreview>;
+    apply(token: string): Promise<AppleNotesStatus>;
+    syncNow(options?: AppleNotesSyncOptions): Promise<AppleNotesStatus>;
+    cancel(): Promise<boolean>;
+    recheckReadOnly(): Promise<AppleNotesStatus>;
+    openPrivacySettings(): Promise<boolean>;
+    onStatus(callback: (status: AppleNotesStatus) => void): () => void;
+    onChanged(callback: (event: AppleNotesChangedEvent) => void): () => void;
   };
 }
 

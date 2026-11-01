@@ -15,9 +15,9 @@ make db-up            # 开发库 :5433 + 测试库 :5434（集成测试和 E2E 
 make typecheck        # 全仓 tsc
 make lint             # eslint --max-warnings=0（有 warning 就算失败）
 
-make test-unit        # 183 项，纯内存，不需要数据库
-make test-integration # 103 项，需要 :5434（真实 Postgres + 真实 Hocuspocus WebSocket）
-make test-e2e         # 15 项，需要 :5433 + 已构建的 apps/web/dist
+make test-unit        # 203 项，纯内存，不需要数据库
+make test-integration # 112 项，需要 :5434（真实 Postgres + 真实 Hocuspocus WebSocket）
+make test-e2e         # 22 项，需要 :5433 + 已构建的 apps/web/dist
 
 make dev              # Postgres + API(:3000) + Vite(:5173)
 pnpm --filter @aimarkdown/desktop dev    # Electron 外壳，需先有 make dev
@@ -146,6 +146,16 @@ open -a /Applications/aiMarkdown.app
 - Vite dev server 绑的是 `127.0.0.1`（不是默认的 `::1`），否则桌面端 dev 探测不到、静默退回旧 bundle。
 - `app.setLoginItemSettings` 要 read-before-write，未签名构建下每次调用都会刷 `Operation not permitted`。
 - 全局快捷键注册失败必须显式告警（托盘 + 设置页），不能静默。
+
+### macOS 备忘录同步
+
+- 同步引擎只在 Electron 主进程；renderer 不得直接起 `osascript`，IPC 只接收枚举/布尔值/预览 token。
+- 笔记内容一律通过临时 JSON/文件传给 JXA，**不要拼进脚本源码或 shell 字符串**；批量结果也写临时文件，避免 stdout 溢出。
+- 需要 `NSAppleEventsUsageDescription`；未签名重建后 TCC 自动化权限可能重置，设置页必须提供“请求授权”和打开系统设置的入口。macOS 只有第一次真正发送 Apple Event 后才会在自动化列表里显示应用。
+- Apple Notes 的 `body` 是 HTML；脚本 `delete` 在不同 macOS 版本上是否进入“最近删除”未验证，因此删除笔记默认移动到 `aiMarkdown 回收站 (App)` 目录，保证可恢复。文件夹/笔记移动、附件导出仍必须先在真实 Notes 上冒烟验证。
+- 冲突副本/只读笔记用 `Apple 同步冲突` / `Apple 同步只读` 标签标识；这两个标签不参与镜像，否则会反复复制。
+- 映射存 `userData/apple-notes-sync.json`，按 serverUrl + userId + Apple accountId 隔离；同一账号只应一台 Mac 启用。
+- 扫描不完整时禁止执行删除；Apple 返回 0 条但本地映射非空必须中止，这是防止一次权限/网络故障清空全库的安全阀。
 
 ### 部署
 

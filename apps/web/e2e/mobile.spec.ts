@@ -23,14 +23,22 @@ test.use(iphone13);
 
 /** Active note id from the workspace root, which is the same contract the desktop tests use. */
 async function activeNoteId(page: import('@playwright/test').Page): Promise<string> {
-  const id = (await page.getByTestId('workspace').getAttribute('data-active-note-id')) ?? '';
-  expect(id).toBeTruthy();
-  return id;
+  const workspace = page.getByTestId('workspace');
+  await expect
+    .poll(async () => (await workspace.getAttribute('data-active-note-id')) ?? '', { timeout: 20_000 })
+    .not.toBe('');
+  return (await workspace.getAttribute('data-active-note-id')) ?? '';
 }
 
 /** Create a note from the mobile header and wait for the editor to bind to it. */
 async function createMobileNote(page: import('@playwright/test').Page): Promise<string> {
   const workspace = page.getByTestId('workspace');
+  await expect
+    .poll(async () => (await workspace.getAttribute('data-active-note-id')) ?? '', {
+      timeout: 20_000,
+      message: 'the initial mobile note should be selected before creating another one',
+    })
+    .not.toBe('');
   const previous = (await workspace.getAttribute('data-active-note-id')) ?? '';
   await page.getByTestId('mobile-new-note').click();
   await expect

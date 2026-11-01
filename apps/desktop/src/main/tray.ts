@@ -3,6 +3,7 @@ import { getHotkeyState } from './hotkey.js';
 import { createMainWindow, showMainWindow, toggleCaptureWindow, getCaptureWindow } from './windows.js';
 import { getState, isPlaintextFallback } from './store.js';
 import { setQuitting } from './lifecycle.js';
+import type { AppleNotesStatus } from '@aimarkdown/shared';
 
 /**
  * Menu-bar / notification-area tray.
@@ -18,6 +19,8 @@ const TRAY_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABYAAAAWCAY
 let tray: Tray | null = null;
 let syncLabel = '同步状态未知';
 let onQuit: (() => void) | null = null;
+let appleNotesStatus: AppleNotesStatus | null = null;
+let onAppleNotesSync: (() => void) | null = null;
 
 export function setSyncLabel(label: string): void {
   syncLabel = label;
@@ -26,6 +29,21 @@ export function setSyncLabel(label: string): void {
 
 export function setQuitHandler(handler: () => void): void {
   onQuit = handler;
+}
+
+export function setAppleNotesStatus(status: AppleNotesStatus, onSync: () => void): void {
+  appleNotesStatus = status;
+  onAppleNotesSync = onSync;
+  rebuildMenu();
+}
+
+function appleNotesLabel(status: AppleNotesStatus): string {
+  if (!status.settings.enabled) return '备忘录：未启用';
+  if (status.phase === 'error') return `备忘录：同步失败`;
+  if (status.phase === 'needs-attention') return `备忘录：需要处理`;
+  if (status.running) return '备忘录：同步中…';
+  if (!status.settings.firstSyncConfirmedAt) return '备忘录：等待首次预览';
+  return status.lastSyncAt ? `备忘录：已同步 ${new Date(status.lastSyncAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` : '备忘录：待同步';
 }
 
 function trayImage(): Electron.NativeImage {
@@ -67,6 +85,15 @@ function rebuildMenu(): void {
             enabled: false,
           },
         ]),
+    ...(appleNotesStatus
+      ? [
+          { type: 'separator' as const },
+          { label: appleNotesLabel(appleNotesStatus), enabled: false },
+          ...(appleNotesStatus.settings.enabled
+            ? [{ label: '立即同步备忘录', click: () => onAppleNotesSync?.() }]
+            : []),
+        ]
+      : []),
     ...(state.serverUrl ? [{ label: `服务器：${state.serverUrl}`, enabled: false }] : []),
     ...(isPlaintextFallback()
       ? [{ label: '⚠ 未检测到系统密钥环，凭据以明文保存在本地', enabled: false }]

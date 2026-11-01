@@ -16,6 +16,7 @@ import {
 
 const isoDateTime = z.string();
 const idSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
+export const sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/, '状态哈希格式不正确');
 
 /* ---------------------------------- auth ---------------------------------- */
 
@@ -101,6 +102,8 @@ export const folderDto = z.object({
 export type FolderDto = z.infer<typeof folderDto>;
 
 export const createFolderInput = z.object({
+  /** Optional client id for idempotent sync imports. */
+  id: idSchema.optional(),
   name: z.string().trim().min(1, '目录名不能为空').max(120),
   parentId: idSchema.nullable().optional(),
 });
@@ -161,6 +164,10 @@ export const noteDto = noteSummaryDto.extend({
 export type NoteDto = z.infer<typeof noteDto>;
 
 export const createNoteInput = z.object({
+  /** Optional client id for idempotent sync imports. */
+  id: idSchema.optional(),
+  /** Optional original creation time for imported notes. */
+  createdAt: isoDateTime.optional(),
   title: z.string().trim().max(200).optional(),
   folderId: idSchema.nullable().optional(),
   tagIds: z.array(idSchema).max(50).optional(),
@@ -176,10 +183,52 @@ export const updateNoteInput = z.object({
   /** Replaces the note's whole tag set; the server diffs it into the CRDT array. */
   tagIds: z.array(idSchema).max(50).optional(),
   title: z.string().trim().max(200).optional(),
+  /** Replaces the whole markdown body through mutateDocument(). */
+  body: z.string().max(2_000_000).optional(),
+  /** Atomic optimistic-concurrency guard: SHA-256 of [title, folderId, body]. */
+  expectedStateHash: sha256HexSchema.optional(),
   before: z.string().nullish(),
   after: z.string().nullish(),
 });
 export type UpdateNoteInput = z.infer<typeof updateNoteInput>;
+
+/** Batch body reads used by the desktop Apple Notes sync engine. */
+export const noteBodyBatchInput = z.object({
+  ids: z.array(idSchema).min(1).max(100),
+});
+export type NoteBodyBatchInput = z.infer<typeof noteBodyBatchInput>;
+
+export const noteBodyDto = noteSummaryDto.extend({
+  body: z.string(),
+  /** SHA-256 of [title, folderId, body]; computed from the authoritative Y.Doc. */
+  stateHash: sha256HexSchema,
+});
+export type NoteBodyDto = z.infer<typeof noteBodyDto>;
+
+export const noteBodyBatchDto = z.object({
+  items: z.array(noteBodyDto),
+});
+export type NoteBodyBatchDto = z.infer<typeof noteBodyBatchDto>;
+
+/** Batch creation is idempotent when the caller supplies a stable id. */
+export const createNotesBatchInput = z.object({
+  items: z.array(createNoteInput).min(1).max(100),
+});
+export type CreateNotesBatchInput = z.infer<typeof createNotesBatchInput>;
+
+export const createNotesBatchItemDto = z.object({
+  index: z.number().int().nonnegative(),
+  ok: z.boolean(),
+  note: noteDto.optional(),
+  error: z.object({ code: z.string(), message: z.string() }).optional(),
+});
+export type CreateNotesBatchItemDto = z.infer<typeof createNotesBatchItemDto>;
+
+export const createNotesBatchDto = z.object({
+  items: z.array(createNotesBatchItemDto),
+});
+export type CreateNotesBatchDto = z.infer<typeof createNotesBatchDto>;
+
 
 export const listNotesQuery = z.object({
   folderId: idSchema.nullish(),
@@ -196,7 +245,7 @@ export const listNotesQuery = z.object({
   tagIds: z.string().nullish(),
   q: z.string().trim().max(200).nullish(),
   archived: z
-    .enum(['true', 'false', 'only'])
+    .enum(['true', 'false', 'only', 'all'])
     .nullish()
     .transform((v) => (v === undefined || v === null ? 'false' : v)),
   sort: z.enum(NOTE_SORTS).default('updated'),

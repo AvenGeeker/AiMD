@@ -3,6 +3,8 @@ import { AlertTriangle, X } from 'lucide-react';
 import { DEFAULT_HOTKEY, EDITOR_MODES, STAMP_FORMATS, THEMES, type SettingsDto } from '@aimarkdown/shared';
 import { formatHotkey, getBridge, isDesktop, platform } from '../lib/platform.js';
 import { describeError } from '../lib/api.js';
+import { AppleNotesSettingsSection } from './AppleNotesSettingsSection.js';
+import type { AppleNotesController } from '../hooks/useAppleNotes.js';
 
 /** Preferences dialog. Values are persisted through the API, which writes the workspace CRDT. */
 
@@ -10,9 +12,10 @@ export interface SettingsDialogProps {
   settings: SettingsDto;
   onSave(patch: Partial<SettingsDto>): Promise<unknown>;
   onClose(): void;
+  appleNotes?: AppleNotesController;
 }
 
-export function SettingsDialog({ settings, onSave, onClose }: SettingsDialogProps) {
+export function SettingsDialog({ settings, onSave, onClose, appleNotes }: SettingsDialogProps) {
   const [draft, setDraft] = useState<SettingsDto>(settings);
   const [hotkeyState, setHotkeyState] = useState<{ accelerator: string; registered: boolean; error?: string } | null>(
     null,
@@ -214,6 +217,8 @@ export function SettingsDialog({ settings, onSave, onClose }: SettingsDialogProp
               onChange={(value) => void persist({ launchAtLogin: value })}
             />
           </div>
+
+          {appleNotes && <AppleNotesSettingsSection controller={appleNotes} />}
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">

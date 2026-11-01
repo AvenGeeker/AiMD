@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { deriveTitle } from '@aimarkdown/markdown';
 import type { NoteListDto, NoteSummaryDto, SettingsDto } from '@aimarkdown/shared';
@@ -47,6 +47,8 @@ import { MobileShell } from './components/MobileShell.js';
 import { AuthView } from './components/AuthView.js';
 import { QuickCapture } from './components/QuickCapture.js';
 import { useQuickCaptures, type QuickCaptureEntry } from './lib/quickCaptures.js';
+import { useAppleNotes } from './hooks/useAppleNotes.js';
+import { AppleNotesPreviewDialog } from './components/AppleNotesPreviewDialog.js';
 
 /** Per-device UI preferences for the two desktop rails. */
 const SIDEBAR_VISIBLE_KEY = 'aimarkdown.sidebar-visible';
@@ -106,6 +108,9 @@ function Workspace() {
   const [outlineVisible, setOutlineVisible] = useState(readOutlineVisible);
   const [captureView, setCaptureView] = useState(false);
   const [captureReveal, setCaptureReveal] = useState<CaptureReveal | null>(null);
+  const firstFilterEffect = useRef(true);
+  const creatingNoteRef = useRef(false);
+  const appleNotes = useAppleNotes();
 
   // Renders the mobile single-pane shell instead of the three-pane desktop layout.
   const mobile = useIsMobile();
@@ -155,6 +160,13 @@ function Workspace() {
   // *settled* result set.
   const filterKey = `${selection.folderId ?? '*'}|${selection.rootOnly}|${selection.tagIds.join(',')}|${selection.q}|${selection.archived}`;
   useEffect(() => {
+    // The initial selection is already null; clearing it again after a fast "new note" click
+    // can race the create mutation and send the editor back to the inbox.
+    if (firstFilterEffect.current) {
+      firstFilterEffect.current = false;
+      return;
+    }
+    if (creatingNoteRef.current) return;
     setSelectedNoteId(null);
   }, [filterKey]);
 
@@ -167,6 +179,7 @@ function Workspace() {
    * the editor on the note the user actually opened, even if the current filter would hide it.
    */
   useEffect(() => {
+    if (creatingNoteRef.current) return;
     if (inTrash) return;
     if (selectedNoteId !== null) return;
     if (notesQuery.isFetching) return;
@@ -252,13 +265,21 @@ function Workspace() {
   );
 
   const handleCreateNote = useCallback(async () => {
+    creatingNoteRef.current = true;
     setCaptureView(false);
     setCaptureReveal(null);
-    const created = await createNote.mutateAsync({
-      folderId: selection.folderId ?? null,
-      tagIds: selection.tagIds,
-    });
-    setSelectedNoteId(created.id);
+    try {
+      const created = await createNote.mutateAsync({
+        folderId: selection.folderId ?? null,
+        tagIds: selection.tagIds,
+      });
+      setSelectedNoteId(created.id);
+    } finally {
+      // Let the selection commit first, then release the guard for genuine filter changes.
+      window.setTimeout(() => {
+        creatingNoteRef.current = false;
+      }, 0);
+    }
   }, [createNote, selection.folderId, selection.tagIds]);
 
   const handleCreateFolder = useCallback(
@@ -545,6 +566,12 @@ function Workspace() {
         onExportNote={handleExportNote}
         onExportVault={handleExportVault}
         onImport={(files) => void handleImport(files)}
+        appleNotesAvailable={appleNotes.available}
+        appleNotesStatus={appleNotes.status}
+        onAppleNotesSync={() => {
+          if (!appleNotes.status?.settings.enabled) setSettingsOpen(true);
+          else void appleNotes.syncNow();
+        }}
         userName={user.displayName}
         onLogout={() => void logout()}
       />
@@ -665,6 +692,14 @@ function Workspace() {
           settings={settings}
           onSave={async (patch) => updateSettings.mutateAsync(patch)}
           onClose={() => setSettingsOpen(false)}
+          appleNotes={appleNotes}
+        />
+      )}
+
+      {appleNotes.preview && (
+        <AppleNotesPreviewDialog
+          controller={appleNotes}
+          onClose={appleNotes.clearPreview}
         />
       )}
     </div>

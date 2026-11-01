@@ -10,18 +10,23 @@
     "build:renderer": "pnpm build:web && node scripts/copy-renderer.mjs",
     "dev": "node scripts/dev.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "echo 'desktop has no unit tests; see e2e in apps/web'",
+    "test": "vitest run",
     "start": "electron .",
     "dist": "pnpm build && electron-builder",
     "dist:mac": "pnpm build && electron-builder --mac --x64 --arm64",
     "dist:win": "pnpm build && electron-builder --win --x64",
-    "build:web": "pnpm --filter @aimarkdown/web build"
+    "build:web": "pnpm --filter @aimarkdown/web build",
+    "test:unit": "vitest run"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "electron": "^45.1.0",
     "electron-builder": "^26.18.0",
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "@types/markdown-it": "^14.2.0",
+    "@types/turndown": "^5.0.6",
+    "@aimarkdown/shared": "workspace:*",
+    "vitest": "^5.0.5"
   },
   "build": {
     "appId": "com.aimarkdown.desktop",
@@ -55,7 +60,10 @@
       ],
       "identity": null,
       "hardenedRuntime": false,
-      "gatekeeperAssess": false
+      "gatekeeperAssess": false,
+      "extendInfo": {
+        "NSAppleEventsUsageDescription": "\u7528\u4e8e\u8bfb\u53d6\u548c\u5199\u5165 macOS \u5907\u5fd8\u5f55\uff0c\u5b9e\u73b0\u53cc\u5411\u540c\u6b65\u3002"
+      }
     },
     "win": {
       "target": [
@@ -79,5 +87,12 @@
       ],
       "category": "Utility"
     }
+  },
+  "dependencies": {
+    "@mixmark-io/domino": "^2.2.0",
+    "markdown-it": "^15.0.3",
+    "markdown-it-task-lists": "^2.1.1",
+    "turndown": "^7.2.0",
+    "turndown-plugin-gfm": "^1.0.2"
   }
 }

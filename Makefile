@@ -25,10 +25,11 @@ typecheck: ## Type-check every workspace package
 
 test: test-unit ## Run unit tests (no database required)
 
-test-unit: ## Unit tests for shared, markdown and server
+test-unit: ## Unit tests for shared, markdown, server and desktop
 	pnpm --filter @aimarkdown/shared test
 	pnpm --filter @aimarkdown/markdown test
 	pnpm --filter @aimarkdown/server test:unit
+	pnpm --filter @aimarkdown/desktop test:unit
 	pnpm --filter @aimarkdown/web test
 
 test-integration: db-up-test ## Integration tests against a real Postgres + Hocuspocus

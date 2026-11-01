@@ -28,6 +28,7 @@ import * as Y from 'yjs';
 import type { Awareness } from 'y-protocols/awareness';
 import { NOTE_KEYS } from '@aimarkdown/shared';
 import { uploadAttachment } from '../lib/queries.js';
+import { isImageMime } from '@aimarkdown/shared';
 import { Preview, useYTextValue } from './Preview.js';
 
 /**
@@ -121,7 +122,9 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         const uploaded = await uploadAttachment(file, noteId);
         const view = viewRef.current;
         if (!view) return;
-        const snippet = `![${uploaded.filename}](${uploaded.url})`;
+        const snippet = isImageMime(file.type)
+          ? `![${uploaded.filename}](${uploaded.url})`
+          : `[${uploaded.filename}](${uploaded.url})`;
         const { from } = view.state.selection.main;
         view.dispatch({ changes: { from, insert: snippet } });
       } catch (error) {
@@ -164,18 +167,14 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     extensions.push(
       EditorView.domEventHandlers({
         paste(event) {
-          const files = Array.from(event.clipboardData?.files ?? []).filter((file) =>
-            file.type.startsWith('image/'),
-          );
+          const files = Array.from(event.clipboardData?.files ?? []);
           if (files.length === 0) return false;
           event.preventDefault();
           void Promise.all(files.map(uploadAndInsert));
           return true;
         },
         drop(event) {
-          const files = Array.from(event.dataTransfer?.files ?? []).filter((file) =>
-            file.type.startsWith('image/'),
-          );
+          const files = Array.from(event.dataTransfer?.files ?? []);
           if (files.length === 0) return false;
           event.preventDefault();
           void Promise.all(files.map(uploadAndInsert));

@@ -1,9 +1,13 @@
-import { app, ipcMain } from 'electron';
+import { app, ipcMain, shell } from 'electron';
 import { clearTokens, getState, saveState } from './store.js';
 import { getHotkeyState, registerHotkey } from './hotkey.js';
 import { setLaunchAtLogin } from './login-item.js';
 import { hideCaptureWindow, showMainWindow } from './windows.js';
-import { setSyncLabel } from './tray.js';
+import { setSyncLabel, setAppleNotesStatus } from './tray.js';
+import { refreshDesktopSession } from './auth.js';
+import type { AppleNotesSyncEngine } from './apple-notes/sync.js';
+import { reconfigureAppleNotesScheduler } from './apple-notes/scheduler.js';
+import type { AppleNotesSchedule } from '@aimarkdown/shared';
 
 /**
  * IPC surface exposed to the renderer through the preload bridge.
@@ -17,7 +21,10 @@ const asString = (value: unknown, fallback = ''): string => (typeof value === 's
 export interface IpcDeps {
   /** Called after the hotkey preference changes so the main process re-registers it. */
   onHotkeyChange(accelerator: string): void;
+  appleNotes: AppleNotesSyncEngine;
 }
+
+const APPLE_NOTES_SCHEDULES = new Set(['off', '15m', '30m', '1h', '6h', 'daily']);
 
 export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle('amd:platform', () => ({
@@ -129,5 +136,67 @@ export function registerIpc(deps: IpcDeps): void {
     }
     // Surface a login-item failure to the settings dialog instead of swallowing it.
     return { ...getHotkeyState(), ...(loginItemError ? { loginItemError } : {}) };
+  });
+
+  /* ------------------------- macOS Notes integration ------------------------ */
+
+  ipcMain.handle('amd:refresh-session', () => refreshDesktopSession());
+
+  ipcMain.handle('amd:apple-notes:get-status', () => deps.appleNotes.getStatus());
+
+  ipcMain.handle('amd:apple-notes:set-settings', (_event, value: unknown) => {
+    const input = (value ?? {}) as Record<string, unknown>;
+    const patch: { enabled?: boolean; schedule?: AppleNotesSchedule; syncOnLaunch?: boolean } = {};
+    if (typeof input.enabled === 'boolean') patch.enabled = input.enabled;
+    if (typeof input.syncOnLaunch === 'boolean') patch.syncOnLaunch = input.syncOnLaunch;
+    if (typeof input.schedule === 'string' && APPLE_NOTES_SCHEDULES.has(input.schedule)) {
+      patch.schedule = input.schedule as AppleNotesSchedule;
+    }
+    const status = deps.appleNotes.setSettings(patch);
+    reconfigureAppleNotesScheduler();
+    setAppleNotesStatus(status, () => void deps.appleNotes.syncNow({}));
+    return status;
+  });
+
+  ipcMain.handle('amd:apple-notes:probe', async () => {
+    const status = await deps.appleNotes.probe();
+    setAppleNotesStatus(status, () => void deps.appleNotes.syncNow({}));
+    return status;
+  });
+
+  ipcMain.handle('amd:apple-notes:preview', async (_event, deep: unknown) => {
+    const preview = await deps.appleNotes.preview(deep === true);
+    setAppleNotesStatus(deps.appleNotes.getStatus(), () => void deps.appleNotes.syncNow({}));
+    return preview;
+  });
+
+  ipcMain.handle('amd:apple-notes:apply', async (_event, token: unknown) => {
+    const status = await deps.appleNotes.applyPreview(asString(token));
+    reconfigureAppleNotesScheduler();
+    setAppleNotesStatus(status, () => void deps.appleNotes.syncNow({}));
+    return status;
+  });
+
+  ipcMain.handle('amd:apple-notes:sync-now', async () => {
+    const status = await deps.appleNotes.syncNow({});
+    reconfigureAppleNotesScheduler();
+    setAppleNotesStatus(status, () => void deps.appleNotes.syncNow({}));
+    return status;
+  });
+
+  ipcMain.handle('amd:apple-notes:cancel', () => {
+    deps.appleNotes.cancel();
+    return true;
+  });
+
+  ipcMain.handle('amd:apple-notes:recheck-read-only', async () => {
+    const status = await deps.appleNotes.syncNow({ deep: true });
+    setAppleNotesStatus(status, () => void deps.appleNotes.syncNow({}));
+    return status;
+  });
+
+  ipcMain.handle('amd:apple-notes:open-privacy', async () => {
+    await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Automation');
+    return true;
   });
 }

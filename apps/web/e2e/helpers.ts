@@ -41,6 +41,15 @@ export async function loginThroughUi(page: Page, email: string, password = 'pass
  */
 export async function createNote(page: Page): Promise<string> {
   const workspace = page.getByTestId('workspace');
+  // The inbox is auto-selected shortly after registration. Wait for that initial selection to
+  // settle before recording the baseline; otherwise this helper can mistake the inbox selection
+  // for the newly created note under load.
+  await expect
+    .poll(async () => (await workspace.getAttribute('data-active-note-id')) ?? '', {
+      timeout: 20_000,
+      message: 'the initial note should be selected before creating another one',
+    })
+    .not.toBe('');
   const previous = (await workspace.getAttribute('data-active-note-id')) ?? '';
 
   await page.getByTestId('new-note').click();
