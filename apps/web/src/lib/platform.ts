@@ -24,6 +24,46 @@ export interface HotkeyState {
 
 export type HotkeyStates = Record<HotkeyTarget, HotkeyState>;
 
+/** Actions the native macOS menu can send into the workspace. */
+export type MenuCommand =
+  | 'new-note'
+  | 'quick-capture'
+  | 'import'
+  | 'export-note'
+  | 'export-vault'
+  | 'open-ai'
+  | 'open-settings'
+  | 'mode-split'
+  | 'mode-edit'
+  | 'mode-preview'
+  | 'toggle-sidebar'
+  | 'toggle-outline'
+  | 'logout'
+  | 'apple-notes-sync'
+  | 'apple-notes-settings';
+
+/**
+ * Everything the native menu needs to render checked states, enabled items and status labels.
+ *
+ * The renderer is the source of truth for these values; the shell only mirrors them.
+ */
+export interface MenuStateSnapshot {
+  authenticated: boolean;
+  syncStatus: string;
+  pendingCount: number;
+  mode: 'split' | 'edit' | 'preview';
+  sidebarVisible: boolean;
+  outlineVisible: boolean;
+  hasSelectedNote: boolean;
+  user: { displayName: string; email: string; createdAt: string } | null;
+  appleNotesAvailable: boolean;
+  appleNotesEnabled: boolean;
+  appleNotesRunning: boolean;
+  appleNotesPhase: string;
+  appleNotesLastSyncAt: string | null;
+  appleNotesAttention: number;
+}
+
 export interface DesktopBridge {
   /** Platform reported by the Electron main process. */
   platform: NodeJS.Platform;
@@ -43,6 +83,11 @@ export interface DesktopBridge {
   getHotkeyState?(): Promise<HotkeyState>;
   showMainWindow(): Promise<void>;
   hideQuickCapture(): Promise<void>;
+  /** Mirror the top-bar state into the native application menu. */
+  reportMenuState?(state: Partial<MenuStateSnapshot>): void;
+  /** Declare the menu command listener installed so queued clicks can be released. */
+  menuReady?(): void;
+  onMenuCommand?(callback: (command: MenuCommand) => void): () => void;
   /**
    * Present only when this window *is* the quick-capture window.
    *

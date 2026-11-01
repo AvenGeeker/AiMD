@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getState } from './store.js';
 import { isQuitting } from './lifecycle.js';
+import { ensureRegularActivation } from './activation.js';
 
 /** Window management: the main shell and the always-on-top quick-capture panel. */
 
@@ -66,7 +67,10 @@ export function createMainWindow(): BrowserWindow {
     },
   });
 
-  mainWindow.once('ready-to-show', () => mainWindow?.show());
+  mainWindow.once('ready-to-show', () => {
+    ensureRegularActivation();
+    mainWindow?.show();
+  });
 
   // Closing hides to the tray when the user asked for it, so a global-hotkey capture still works.
   mainWindow.on('close', (event: { preventDefault(): void }) => {
@@ -85,6 +89,7 @@ export function createMainWindow(): BrowserWindow {
 }
 
 export function showMainWindow(): void {
+  ensureRegularActivation();
   const window = getMainWindow() ?? createMainWindow();
   if (window.isMinimized()) window.restore();
   window.show();

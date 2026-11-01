@@ -47,6 +47,19 @@ const api = {
   /** Mirror server-synced settings into the shell (hotkey, inbox, tray behaviour). */
   applySettings: (settings: Record<string, unknown>) =>
     invoke<{ hotkeys: HotkeyStates; loginItemError?: string }>('amd:apply-settings', settings),
+  /** Keep the native application menu's checked states and labels aligned with the TitleBar. */
+  reportMenuState: (state: Record<string, unknown>) => {
+    ipcRenderer.send('amd:menu-state', state);
+  },
+  /** The command listener is installed; release clicks queued while the window was loading. */
+  menuReady: () => {
+    ipcRenderer.send('amd:menu-ready');
+  },
+  onMenuCommand: (callback: (command: string) => void) => {
+    const listener = (_event: unknown, command: string) => callback(command);
+    ipcRenderer.on('amd:menu-command', listener);
+    return () => ipcRenderer.removeListener('amd:menu-command', listener);
+  },
   appleNotes: {
     getStatus: () => invoke<AppleNotesStatus>('amd:apple-notes:get-status'),
     setSettings: (patch: Partial<AppleNotesSettings>) =>

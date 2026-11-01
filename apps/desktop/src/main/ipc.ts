@@ -10,6 +10,7 @@ import {
 import { setLaunchAtLogin } from './login-item.js';
 import { hideCaptureWindow, showMainWindow } from './windows.js';
 import { setSyncLabel, setAppleNotesStatus, refreshTrayMenu } from './tray.js';
+import { markAppMenuReady, updateAppMenuState } from './app-menu.js';
 import { refreshDesktopSession } from './auth.js';
 import type { AppleNotesSyncEngine } from './apple-notes/sync.js';
 import { reconfigureAppleNotesScheduler } from './apple-notes/scheduler.js';
@@ -109,6 +110,20 @@ export function registerIpc(deps: IpcDeps): void {
       serverUrl: state.serverUrl,
       stampFormat: state.stampFormat,
     };
+  });
+
+  /**
+   * The renderer mirrors its top-bar state into the native menu: view mode, rail visibility,
+   * sync label, account details and the macOS Notes badge. Field validation happens in
+   * `app-menu.ts`, where the menu is rebuilt only when something actually changed.
+   */
+  ipcMain.on('amd:menu-state', (_event, payload: unknown) => {
+    updateAppMenuState(payload);
+  });
+
+  /** The workspace installs its command listener after mount, then releases queued clicks. */
+  ipcMain.on('amd:menu-ready', (event) => {
+    markAppMenuReady(event.sender.id);
   });
 
   /** The renderer reports connectivity so the tray can show something truthful. */

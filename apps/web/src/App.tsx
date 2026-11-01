@@ -8,7 +8,13 @@ import { request } from './lib/api.js';
 import { isQuickCaptureWindow } from './lib/platform.js';
 import { useIsMobile } from './hooks/useIsMobile.js';
 import { syncManager } from './lib/sync.js';
-import { applySettingsToShell, reportSyncStatus } from './lib/desktop.js';
+import {
+  applySettingsToShell,
+  markMenuReady,
+  reportMenuState,
+  reportSyncStatus,
+  subscribeMenuCommands,
+} from './lib/desktop.js';
 import {
   downloadNote,
   downloadVault,
@@ -110,6 +116,7 @@ function Workspace() {
   const [captureReveal, setCaptureReveal] = useState<CaptureReveal | null>(null);
   const firstFilterEffect = useRef(true);
   const creatingNoteRef = useRef(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const appleNotes = useAppleNotes();
 
   // Renders the mobile single-pane shell instead of the three-pane desktop layout.
@@ -201,6 +208,43 @@ function Workspace() {
     if (!settingsQuery.data) return;
     void applySettingsToShell(settingsQuery.data);
   }, [settingsQuery.data]);
+
+  // The native menu is a second surface for the same TitleBar controls. Report the values it
+  // needs to stay truthful: radio mode, rail checkboxes, sync label and account details.
+  useEffect(() => {
+    if (!user) return;
+    reportMenuState({
+      authenticated: true,
+      syncStatus: status,
+      pendingCount: syncManager.pendingCount,
+      mode: settings.editorMode,
+      sidebarVisible,
+      outlineVisible,
+      hasSelectedNote: selectedNoteId !== null,
+      user: {
+        displayName: user.displayName,
+        email: user.email,
+        createdAt: user.createdAt,
+      },
+      appleNotesAvailable: appleNotes.available,
+      appleNotesEnabled: appleNotes.status?.settings.enabled ?? false,
+      appleNotesRunning: appleNotes.status?.running ?? false,
+      appleNotesPhase: appleNotes.status?.phase ?? 'disabled',
+      appleNotesLastSyncAt: appleNotes.status?.lastSyncAt ?? null,
+      appleNotesAttention:
+        (appleNotes.status?.conflictCount ?? 0) + (appleNotes.status?.readOnlyCount ?? 0),
+    });
+  }, [
+    user,
+    status,
+    notesQuery.dataUpdatedAt,
+    settings.editorMode,
+    sidebarVisible,
+    outlineVisible,
+    selectedNoteId,
+    appleNotes.available,
+    appleNotes.status,
+  ]);
 
   // Flush pending CRDT writes before the tab is hidden or closed.
   useEffect(() => {
@@ -415,6 +459,79 @@ function Workspace() {
     flash('已记录，可在左侧「速记」查看');
   }, [flash, quickCapture, settings.inboxNoteId]);
 
+  const handleAppleNotesSync = useCallback(() => {
+    if (!appleNotes.status?.settings.enabled) setSettingsOpen(true);
+    else void appleNotes.syncNow();
+  }, [appleNotes]);
+
+  // One handler for every native menu action, routed into the exact same code the TitleBar uses.
+  // The listener is installed before `markMenuReady()` so clicks queued during window creation are
+  // delivered instead of lost.
+  useEffect(() => {
+    const unsubscribe = subscribeMenuCommands((command) => {
+      switch (command) {
+        case 'new-note':
+          void handleCreateNote();
+          break;
+        case 'quick-capture':
+          void handleQuickCapture();
+          break;
+        case 'import':
+          importInputRef.current?.click();
+          break;
+        case 'export-note':
+          void handleExportNote();
+          break;
+        case 'export-vault':
+          void handleExportVault();
+          break;
+        case 'open-ai':
+          handleOpenAi();
+          break;
+        case 'open-settings':
+          setSettingsOpen(true);
+          break;
+        case 'mode-split':
+          handleModeChange('split');
+          break;
+        case 'mode-edit':
+          handleModeChange('edit');
+          break;
+        case 'mode-preview':
+          handleModeChange('preview');
+          break;
+        case 'toggle-sidebar':
+          handleToggleSidebar();
+          break;
+        case 'toggle-outline':
+          handleToggleOutline();
+          break;
+        case 'logout':
+          void logout();
+          break;
+        case 'apple-notes-sync':
+          handleAppleNotesSync();
+          break;
+        case 'apple-notes-settings':
+          setSettingsOpen(true);
+          break;
+      }
+    });
+    markMenuReady();
+    return unsubscribe;
+  }, [
+    handleCreateNote,
+    handleQuickCapture,
+    handleExportNote,
+    handleExportVault,
+    handleOpenAi,
+    handleModeChange,
+    handleToggleSidebar,
+    handleToggleOutline,
+    logout,
+    handleAppleNotesSync,
+  ]);
+
   // ⌘/Ctrl+Shift+Q captures from the browser too; the OS-level hotkey is the desktop shell's job.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -501,54 +618,73 @@ function Workspace() {
     [flash, upsertTag],
   );
 
+  const importInput = (
+    <input
+      ref={importInputRef}
+      type="file"
+      multiple
+      accept=".md,.markdown,.txt,.zip"
+      className="hidden"
+      data-testid="import-input"
+      onChange={(event) => {
+        const files = Array.from(event.target.files ?? []);
+        if (files.length > 0) void handleImport(files);
+        event.target.value = '';
+      }}
+    />
+  );
+
   if (mobile) {
     return (
-      <MobileShell
-        tree={treeQuery.data}
-        settings={settings}
-        dark={dark}
-        notes={notes}
-        loading={notesQuery.isFetching}
-        inTrash={inTrash}
-        selection={selection}
-        selectedNoteId={selectedNoteId}
-        doc={doc}
-        source={source}
-        awareness={awareness}
-        status={status}
-        tagIds={tagIds}
-        displayTitle={displayTitle}
-        user={user}
-        banner={banner}
-        inboxNoteId={settings.inboxNoteId}
-        captures={captures}
-        capturesLoading={Boolean(settings.inboxNoteId) && inboxDocument.status === 'connecting' && captures.length === 0}
-        captureView={captureView}
-        captureCount={captures.length}
-        reveal={editorReveal}
-        tagBusy={updateNote.isPending || upsertTag.isPending}
-        onSelect={handleSidebarSelect}
-        onOpenNote={handleOpenNote}
-        onOpenCaptures={handleOpenCaptures}
-        onOpenCapture={handleOpenCapture}
-        onCapture={() => void handleQuickCapture()}
-        onCreateNote={handleCreateNote}
-        onCreateFolder={(parentId) => void handleCreateFolder(parentId)}
-        onDeleteFolder={(id) => void handleDeleteFolder(id)}
-        onRenameFolder={(id, name) => void handleRenameFolder(id, name)}
-        onDropNote={(noteId, folderId) => void handleDropNote(noteId, folderId)}
-        onTogglePin={handleTogglePin}
-        onDeleteNote={handleDeleteNote}
-        onRestoreNote={handleRestoreNote}
-        onTitleChange={handleTitleChange}
-        onSourceChange={setSource}
-        onModeChange={handleModeChange}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onLogout={() => void logout()}
-        onCreateTag={handleCreateTag}
-        resolveWikilink={resolveWikilink}
-        onNavigate={handleOpenNote}
-      />
+      <>
+        {importInput}
+        <MobileShell
+          tree={treeQuery.data}
+          settings={settings}
+          dark={dark}
+          notes={notes}
+          loading={notesQuery.isFetching}
+          inTrash={inTrash}
+          selection={selection}
+          selectedNoteId={selectedNoteId}
+          doc={doc}
+          source={source}
+          awareness={awareness}
+          status={status}
+          tagIds={tagIds}
+          displayTitle={displayTitle}
+          user={user}
+          banner={banner}
+          inboxNoteId={settings.inboxNoteId}
+          captures={captures}
+          capturesLoading={Boolean(settings.inboxNoteId) && inboxDocument.status === 'connecting' && captures.length === 0}
+          captureView={captureView}
+          captureCount={captures.length}
+          reveal={editorReveal}
+          tagBusy={updateNote.isPending || upsertTag.isPending}
+          onSelect={handleSidebarSelect}
+          onOpenNote={handleOpenNote}
+          onOpenCaptures={handleOpenCaptures}
+          onOpenCapture={handleOpenCapture}
+          onCapture={() => void handleQuickCapture()}
+          onCreateNote={handleCreateNote}
+          onCreateFolder={(parentId) => void handleCreateFolder(parentId)}
+          onDeleteFolder={(id) => void handleDeleteFolder(id)}
+          onRenameFolder={(id, name) => void handleRenameFolder(id, name)}
+          onDropNote={(noteId, folderId) => void handleDropNote(noteId, folderId)}
+          onTogglePin={handleTogglePin}
+          onDeleteNote={handleDeleteNote}
+          onRestoreNote={handleRestoreNote}
+          onTitleChange={handleTitleChange}
+          onSourceChange={setSource}
+          onModeChange={handleModeChange}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onLogout={() => void logout()}
+          onCreateTag={handleCreateTag}
+          resolveWikilink={resolveWikilink}
+          onNavigate={handleOpenNote}
+        />
+      </>
     );
   }
 
@@ -560,6 +696,7 @@ function Workspace() {
       // is pinned and always sorts first, which makes `.first()` misleading).
       data-active-note-id={selectedNoteId ?? ''}
     >
+      {importInput}
       <TitleBar
         syncStatus={status}
         pendingCount={syncManager.pendingCount}
@@ -573,13 +710,10 @@ function Workspace() {
         onOpenAi={handleOpenAi}
         onExportNote={handleExportNote}
         onExportVault={handleExportVault}
-        onImport={(files) => void handleImport(files)}
+        onImport={() => importInputRef.current?.click()}
         appleNotesAvailable={appleNotes.available}
         appleNotesStatus={appleNotes.status}
-        onAppleNotesSync={() => {
-          if (!appleNotes.status?.settings.enabled) setSettingsOpen(true);
-          else void appleNotes.syncNow();
-        }}
+        onAppleNotesSync={handleAppleNotesSync}
         user={user}
         onLogout={() => void logout()}
       />
@@ -717,6 +851,12 @@ function Workspace() {
 
 function Gate() {
   const { status } = useAuth();
+
+  // Signed-out windows keep the native menu installed but must not expose workspace actions.
+  useEffect(() => {
+    if (status !== 'authenticated') reportMenuState({ authenticated: false, user: null });
+  }, [status]);
+
   if (status === 'loading') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted">

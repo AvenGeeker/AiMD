@@ -37,7 +37,7 @@ export interface TitleBarProps {
   onOpenAi(): void;
   onExportNote(): void;
   onExportVault(): void;
-  onImport(files: File[]): void;
+  onImport(): void;
   appleNotesAvailable?: boolean;
   appleNotesStatus?: AppleNotesStatus | null;
   onAppleNotesSync?(): void;
@@ -172,24 +172,16 @@ export function TitleBar(props: TitleBarProps) {
           <PanelRight size={16} />
         </button>
 
-        <label
-          className="flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-[11px] text-muted hover:bg-hover"
+        <button
+          type="button"
+          className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted hover:bg-hover"
+          onClick={props.onImport}
           title="导入 Markdown / ZIP"
+          data-testid="import"
         >
           <Upload size={14} />
           导入
-          <input
-            type="file"
-            multiple
-            accept=".md,.markdown,.txt,.zip"
-            className="hidden"
-            onChange={(event) => {
-              const files = Array.from(event.target.files ?? []);
-              if (files.length > 0) props.onImport(files);
-              event.target.value = '';
-            }}
-          />
-        </label>
+        </button>
 
         <button
           type="button"

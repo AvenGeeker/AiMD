@@ -1,6 +1,12 @@
 import type { SettingsDto } from '@aimarkdown/shared';
 import type { SyncStatus } from './sync.js';
-import { getBridge, isDesktop, type HotkeyStates } from './platform.js';
+import {
+  getBridge,
+  isDesktop,
+  type HotkeyStates,
+  type MenuCommand,
+  type MenuStateSnapshot,
+} from './platform.js';
 
 /**
  * Web-bundle ↔ Electron-shell integration.
@@ -43,4 +49,29 @@ export async function applySettingsToShell(
 export function subscribeHotkeyWarning(callback: (states: HotkeyStates) => void): () => void {
   if (!isDesktop()) return () => undefined;
   return bridge()?.onHotkeyWarning?.(callback) ?? (() => undefined);
+}
+
+/**
+ * Mirror the TitleBar state into the native menu.
+ *
+ * The menu is a second surface for the same actions: mode radio items, rail checkboxes, sync
+ * status and account details stay correct only while the renderer keeps reporting them.
+ */
+export function reportMenuState(state: Partial<MenuStateSnapshot>): void {
+  if (!isDesktop()) return;
+  getBridge()?.reportMenuState?.(state);
+}
+
+/** Release menu clicks queued while the workspace was still mounting. */
+export function markMenuReady(): void {
+  if (!isDesktop()) return;
+  getBridge()?.menuReady?.();
+}
+
+/** Subscribe to native menu commands; returns an unsubscribe function. */
+export function subscribeMenuCommands(
+  callback: (command: MenuCommand) => void,
+): () => void {
+  if (!isDesktop()) return () => undefined;
+  return getBridge()?.onMenuCommand?.(callback) ?? (() => undefined);
 }

@@ -22,6 +22,8 @@ import { setLaunchAtLogin } from './login-item.js';
 import { AppleNotesSyncEngine } from './apple-notes/sync.js';
 import { startAppleNotesScheduler, stopAppleNotesScheduler } from './apple-notes/scheduler.js';
 import { setAppleNotesStatus } from './tray.js';
+import { installApplicationMenu, setAppMenuQuitHandler } from './app-menu.js';
+import { ensureRegularActivation } from './activation.js';
 import type { AppleNotesChangedEvent, AppleNotesStatus } from '@aimarkdown/shared';
 
 /**
@@ -45,6 +47,7 @@ if (!gotLock) {
   });
 
   const bootstrap = (): void => {
+    ensureRegularActivation();
     loadState();
     const state = getState();
     // Read-before-write: on macOS an unsigned/dev build cannot always change login items, and
@@ -95,12 +98,14 @@ if (!gotLock) {
     // startup the moment the user is trying to jot something down.
     createCaptureWindow();
     setQuitHandler(() => shutdown());
+    setAppMenuQuitHandler(() => shutdown());
 
     const captureState = applyHotkey('capture', state.hotkey);
     const mainState = applyHotkey('main', state.mainWindowHotkey);
     const failed = [captureState, mainState].filter((hotkey) => !hotkey.registered);
     // Create the tray after registration so its shortcut labels reflect the real state.
     createTray();
+    installApplicationMenu();
     if (failed.length > 0) {
       // Surface failures instead of silently leaving a shortcut unavailable; the tray menu
       // repeats them and the settings dialog offers a way to record a different combination.
