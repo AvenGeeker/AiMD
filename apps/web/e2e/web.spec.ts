@@ -197,6 +197,26 @@ test.describe('workspace basics', () => {
     await expect(page.locator(`[data-testid="note-item-${noteId}"]`)).toBeVisible();
   });
 
+  test('opens account details without logging out and can close them again', async ({ page }) => {
+    const email = await registerThroughUi(page);
+
+    const userButton = page.getByTestId('user-menu-button');
+    await userButton.click();
+    await expect(page.getByTestId('user-menu')).toBeVisible();
+    await expect(page.getByTestId('user-menu')).toContainText(email);
+    await expect(page.getByTestId('auth-view')).toHaveCount(0);
+
+    // Dismissing the popover must return to the workspace and keep the session intact.
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('user-menu')).toHaveCount(0);
+    await expect(page.getByTestId('workspace')).toBeVisible();
+
+    await userButton.click();
+    await page.getByTestId('user-menu-close').click();
+    await expect(page.getByTestId('user-menu')).toHaveCount(0);
+    await expect(page.getByTestId('workspace')).toBeVisible();
+  });
+
   test('persists everything across logout and login', async ({ page }) => {
     const email = uniqueEmail('persist');
     await registerThroughUi(page, email);
@@ -207,6 +227,8 @@ test.describe('workspace basics', () => {
     });
     await page.waitForTimeout(2_000);
 
+    await page.getByTestId('user-menu-button').click();
+    await expect(page.getByTestId('user-menu')).toBeVisible();
     await page.getByTestId('logout').click();
     await expect(page.getByTestId('auth-view')).toBeVisible();
 

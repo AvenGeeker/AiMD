@@ -580,7 +580,7 @@ function Workspace() {
           if (!appleNotes.status?.settings.enabled) setSettingsOpen(true);
           else void appleNotes.syncNow();
         }}
-        userName={user.displayName}
+        user={user}
         onLogout={() => void logout()}
       />
 

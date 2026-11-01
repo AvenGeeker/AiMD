@@ -17,9 +17,10 @@ import {
   Upload,
 } from 'lucide-react';
 import type { SyncStatus } from '../lib/sync.js';
-import type { AppleNotesStatus } from '@aimarkdown/shared';
+import type { AppleNotesStatus, UserDto } from '@aimarkdown/shared';
 import { isDesktop, platform } from '../lib/platform.js';
 import type { EditorMode } from './MarkdownEditor.js';
+import { UserMenu } from './UserMenu.js';
 
 /** Top bar: sync state, view-mode switch, rail toggles and global actions. */
 
@@ -40,7 +41,7 @@ export interface TitleBarProps {
   appleNotesAvailable?: boolean;
   appleNotesStatus?: AppleNotesStatus | null;
   onAppleNotesSync?(): void;
-  userName: string;
+  user: UserDto;
   onLogout(): void;
 }
 
@@ -233,15 +234,7 @@ export function TitleBar(props: TitleBarProps) {
           <Settings size={16} />
         </button>
 
-        <button
-          type="button"
-          className="rounded px-2 py-1 text-[11px] text-muted hover:bg-hover"
-          onClick={props.onLogout}
-          title="退出登录"
-          data-testid="logout"
-        >
-          {props.userName}
-        </button>
+        <UserMenu user={props.user} onLogout={props.onLogout} />
       </div>
     </header>
   );
