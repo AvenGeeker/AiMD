@@ -39,8 +39,7 @@ import { Sidebar, EMPTY_SELECTION, type SidebarSelection } from './components/Si
 import { NoteList } from './components/NoteList.js';
 import { CaptureList } from './components/CaptureList.js';
 import { MarkdownEditor, type EditorMode, type EditorReveal } from './components/MarkdownEditor.js';
-import { Outline } from './components/Outline.js';
-import { TagEditor } from './components/TagEditor.js';
+import { Inspector, type InspectorTab } from './components/Inspector.js';
 import { TitleBar } from './components/TitleBar.js';
 import { SettingsDialog } from './components/SettingsDialog.js';
 import { MobileShell } from './components/MobileShell.js';
@@ -106,6 +105,7 @@ function Workspace() {
   const [banner, setBanner] = useState<string | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(readSidebarVisible);
   const [outlineVisible, setOutlineVisible] = useState(readOutlineVisible);
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>('outline');
   const [captureView, setCaptureView] = useState(false);
   const [captureReveal, setCaptureReveal] = useState<CaptureReveal | null>(null);
   const firstFilterEffect = useRef(true);
@@ -341,6 +341,11 @@ function Workspace() {
     });
   }, []);
 
+  const handleOpenAi = useCallback(() => {
+    setOutlineVisible(true);
+    setInspectorTab('ai');
+  }, []);
+
   const handleToggleOutline = useCallback(() => {
     setOutlineVisible((visible) => {
       const next = !visible;
@@ -508,6 +513,7 @@ function Workspace() {
         selection={selection}
         selectedNoteId={selectedNoteId}
         doc={doc}
+        source={source}
         awareness={awareness}
         status={status}
         tagIds={tagIds}
@@ -535,6 +541,7 @@ function Workspace() {
         onDeleteNote={handleDeleteNote}
         onRestoreNote={handleRestoreNote}
         onTitleChange={handleTitleChange}
+        onSourceChange={setSource}
         onModeChange={handleModeChange}
         onOpenSettings={() => setSettingsOpen(true)}
         onLogout={() => void logout()}
@@ -563,6 +570,7 @@ function Workspace() {
         outlineVisible={outlineVisible}
         onToggleOutline={handleToggleOutline}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenAi={handleOpenAi}
         onExportNote={handleExportNote}
         onExportVault={handleExportVault}
         onImport={(files) => void handleImport(files)}
@@ -655,35 +663,36 @@ function Workspace() {
         </main>
 
         {outlineVisible && (
-          <Outline
+          <Inspector
+            activeTab={inspectorTab}
+            onTabChange={setInspectorTab}
+            noteId={selectedNoteId}
+            doc={doc}
             source={source}
             createdAt={notes.find((note) => note.id === selectedNoteId)?.createdAt}
             updatedAt={notes.find((note) => note.id === selectedNoteId)?.contentUpdatedAt}
+            inTrash={inTrash}
             onJump={(anchorId) => {
               const target = document.querySelector(`.markdown-preview #${CSS.escape(anchorId)}`);
               target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }}
-          >
-            {selectedNoteId && !inTrash && (
-              <TagEditor
-                allTags={treeQuery.data?.tags ?? []}
-                selectedIds={tagIds}
-                busy={updateNote.isPending || upsertTag.isPending}
-                onCreate={async (name) => {
-                  try {
-                    return await upsertTag.mutateAsync({ name });
-                  } catch (error) {
-                    flash(`创建标签失败：${error instanceof Error ? error.message : String(error)}`);
-                    return undefined;
-                  }
-                }}
-                onToggle={(_tagId, nextSelected) => {
-                  // Written straight into the CRDT so it works offline and merges across devices.
-                  writeNoteTagIds(doc, nextSelected);
-                }}
-              />
-            )}
-          </Outline>
+            onOpenSettings={() => setSettingsOpen(true)}
+            allTags={treeQuery.data?.tags ?? []}
+            selectedTagIds={tagIds}
+            tagBusy={updateNote.isPending || upsertTag.isPending}
+            onCreateTag={async (name) => {
+              try {
+                return await upsertTag.mutateAsync({ name });
+              } catch (error) {
+                flash(`创建标签失败：${error instanceof Error ? error.message : String(error)}`);
+                return undefined;
+              }
+            }}
+            onToggleTags={(nextSelected) => {
+              // Written straight into the CRDT so it works offline and merges across devices.
+              writeNoteTagIds(doc, nextSelected);
+            }}
+          />
         )}
       </div>
 

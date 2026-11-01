@@ -5,6 +5,12 @@ import {
   type QueryClient,
 } from '@tanstack/react-query';
 import type {
+  AiConfigDto,
+  AiConfigInput,
+  AiConfigTestInput,
+  AiConfigTestResultDto,
+  AiJobDto,
+  AiOverviewDto,
   FolderDto,
   ImportResultDto,
   NoteDto,
@@ -35,6 +41,8 @@ export const keys = {
   note: (id: string) => ['note', id] as const,
   tree: () => ['tree'] as const,
   settings: () => ['settings'] as const,
+  aiOverview: () => ['ai', 'overview'] as const,
+  aiJob: (id: string) => ['ai', 'job', id] as const,
 };
 
 function toQuery(filter: NoteFilter): Record<string, string | number | boolean | undefined> {
@@ -179,6 +187,87 @@ export function useUpdateSettings() {
     mutationFn: (patch: Partial<SettingsDto>) => request<SettingsDto>('/settings', { method: 'PATCH', body: patch }),
     onSuccess: (settings) => {
       client.setQueryData(keys.settings(), settings);
+    },
+  });
+}
+
+
+export function useAiOverview(enabled = true) {
+  return useQuery({
+    queryKey: keys.aiOverview(),
+    queryFn: () => request<AiOverviewDto>('/ai/overview'),
+    enabled,
+    staleTime: 1_000,
+    refetchInterval: 2_500,
+  });
+}
+
+export function useAiJob(id: string | null) {
+  return useQuery({
+    queryKey: keys.aiJob(id ?? 'none'),
+    queryFn: () => request<{ job: AiJobDto }>(`/ai/jobs/${id}`),
+    enabled: Boolean(id),
+    staleTime: 1_000,
+    refetchInterval: 1_500,
+  });
+}
+
+export function useSaveAiConfig() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: AiConfigInput) =>
+      request<AiConfigDto>('/ai/config', { method: 'PUT', body: input }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.aiOverview() });
+    },
+  });
+}
+
+export function useDeleteAiConfig() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => request<{ ok: boolean }>('/ai/config', { method: 'DELETE' }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.aiOverview() });
+    },
+  });
+}
+
+export function useTestAiConfig() {
+  return useMutation({
+    mutationFn: (input: AiConfigTestInput) =>
+      request<AiConfigTestResultDto>('/ai/config/test', { method: 'POST', body: input }),
+  });
+}
+
+export function useAnalyzeNote() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (noteId: string) =>
+      request<{ job: AiJobDto }>(`/notes/${noteId}/ai/analyze`, { method: 'POST' }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.aiOverview() });
+    },
+  });
+}
+
+export function useStartBackfill() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => request<{ job: AiJobDto }>('/ai/backfill', { method: 'POST' }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.aiOverview() });
+    },
+  });
+}
+
+export function useCancelAiJob() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (jobId: string) =>
+      request<{ job: AiJobDto }>(`/ai/jobs/${jobId}/cancel`, { method: 'POST' }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.aiOverview() });
     },
   });
 }

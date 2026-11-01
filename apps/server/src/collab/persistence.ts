@@ -3,7 +3,7 @@ import type { ISql, Sql } from 'postgres';
 import type * as Y from 'yjs';
 import { parseDocName } from '@aimarkdown/shared';
 import { decodeBytea, encodeBytea } from '../db/bytea.js';
-import { projectNote, projectWorkspace, sanitizeFolderTree } from './projection.js';
+import { projectNote, projectWorkspace, sanitizeFolderTree, type NoteProjection } from './projection.js';
 import type { Logger } from '../utils/logger.js';
 
 /**
@@ -17,9 +17,16 @@ import type { Logger } from '../utils/logger.js';
 
 type Tx = ISql;
 
+export interface NoteStoredEvent {
+  noteId: string;
+  ownerId: string;
+  projection: NoteProjection;
+}
+
 export interface PersistenceDeps {
   sql: Sql;
   log: Logger;
+  onNoteStored?(event: NoteStoredEvent): void | Promise<void>;
 }
 
 /** Write the projected note state into `notes` / `note_tags`. */
@@ -29,7 +36,7 @@ export async function mirrorNote(
   ownerId: string,
   doc: Y.Doc,
   now: Date = new Date(),
-): Promise<void> {
+): Promise<NoteProjection> {
   const projection = projectNote(doc, now);
 
   // `folder_id` is resolved through a correlated subquery: a folder created on another device
@@ -47,6 +54,11 @@ export async function mirrorNote(
       is_archived        = ${projection.archived},
       deleted_at         = ${projection.deletedAt},
       position           = ${projection.position},
+      ai_status          = ${projection.aiStatus},
+      ai_result          = ${JSON.stringify(projection.aiResult ?? {})}::jsonb,
+      ai_generated_at    = ${projection.aiGeneratedAt},
+      ai_source_hash     = ${projection.aiSourceHash},
+      ai_error           = ${projection.aiError},
       content_updated_at = case
         when notes.body_text is distinct from ${projection.bodyText} then ${now}
         else notes.content_updated_at
@@ -66,6 +78,7 @@ export async function mirrorNote(
       on conflict do nothing
     `;
   }
+  return projection;
 }
 
 /**
@@ -181,6 +194,7 @@ export function createCollabPersistence(deps: PersistenceDeps): Database {
       const docId = parsed.id;
       if (!docId) return;
 
+      let storedEvent: NoteStoredEvent | null = null;
       try {
         await sql.begin(async (tx) => {
           if (parsed.kind === 'note') {
@@ -198,7 +212,8 @@ export function createCollabPersistence(deps: PersistenceDeps): Database {
               on conflict (note_id) do update
                 set ydoc = excluded.ydoc, updated_at = excluded.updated_at
             `;
-            await mirrorNote(tx, docId, ownerId, document);
+            const projection = await mirrorNote(tx, docId, ownerId, document);
+            storedEvent = { noteId: docId, ownerId, projection };
             return;
           }
 
@@ -220,6 +235,14 @@ export function createCollabPersistence(deps: PersistenceDeps): Database {
       } catch (error) {
         log.error({ err: error, documentName }, 'collab store failed');
         throw error;
+      }
+
+      if (storedEvent) {
+        try {
+          await deps.onNoteStored?.(storedEvent);
+        } catch (error) {
+          log.error({ err: error, documentName }, 'post-store AI scheduling failed');
+        }
       }
     },
   });

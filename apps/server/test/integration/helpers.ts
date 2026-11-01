@@ -7,6 +7,8 @@ import { migrate } from '../../src/db/migrate.js';
 import { TokenVerifier } from '../../src/auth/tokens.js';
 import { createMemoryStorage } from '../../src/services/storage.js';
 import { createCollabServer, type CollabServer } from '../../src/collab/server.js';
+import { createAiService, type AiService } from '../../src/ai/service.js';
+import type { AiClient } from '../../src/ai/client.js';
 import { createConsoleLogger, silentLogger } from '../../src/utils/logger.js';
 import type { ServerConfig } from '../../src/config.js';
 import { loadConfig } from '../../src/config.js';
@@ -55,6 +57,7 @@ export async function truncateAll(handle: DbHandle): Promise<void> {
 export interface TestServer {
   app: FastifyInstance;
   collab: CollabServer;
+  ai: AiService;
   handle: DbHandle;
   config: ServerConfig;
   verifier: TokenVerifier;
@@ -65,6 +68,7 @@ export interface TestServer {
 
 export async function startTestServer(
   overrides: Record<string, string> = {},
+  options: { aiClient?: AiClient } = {},
 ): Promise<TestServer> {
   const config = testConfig(overrides);
   const handle = createDb({ databaseUrl: config.DATABASE_URL, max: 5 });
@@ -74,27 +78,47 @@ export async function startTestServer(
   await migrate(handle.sql);
   await truncateAll(handle);
 
-  const log = createConsoleLogger('silent');
+  const logLevel = config.LOG_LEVEL === 'fatal' ? 'error' : config.LOG_LEVEL === 'trace' ? 'debug' : config.LOG_LEVEL;
+  const log = createConsoleLogger(logLevel);
   const verifier = new TokenVerifier(config.JWT_SECRET);
   const storage = createMemoryStorage();
   const ctx = createServerContext({ config, dbHandle: handle, verifier, storage });
-  const collab = createCollabServer({ config, sql: handle.sql, verifier, log });
-  const app = await buildApp({ ctx, log, collab: () => collab });
+  let collab: CollabServer | null = null;
+  const ai = createAiService({
+    sql: handle.sql,
+    config,
+    log,
+    getHocuspocus: () => collab?.hocuspocus ?? null,
+    ...(options.aiClient ? { client: options.aiClient } : {}),
+  });
+  collab = createCollabServer({
+    config,
+    sql: handle.sql,
+    verifier,
+    log,
+    onNoteStored: (event) => ai.noteStored(event),
+  });
+  const collabServer = collab;
+  ctx.ai = ai;
+  const app = await buildApp({ ctx, log, collab: () => collabServer });
 
-  await collab.start();
-  ctx.collab = collab.hocuspocus;
+  await collabServer.start();
+  ctx.collab = collabServer.hocuspocus;
+  await ai.start();
   await app.ready();
 
   return {
     app,
-    collab,
+    collab: collabServer,
+    ai,
     handle,
     config,
     verifier,
-    collabPort: () => collab.server.address.port,
+    collabPort: () => collabServer.server.address.port,
     async stop() {
       await app.close();
-      await collab.stop();
+      await ai.stop();
+      await collabServer.stop();
       await handle.close();
     },
   };
@@ -182,7 +206,7 @@ export async function login(
 export async function api<T = unknown>(
   server: TestServer,
   client: AuthedClient,
-  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   url: string,
   payload?: unknown,
 ): Promise<{ status: number; body: T }> {

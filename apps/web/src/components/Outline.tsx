@@ -13,15 +13,21 @@ export interface OutlineProps {
   children?: React.ReactNode;
 }
 
-export function Outline({ source, createdAt, updatedAt, onJump, children }: OutlineProps) {
+export interface OutlineBodyProps {
+  source: string;
+  createdAt?: string;
+  updatedAt?: string;
+  onJump?(anchorId: string): void;
+}
+
+export function OutlineBody({ source, createdAt, updatedAt, onJump }: OutlineBodyProps) {
   const outline = useMemo(() => extractOutline(source), [source]);
   const words = useMemo(() => countWords(source), [source]);
   const chars = source.length;
   const lines = source.split('\n').length;
 
   return (
-    <aside className="flex h-full w-56 shrink-0 flex-col border-l border-border bg-surface" data-testid="outline">
-      <div className="border-b border-border px-3 py-2 text-[11px] uppercase tracking-wide text-muted">大纲</div>
+    <div className="flex min-h-0 flex-1 flex-col">
       <nav className="min-h-0 flex-1 overflow-auto p-2">
         {outline.length === 0 && <div className="px-1 text-xs text-muted/70">暂无标题</div>}
         {outline.map((entry) => (
@@ -63,6 +69,15 @@ export function Outline({ source, createdAt, updatedAt, onJump, children }: Outl
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+export function Outline({ source, createdAt, updatedAt, onJump, children }: OutlineProps) {
+  return (
+    <aside className="flex h-full w-56 shrink-0 flex-col border-l border-border bg-surface" data-testid="outline">
+      <div className="border-b border-border px-3 py-2 text-[11px] uppercase tracking-wide text-muted">大纲</div>
+      <OutlineBody source={source} createdAt={createdAt} updatedAt={updatedAt} onJump={onJump} />
       {children}
     </aside>
   );

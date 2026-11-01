@@ -1,7 +1,7 @@
 import type * as Y from 'yjs';
 import { countWords, deriveTitle, makeExcerpt } from '@aimarkdown/markdown';
-import type { FolderEntry, TagEntry, WorkspaceSettings } from '@aimarkdown/shared';
-import { readBody, readFolders, readNoteMeta, readSettings, readTagIds, readTags } from './docFactory.js';
+import type { AiResultDto, FolderEntry, NoteAiState, TagEntry, WorkspaceSettings } from '@aimarkdown/shared';
+import { readAiState, readAiTodos, readBody, readFolders, readNoteMeta, readSettings, readTagIds, readTags } from './docFactory.js';
 
 /**
  * Project CRDT state into the flat shape Postgres stores.
@@ -25,6 +25,12 @@ export interface NoteProjection {
   createdAt: Date;
   /** True when the title was derived from the body rather than set by the user. */
   titleIsAuto: boolean;
+  aiStatus: NoteAiState['status'];
+  aiResult: AiResultDto | null;
+  aiGeneratedAt: Date | null;
+  aiSourceHash: string | null;
+  aiError: string | null;
+  aiAutoAttemptedAt: string | null;
 }
 
 function toDate(value: string | null | undefined, fallback: Date): Date {
@@ -33,11 +39,27 @@ function toDate(value: string | null | undefined, fallback: Date): Date {
   return Number.isNaN(parsed.getTime()) ? fallback : parsed;
 }
 
+function toNullableDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export function projectNote(doc: Y.Doc, now: Date = new Date()): NoteProjection {
   const meta = readNoteMeta(doc);
   const bodyText = readBody(doc);
   const titleIsAuto = !meta.titleManual;
   const title = titleIsAuto ? deriveTitle(bodyText, meta.title) : meta.title;
+  const ai = readAiState(doc);
+  const aiTodos = readAiTodos(doc);
+  const aiResult: AiResultDto | null = ai.generatedAt
+    ? {
+        summary: ai.summary,
+        keyPoints: ai.keyPoints,
+        todos: aiTodos,
+        model: ai.model ?? '',
+      }
+    : null;
 
   return {
     title: title.length > 0 ? title : deriveTitle('', meta.title),
@@ -52,6 +74,12 @@ export function projectNote(doc: Y.Doc, now: Date = new Date()): NoteProjection 
     position: meta.position,
     createdAt: toDate(meta.createdAt, now),
     titleIsAuto,
+    aiStatus: ai.status,
+    aiResult,
+    aiGeneratedAt: toNullableDate(ai.generatedAt),
+    aiSourceHash: ai.sourceHash,
+    aiError: ai.error,
+    aiAutoAttemptedAt: ai.autoAttemptedAt,
   };
 }
 

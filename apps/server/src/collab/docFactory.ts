@@ -5,7 +5,11 @@ import {
   NOTE_KEYS,
   NOTE_META_DEFAULTS,
   WORKSPACE_KEYS,
+  NOTE_AI_DEFAULTS,
+  AI_STATUSES,
+  type AiTodoEntry,
   type FolderEntry,
+  type NoteAiState,
   type NoteMetaMap,
   type TagEntry,
   type WorkspaceSettings,
@@ -21,6 +25,112 @@ import {
  */
 
 /* --------------------------------- readers -------------------------------- */
+
+
+/* ---------------------------------- AI state ------------------------------- */
+
+export function readAiState(doc: Y.Doc): NoteAiState {
+  const map = doc.getMap(NOTE_KEYS.ai);
+  const str = (key: string, fallback: string | null): string | null => {
+    const value = map.get(key);
+    return typeof value === 'string' ? value : fallback;
+  };
+  const statusValue = str('status', 'idle');
+  const status = statusValue && (AI_STATUSES as readonly string[]).includes(statusValue)
+    ? (statusValue as NoteAiState['status'])
+    : 'idle';
+  let keyPoints: string[] = [];
+  const rawKeyPoints = map.get('keyPoints');
+  if (typeof rawKeyPoints === 'string') {
+    try {
+      const parsed = JSON.parse(rawKeyPoints) as unknown;
+      if (Array.isArray(parsed)) {
+        keyPoints = parsed.filter((value): value is string => typeof value === 'string');
+      }
+    } catch {
+      keyPoints = [];
+    }
+  }
+  return {
+    status,
+    summary: str('summary', '') ?? '',
+    keyPoints,
+    generatedAt: str('generatedAt', null),
+    sourceHash: str('sourceHash', null),
+    model: str('model', null),
+    error: str('error', null),
+    autoAttemptedAt: str('autoAttemptedAt', null),
+    lastAttemptAt: str('lastAttemptAt', null),
+  };
+}
+
+/** Write scalar AI state. Key points are serialized so Y.Map values stay primitive. */
+export function writeAiState(doc: Y.Doc, patch: Partial<NoteAiState>): void {
+  const map = doc.getMap(NOTE_KEYS.ai);
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    if (key === 'keyPoints' && Array.isArray(value)) {
+      map.set('keyPoints', JSON.stringify(value));
+    } else {
+      map.set(key, value as string | null);
+    }
+  }
+}
+
+export function readAiTodos(doc: Y.Doc): AiTodoEntry[] {
+  const map = doc.getMap(NOTE_KEYS.aiTodos);
+  const out: AiTodoEntry[] = [];
+  map.forEach((value) => {
+    if (!value || typeof value !== 'object') return;
+    const item = value as Record<string, unknown>;
+    if (
+      typeof item.id === 'string' &&
+      typeof item.text === 'string' &&
+      typeof item.done === 'boolean' &&
+      typeof item.order === 'number'
+    ) {
+      out.push({ id: item.id, text: item.text, done: item.done, order: item.order });
+    }
+  });
+  return out.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+}
+
+/**
+ * Replace the AI todo map while preserving entries by id. The map key is the todo id, so two
+ * devices toggling different checkboxes never overwrite each other's whole todo list.
+ */
+export function writeAiTodos(doc: Y.Doc, todos: readonly AiTodoEntry[]): void {
+  const map = doc.getMap<AiTodoEntry>(NOTE_KEYS.aiTodos);
+  const desired = new Map(todos.map((todo) => [todo.id, todo]));
+  const existingKeys: string[] = [];
+  map.forEach((_value, key) => existingKeys.push(key));
+  for (const key of existingKeys) {
+    if (!desired.has(key)) map.delete(key);
+  }
+  for (const todo of todos) {
+    const current = map.get(todo.id);
+    if (
+      current &&
+      current.text === todo.text &&
+      current.done === todo.done &&
+      current.order === todo.order
+    ) {
+      continue;
+    }
+    map.set(todo.id, { ...todo });
+  }
+}
+
+export function setAiTodoDone(doc: Y.Doc, todoId: string, done: boolean): void {
+  const map = doc.getMap<AiTodoEntry>(NOTE_KEYS.aiTodos);
+  const current = map.get(todoId);
+  if (!current || current.done === done) return;
+  map.set(todoId, { ...current, done });
+}
+
+export function readAiSummaryState(doc: Y.Doc): NoteAiState {
+  return { ...NOTE_AI_DEFAULTS, ...readAiState(doc) };
+}
 
 export function readBody(doc: Y.Doc): string {
   return doc.getText(NOTE_KEYS.body).toString();

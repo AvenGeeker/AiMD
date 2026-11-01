@@ -74,6 +74,15 @@ const configSchema = z.object({
    */
   COLLAB_PUBLIC_URL: z.preprocess(blankToUndefined, z.string().default('')),
 
+  /** Optional dedicated key for encrypting per-user AI provider credentials. */
+  AI_CREDENTIALS_SECRET: z.preprocess(blankToUndefined, z.string().min(32).optional()),
+  /** Allow HTTP/loopback/private AI base URLs. Intended for local models and tests only. */
+  AI_ALLOW_PRIVATE_BASE_URL: z.preprocess(blankToUndefined, booleanish.default(false)),
+  AI_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(5_000).default(90_000),
+  AI_REQUEST_INTERVAL_MS: z.coerce.number().int().min(0).default(750),
+  AI_MAX_CHUNK_CHARS: z.coerce.number().int().min(1_000).default(16_000),
+  AI_MAX_CHUNKS: z.coerce.number().int().min(1).default(48),
+
   /** Absolute path to the SQL migrations directory. */
   MIGRATIONS_DIR: optionalString,
 

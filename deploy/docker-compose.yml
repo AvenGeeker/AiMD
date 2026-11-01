@@ -63,6 +63,13 @@ services:
       # Empty means "same origin": Caddy rewrites /collab to the Hocuspocus port. Set this only
       # if you expose the app without that proxy.
       COLLAB_PUBLIC_URL: ${COLLAB_PUBLIC_URL:-}
+      # Optional dedicated key for encrypting per-user AI provider credentials.
+      AI_CREDENTIALS_SECRET: ${AI_CREDENTIALS_SECRET:-}
+      AI_ALLOW_PRIVATE_BASE_URL: ${AI_ALLOW_PRIVATE_BASE_URL:-false}
+      AI_REQUEST_TIMEOUT_MS: ${AI_REQUEST_TIMEOUT_MS:-90000}
+      AI_REQUEST_INTERVAL_MS: ${AI_REQUEST_INTERVAL_MS:-750}
+      AI_MAX_CHUNK_CHARS: ${AI_MAX_CHUNK_CHARS:-16000}
+      AI_MAX_CHUNKS: ${AI_MAX_CHUNKS:-48}
     volumes:
       - uploads:/data/uploads
     # Bound to the compose network only; Caddy is the sole ingress.

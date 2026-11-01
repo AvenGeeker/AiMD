@@ -1,4 +1,5 @@
 import { CRDT_SCHEMA_VERSION, DEFAULT_HOTKEY, THEMES, EDITOR_MODES, STAMP_FORMATS, INBOX_NOTE_TITLE } from './constants.js';
+import type { AiStatus } from './ai.js';
 
 /**
  * CRDT document naming + structure.
@@ -31,6 +32,10 @@ export const NOTE_KEYS = {
    * clobbering the other's whole list.
    */
   tagIds: 'tagIds',
+  /** `Y.Map` of AI summary state. Scalar values only; key points are stored as a JSON string. */
+  ai: 'ai',
+  /** `Y.Map<AiTodoEntry>` keyed by stable todo id so concurrent checkbox toggles merge. */
+  aiTodos: 'aiTodos',
 } as const;
 
 /** Y.Doc sub-document keys for a workspace document. */
@@ -130,6 +135,39 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
   hideOnBlur: true,
   minimizeToTray: true,
   launchAtLogin: false,
+};
+
+
+/** Final AI summary state stored inside a note document. */
+export interface NoteAiState {
+  status: AiStatus;
+  summary: string;
+  keyPoints: string[];
+  generatedAt: string | null;
+  sourceHash: string | null;
+  model: string | null;
+  error: string | null;
+  autoAttemptedAt: string | null;
+  lastAttemptAt: string | null;
+}
+
+export interface AiTodoEntry {
+  id: string;
+  text: string;
+  done: boolean;
+  order: number;
+}
+
+export const NOTE_AI_DEFAULTS: NoteAiState = {
+  status: 'idle',
+  summary: '',
+  keyPoints: [],
+  generatedAt: null,
+  sourceHash: null,
+  model: null,
+  error: null,
+  autoAttemptedAt: null,
+  lastAttemptAt: null,
 };
 
 /** Build the collaboration document name for a note. */

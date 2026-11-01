@@ -39,6 +39,59 @@ export interface NoteRow {
   created_at: Date;
   content_updated_at: Date;
   updated_at: Date;
+  ai_status: string;
+  ai_result: Record<string, unknown>;
+  ai_generated_at: Date | null;
+  ai_source_hash: string | null;
+  ai_error: string | null;
+}
+
+
+export interface AiProviderConfigRow {
+  user_id: string;
+  enabled: boolean;
+  preset: string;
+  base_url: string;
+  model: string;
+  api_key_enc: string;
+  api_key_hint: string;
+  last_test_at: Date | null;
+  last_test_ok: boolean | null;
+  last_test_error: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface AiJobRow {
+  id: string;
+  owner_id: string;
+  kind: string;
+  status: string;
+  note_id: string | null;
+  current_note_id: string | null;
+  total: number;
+  completed: number;
+  succeeded: number;
+  failed: number;
+  error: string | null;
+  created_at: Date;
+  started_at: Date | null;
+  finished_at: Date | null;
+  updated_at: Date;
+}
+
+export interface AiJobItemRow {
+  job_id: string;
+  note_id: string;
+  status: string;
+  mode: string;
+  error: string | null;
+  call_count: number;
+  input_tokens: bigint;
+  output_tokens: bigint;
+  created_at: Date;
+  started_at: Date | null;
+  finished_at: Date | null;
 }
 
 /** The CRDT document. `ydoc` is the authoritative state for a note's content and metadata. */
@@ -106,6 +159,9 @@ export const TABLES = [
   'note_tags',
   'attachments',
   'refresh_tokens',
+  'ai_provider_configs',
+  'ai_jobs',
+  'ai_job_items',
 ] as const;
 
 export type TableName = (typeof TABLES)[number];
@@ -117,6 +173,7 @@ export const EXPECTED_COLUMNS: Record<TableName, readonly string[]> = {
   notes: [
     'id', 'owner_id', 'folder_id', 'title', 'body_text', 'is_pinned', 'is_archived',
     'deleted_at', 'position', 'word_count', 'created_at', 'content_updated_at', 'updated_at',
+    'ai_status', 'ai_result', 'ai_generated_at', 'ai_source_hash', 'ai_error',
   ],
   note_documents: ['note_id', 'ydoc', 'updated_at'],
   workspace_documents: ['user_id', 'ydoc', 'updated_at'],
@@ -125,4 +182,16 @@ export const EXPECTED_COLUMNS: Record<TableName, readonly string[]> = {
   note_tags: ['note_id', 'tag_id'],
   attachments: ['id', 'owner_id', 'note_id', 'filename', 'mime', 'size', 'storage_key', 'created_at'],
   refresh_tokens: ['id', 'user_id', 'token_hash', 'expires_at', 'revoked_at', 'user_agent', 'created_at'],
+  ai_provider_configs: [
+    'user_id', 'enabled', 'preset', 'base_url', 'model', 'api_key_enc', 'api_key_hint',
+    'last_test_at', 'last_test_ok', 'last_test_error', 'created_at', 'updated_at',
+  ],
+  ai_jobs: [
+    'id', 'owner_id', 'kind', 'status', 'note_id', 'current_note_id', 'total', 'completed', 'succeeded', 'failed',
+    'error', 'created_at', 'started_at', 'finished_at', 'updated_at',
+  ],
+  ai_job_items: [
+    'job_id', 'note_id', 'status', 'mode', 'auto', 'error', 'call_count', 'input_tokens',
+    'output_tokens', 'created_at', 'started_at', 'finished_at',
+  ],
 };

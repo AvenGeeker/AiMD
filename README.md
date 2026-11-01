@@ -5,6 +5,7 @@
 - **多端同步**：基于 **Yjs CRDT**，离线可写，联网后字符级自动合并，不会互相覆盖
 - **Markdown 编辑与预览**：CodeMirror 6 源码编辑 + 实时预览，支持分栏 / 纯编辑 / 纯预览三态
 - **全局快捷键速记**：macOS / Windows 全局热键唤出无边框置顶小窗，内容以 CRDT 追加写入「收集箱」
+- **AI 总结与自动标签**：服务端调用 OpenAI 兼容接口，为笔记生成摘要、要点、可勾选待办和最多 3 个标签；支持首次回填
 
 ---
 
@@ -306,13 +307,31 @@ npm 依赖同理，可在 `.npmrc` 中指向镜像源。
 
 不是「代码写完了」，而是实际跑通的部分：
 
-- **单元测试 183 项**：CRDT 离线合并、速记追加、标签最小 diff、目录删除重挂载、Markdown 管线（GFM/KaTeX/mermaid/wikilink/任务列表）、XSS 消毒、分数排序、配置解析、日期与 bytea 编解码
-- **集成测试 103 项**（真实 Postgres 18 + 真实 Hocuspocus WebSocket）：WS 鉴权与跨租户拒绝、bytea 往返、镜像投影、trgm 中文搜索、标签 AND 过滤、回收站、附件鉴权与 SVG CSP、ZIP 导出→导入 round-trip、**debounce 窗口内关停仍不丢写入**、库结构与行类型一致性
-- **端到端 15 项**（Playwright + 真实服务端）：注册/建笔记/编辑/实时预览/三态切换/目录拖拽/标签筛选/中文搜索/回收站/登出重登/**双设备实时同步**/**双设备离线合并**/离线重连后持久化/速记与并发编辑互不干扰/XSS 不执行
+- **单元测试 225 项**：CRDT 离线合并、速记追加、标签最小 diff、目录删除重挂载、Markdown 管线（GFM/KaTeX/mermaid/wikilink/任务列表）、XSS 消毒、分数排序、配置解析、日期与 bytea 编解码
+- **集成测试 118 项**（真实 Postgres 18 + 真实 Hocuspocus WebSocket）：WS 鉴权与跨租户拒绝、bytea 往返、镜像投影、trgm 中文搜索、标签 AND 过滤、回收站、附件鉴权与 SVG CSP、ZIP 导出→导入 round-trip、**debounce 窗口内关停仍不丢写入**、库结构与行类型一致性
+- **端到端 23 项**（Playwright + 真实服务端）：注册/建笔记/编辑/实时预览/三态切换/目录拖拽/标签筛选/中文搜索/回收站/登出重登/**双设备实时同步**/**双设备离线合并**/离线重连后持久化/速记与并发编辑互不干扰/XSS 不执行
 - **生产栈实机验证**：`docker compose up -d --build` 起 Caddy + app + Postgres，通过 HTTPS 实测健康检查、SPA 与静态资源 MIME、HTTP→HTTPS 跳转、注册、建笔记、中文搜索、整库 ZIP 导出（中文文件名正确），以及 **WebSocket 经 Caddy `/collab` 前缀剥离后的鉴权拒绝、实时传播与离线合并**
 - **Electron 外壳**：主进程启动无错误，主窗口 + 预创建的隐藏速记窗各一个渲染进程，全局快捷键注册成功（失败会在托盘与设置页告警）
 
 ---
+
+## AI 总结与自动标签
+
+设置 →「AI 助手」里填写 OpenAI 兼容服务的 `Base URL`、模型和 API Key。阿里云 Token Plan 预设为：
+
+- Base URL：`https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`
+- 默认模型：`qwen3.7-plus`
+- API Key：Token Plan 的 AK / API Key（`sk-sp-…`）
+
+工作方式：
+
+- 新笔记首次出现正文后自动生成一次摘要、要点、待办和标签；之后正文变化只标记摘要过期，手动点「重新生成」才会再次调用。
+- 已有标签的笔记不会被 AI 删除或覆盖标签；只有 0 标签笔记才会由 AI 补最多 3 个标签，并优先复用已有标签。
+- 设置页的「回填未处理笔记」会处理所有未删除、正文非空且「没有标签」或「缺少摘要」的笔记。任务在服务端串行执行，可看进度并取消。
+- 超长笔记按段落分块、层级汇总；默认最多 48 块，超过会明确报错而不是静默截断。
+- API Key 使用 AES-256-GCM 加密存 Postgres，浏览器只能看到掩码。未配置 `AI_CREDENTIALS_SECRET` 时由 `JWT_SECRET` 派生；轮换 `JWT_SECRET` 后需要重新填写 AI Key。
+- 自定义 Base URL 默认仅允许 HTTPS 公网地址，防止 SSRF。本地 Ollama 等内网服务需显式设置 `AI_ALLOW_PRIVATE_BASE_URL=true`。
+- **个人版阿里云 Token Plan 可能限制自定义后端或批量调用**。请先确认套餐条款；回填按钮会要求二次确认并提示额度风险。
 
 ## 已知限制
 
@@ -346,6 +365,10 @@ npm 依赖同理，可在 `.npmrc` 中指向镜像源。
 | GET | `/notes/:id/export` · `/export/vault` | 单篇 `.md` · 整库 ZIP |
 | POST | `/import` | 上传 `.md` 或 ZIP，重建目录层级 |
 | POST | `/attachments` · GET `/attachments/:id` | 图片上传与鉴权下载 |
+| GET | `/ai/overview` | AI 配置掩码、待回填计数、当前任务 |
+| PUT/DELETE | `/ai/config` · POST `/ai/config/test` | 保存/清空 AI 配置 · 测试连接 |
+| POST | `/notes/:id/ai/analyze` | 手动生成/重跑当前笔记的 AI 总结 |
+| POST | `/ai/backfill` · GET `/ai/jobs/:id` · POST `/ai/jobs/:id/cancel` | 回填、任务进度、取消 |
 | GET | `/health` | 存活探针（部署脚本与容器健康检查使用） |
 | WS | `/collab` | Hocuspocus 协同通道，连接时必须携带 access token |
 

@@ -16,6 +16,11 @@ import {
   writeNoteMeta,
   writeSettings,
   deleteFolder,
+  readAiState,
+  readAiTodos,
+  writeAiState,
+  writeAiTodos,
+  setAiTodoDone,
 } from '../../src/collab/docFactory.js';
 
 /** Simulate two devices editing offline, then syncing in both directions. */
@@ -299,5 +304,45 @@ describe('encode/decode round trip', () => {
   it('decodes null bytes into an empty document', () => {
     expect(readBody(decodeDoc(null))).toBe('');
     expect(readBody(decodeDoc(new Uint8Array(0)))).toBe('');
+  });
+});
+
+
+describe('AI state CRDT', () => {
+  it('round-trips summary state and key points', () => {
+    const doc = createNoteDoc();
+    writeAiState(doc, {
+      status: 'done',
+      summary: '摘要',
+      keyPoints: ['要点一', '要点二'],
+      generatedAt: '2026-11-01T00:00:00.000Z',
+      sourceHash: 'abc',
+      model: 'qwen3.7-plus',
+      error: null,
+      autoAttemptedAt: '2026-11-01T00:00:00.000Z',
+      lastAttemptAt: '2026-11-01T00:00:00.000Z',
+    });
+    expect(readAiState(doc)).toMatchObject({
+      status: 'done',
+      summary: '摘要',
+      keyPoints: ['要点一', '要点二'],
+      sourceHash: 'abc',
+    });
+  });
+
+  it('merges concurrent checkbox toggles on different todos', () => {
+    const a = createNoteDoc();
+    writeAiTodos(a, [
+      { id: 't1', text: '任务一', done: false, order: 0 },
+      { id: 't2', text: '任务二', done: false, order: 1 },
+    ]);
+    const b = decodeDoc(encodeDoc(a));
+    setAiTodoDone(a, 't1', true);
+    setAiTodoDone(b, 't2', true);
+    merge(a, b);
+    expect(readAiTodos(a)).toEqual([
+      { id: 't1', text: '任务一', done: true, order: 0 },
+      { id: 't2', text: '任务二', done: true, order: 1 },
+    ]);
   });
 });

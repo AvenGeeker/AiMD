@@ -13,6 +13,7 @@ import {
   Pencil,
   Settings,
   ShieldAlert,
+  Sparkles,
   Upload,
 } from 'lucide-react';
 import type { SyncStatus } from '../lib/sync.js';
@@ -32,6 +33,7 @@ export interface TitleBarProps {
   outlineVisible: boolean;
   onToggleOutline(): void;
   onOpenSettings(): void;
+  onOpenAi(): void;
   onExportNote(): void;
   onExportVault(): void;
   onImport(files: File[]): void;
@@ -208,6 +210,17 @@ export function TitleBar(props: TitleBarProps) {
         >
           <Download size={14} />
           全部
+        </button>
+
+        <button
+          type="button"
+          className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted hover:bg-hover"
+          onClick={props.onOpenAi}
+          title="AI 总结与待办"
+          data-testid="open-ai"
+        >
+          <Sparkles size={14} />
+          AI
         </button>
 
         <button

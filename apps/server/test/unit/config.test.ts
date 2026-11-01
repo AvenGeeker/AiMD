@@ -46,11 +46,15 @@ describe('loadConfig', () => {
       PUBLIC_URL: '',
       WEB_DIST_DIR: '',
       MIGRATIONS_DIR: '',
+      AI_CREDENTIALS_SECRET: '',
+      AI_ALLOW_PRIVATE_BASE_URL: '',
     } as NodeJS.ProcessEnv);
     expect(config.BOOTSTRAP_ADMIN_EMAIL).toBeUndefined();
     expect(config.BOOTSTRAP_ADMIN_PASSWORD).toBeUndefined();
     expect(config.PUBLIC_URL).toBe('');
     expect(config.WEB_DIST_DIR).toBe('');
+    expect(config.AI_CREDENTIALS_SECRET).toBeUndefined();
+    expect(config.AI_ALLOW_PRIVATE_BASE_URL).toBe(false);
   });
 
   it('still rejects a too-short non-blank admin password', () => {

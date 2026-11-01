@@ -4,7 +4,7 @@ import type { ServerConfig } from '../config.js';
 import type { TokenVerifier } from '../auth/tokens.js';
 import type { Logger } from '../utils/logger.js';
 import { createAuthorizer, type CollabContext } from './authorize.js';
-import { createCollabPersistence } from './persistence.js';
+import { createCollabPersistence, type NoteStoredEvent } from './persistence.js';
 
 /**
  * The collaboration server.
@@ -19,6 +19,7 @@ export interface CollabServerDeps {
   sql: Sql;
   verifier: TokenVerifier;
   log: Logger;
+  onNoteStored?(event: NoteStoredEvent): void | Promise<void>;
 }
 
 export interface StopReport {
@@ -57,7 +58,7 @@ export function createCollabServer(deps: CollabServerDeps): CollabServer {
     unloadImmediately: false,
     websocketOptions: { maxPayload: config.COLLAB_MAX_PAYLOAD_BYTES },
     onAuthenticate: createAuthorizer({ verifier, sql, log }),
-    extensions: [createCollabPersistence({ sql, log })],
+    extensions: [createCollabPersistence({ sql, log, onNoteStored: deps.onNoteStored })],
   });
 
   return {

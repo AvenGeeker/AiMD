@@ -22,6 +22,7 @@ import { projectNote } from '../collab/projection.js';
 import { noteStateHash } from '../utils/hash.js';
 import { docFromSnapshot, mutateDocument } from '../collab/direct.js';
 import type { Hocuspocus } from '@hocuspocus/server';
+import type { AiService } from '../ai/service.js';
 
 /**
  * Note operations.
@@ -37,6 +38,8 @@ export interface NotesDeps {
   log: Logger;
   /** Null until the collab server has started; tests may inject a stub. */
   getHocuspocus(): Hocuspocus | null;
+  /** Optional so pure unit tests can exercise note CRUD without the AI worker. */
+  ai?: AiService | null;
 }
 
 export interface NoteRecord {
@@ -146,6 +149,11 @@ export async function createNote(
 
   const record = await getNote(deps, ownerId, id, { includeDeleted: true });
   if (!record) throw new ApiError(ERROR_CODES.INTERNAL, '笔记创建后无法读取');
+  if (deps.ai) {
+    await deps.ai.noteCreated({ ownerId, noteId: id, body: record.bodyText }).catch((error) => {
+      deps.log.warn({ err: error, noteId: id }, 'AI auto-analysis enqueue failed');
+    });
+  }
   return record;
 }
 

@@ -10,6 +10,7 @@ import {
   Plus,
   Settings,
   ShieldAlert,
+  Sparkles,
   Tags,
   X,
 } from 'lucide-react';
@@ -30,6 +31,7 @@ import { NoteList } from './NoteList.js';
 import { CaptureList } from './CaptureList.js';
 import { MarkdownEditor, type EditorMode, type EditorReveal } from './MarkdownEditor.js';
 import { TagEditor } from './TagEditor.js';
+import { AiPanel } from './AiPanel.js';
 
 /**
  * Single-pane mobile shell.
@@ -50,6 +52,7 @@ export interface MobileShellProps {
   selection: SidebarSelection;
   selectedNoteId: string | null;
   doc: Y.Doc | null;
+  source: string;
   awareness: Awareness | null;
   status: SyncStatus;
   tagIds: string[];
@@ -79,6 +82,7 @@ export interface MobileShellProps {
   onDeleteNote(id: string): void;
   onRestoreNote(id: string): void;
   onTitleChange(value: string): void;
+  onSourceChange(source: string): void;
   onModeChange(mode: EditorMode): void;
   onOpenSettings(): void;
   onLogout(): void;
@@ -120,6 +124,7 @@ export function MobileShell(props: MobileShellProps) {
     selection,
     selectedNoteId,
     doc,
+    source,
     awareness,
     status,
     tagIds,
@@ -147,6 +152,7 @@ export function MobileShell(props: MobileShellProps) {
     onDeleteNote,
     onRestoreNote,
     onTitleChange,
+    onSourceChange,
     onModeChange,
     onOpenSettings,
     onLogout,
@@ -158,6 +164,7 @@ export function MobileShell(props: MobileShellProps) {
   const [view, setView] = useState<'list' | 'editor'>('list');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [tagsOpen, setTagsOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
 
   // Split view is a desktop affordance; a phone shows one pane at a time.
   const effectiveMode: EditorMode = inTrash
@@ -379,7 +386,7 @@ export function MobileShell(props: MobileShellProps) {
                 mode={effectiveMode}
                 fontSize={settings.fontSize}
                 dark={dark}
-                onSourceChange={(_source) => undefined}
+                onSourceChange={onSourceChange}
                 resolveWikilink={resolveWikilink}
                 onNavigate={onNavigate}
                 reveal={reveal}
@@ -427,6 +434,15 @@ export function MobileShell(props: MobileShellProps) {
             <button
               type="button"
               className="flex h-11 items-center gap-1.5 rounded px-3 text-xs text-muted active:bg-hover"
+              onClick={() => setAiOpen(true)}
+              data-testid="open-ai-mobile"
+            >
+              <Sparkles size={15} />
+              AI
+            </button>
+            <button
+              type="button"
+              className="flex h-11 items-center gap-1.5 rounded px-3 text-xs text-muted active:bg-hover"
               onClick={() => setTagsOpen(true)}
               data-testid="open-tags"
             >
@@ -462,6 +478,39 @@ export function MobileShell(props: MobileShellProps) {
                     onCreate={onCreateTag}
                     onToggle={(_tagId, nextSelected) => {
                       writeNoteTagIds(doc, nextSelected);
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {aiOpen && (
+            <div className="mobile-backdrop" onClick={() => setAiOpen(false)}>
+              <div
+                className="mobile-sheet h-[70vh]"
+                onClick={(event) => event.stopPropagation()}
+                data-testid="ai-sheet"
+              >
+                <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
+                  <span className="text-sm font-medium">AI 助手</span>
+                  <button
+                    type="button"
+                    className="rounded p-2 text-muted active:bg-hover"
+                    onClick={() => setAiOpen(false)}
+                    aria-label="关闭 AI"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="min-h-0 flex-1 overflow-auto">
+                  <AiPanel
+                    noteId={selectedNoteId}
+                    doc={doc}
+                    source={source}
+                    onOpenSettings={() => {
+                      setAiOpen(false);
+                      onOpenSettings();
                     }}
                   />
                 </div>

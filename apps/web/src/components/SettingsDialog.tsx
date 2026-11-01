@@ -4,6 +4,7 @@ import { DEFAULT_HOTKEY, EDITOR_MODES, STAMP_FORMATS, THEMES, type SettingsDto }
 import { formatHotkey, getBridge, isDesktop, platform } from '../lib/platform.js';
 import { describeError } from '../lib/api.js';
 import { AppleNotesSettingsSection } from './AppleNotesSettingsSection.js';
+import { AiSettingsSection } from './AiSettingsSection.js';
 import type { AppleNotesController } from '../hooks/useAppleNotes.js';
 
 /** Preferences dialog. Values are persisted through the API, which writes the workspace CRDT. */
@@ -77,7 +78,7 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes }: Settin
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" data-testid="settings-dialog">
-      <div className="w-full max-w-md rounded-lg border border-border bg-surface shadow-lg">
+      <div className="w-full max-w-lg rounded-lg border border-border bg-surface shadow-lg">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <h2 className="text-sm font-semibold">设置</h2>
           <button type="button" onClick={onClose} className="rounded p-1 text-muted hover:bg-hover" aria-label="关闭">
@@ -154,6 +155,8 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes }: Settin
               ))}
             </select>
           </Row>
+
+          <AiSettingsSection />
 
           <div className="border-t border-border pt-3">
             <div className="mb-2 text-xs font-medium text-muted">桌面端</div>

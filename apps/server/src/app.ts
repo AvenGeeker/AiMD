@@ -17,6 +17,7 @@ import { registerTreeRoutes } from './routes/tree.js';
 import { registerAttachmentRoutes } from './routes/attachments.js';
 import { registerVaultRoutes } from './routes/vault.js';
 import { registerHealthRoutes } from './routes/health.js';
+import { registerAiRoutes } from './routes/ai.js';
 import { ensureBootstrapAdmin, type UsersDeps } from './services/users.js';
 import { DEFAULT_TTLS } from './auth/tokens.js';
 import type { NotesDeps } from './services/notes.js';
@@ -105,6 +106,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     sql: ctx.dbHandle.sql,
     log,
     getHocuspocus: () => collab()?.hocuspocus ?? null,
+    ai: ctx.ai,
   };
   const workspaceDeps: WorkspaceDeps = {
     sql: ctx.dbHandle.sql,
@@ -114,6 +116,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   registerHealthRoutes(app, collab);
   registerAuthRoutes(app, usersDeps);
+  if (ctx.ai) registerAiRoutes(app, ctx.ai);
   registerNoteRoutes(app, notesDeps, workspaceDeps);
   registerTreeRoutes(app, workspaceDeps);
   registerAttachmentRoutes(app, {

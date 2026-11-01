@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import * as Y from 'yjs';
 import type { Awareness } from 'y-protocols/awareness';
 import { NOTE_KEYS, noteDocName, type NoteMetaMap } from '@aimarkdown/shared';
-import { NOTE_META_DEFAULTS } from '@aimarkdown/shared';
+import { NOTE_AI_DEFAULTS, NOTE_META_DEFAULTS } from '@aimarkdown/shared';
 import { syncManager, type SyncEntry, type SyncStatus } from '../lib/sync.js';
 
 /**
@@ -169,4 +169,102 @@ export function writeNoteTagIds(doc: Y.Doc | null, nextTagIds: string[]): void {
     }
     if (array.length > next.length) array.delete(next.length, array.length - next.length);
   });
+}
+
+/** Reactive AI summary state and independently-synced todos for a note document. */
+export function useNoteAi(doc: Y.Doc | null): {
+  state: import('@aimarkdown/shared').NoteAiState;
+  todos: import('@aimarkdown/shared').AiTodoEntry[];
+} {
+  const [version, bump] = useState(0);
+
+  useEffect(() => {
+    if (!doc) return;
+    const ai = doc.getMap(NOTE_KEYS.ai);
+    const todos = doc.getMap(NOTE_KEYS.aiTodos);
+    const observer = () => bump((value) => value + 1);
+    ai.observeDeep(observer);
+    todos.observeDeep(observer);
+    bump((value) => value + 1);
+    return () => {
+      ai.unobserveDeep(observer);
+      todos.unobserveDeep(observer);
+    };
+  }, [doc]);
+
+  return useMemo(() => {
+    if (!doc) return { state: { ...NOTE_AI_DEFAULTS }, todos: [] };
+    const ai = doc.getMap(NOTE_KEYS.ai);
+    const str = (key: string, fallback: string | null) => {
+      const value = ai.get(key);
+      return typeof value === 'string' ? value : fallback;
+    };
+    let keyPoints: string[] = [];
+    const raw = ai.get('keyPoints');
+    if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (Array.isArray(parsed)) keyPoints = parsed.filter((item): item is string => typeof item === 'string');
+      } catch {
+        keyPoints = [];
+      }
+    }
+    const statusValue = str('status', 'idle') ?? 'idle';
+    const status = (['idle', 'queued', 'running', 'done', 'error'] as const).includes(
+      statusValue as 'idle',
+    )
+      ? (statusValue as import('@aimarkdown/shared').AiStatus)
+      : 'idle';
+    const todos: import('@aimarkdown/shared').AiTodoEntry[] = [];
+    doc.getMap(NOTE_KEYS.aiTodos).forEach((value) => {
+      if (!value || typeof value !== 'object') return;
+      const item = value as Record<string, unknown>;
+      if (
+        typeof item.id === 'string' &&
+        typeof item.text === 'string' &&
+        typeof item.done === 'boolean' &&
+        typeof item.order === 'number'
+      ) {
+        todos.push({ id: item.id, text: item.text, done: item.done, order: item.order });
+      }
+    });
+    todos.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+    return {
+      state: {
+        status,
+        summary: str('summary', '') ?? '',
+        keyPoints,
+        generatedAt: str('generatedAt', null),
+        sourceHash: str('sourceHash', null),
+        model: str('model', null),
+        error: str('error', null),
+        autoAttemptedAt: str('autoAttemptedAt', null),
+        lastAttemptAt: str('lastAttemptAt', null),
+      },
+      todos,
+    };
+    // `version` is the observation signal, as in useNoteMeta/useNoteTagIds.
+  }, [doc, version]);
+}
+
+/** Toggle one todo without replacing the whole map, so two devices merge cleanly. */
+export function writeAiTodoDone(doc: Y.Doc | null, todoId: string, done: boolean): void {
+  if (!doc) return;
+  const todos = doc.getMap<import('@aimarkdown/shared').AiTodoEntry>(NOTE_KEYS.aiTodos);
+  const current = todos.get(todoId);
+  if (!current || current.done === done) return;
+  doc.transact(() => todos.set(todoId, { ...current, done }));
+}
+
+/** Append the current AI todo list as a normal Markdown checklist at the end of the note. */
+export function appendAiTodosToBody(
+  doc: Y.Doc | null,
+  todos: import('@aimarkdown/shared').AiTodoEntry[],
+): void {
+  if (!doc || todos.length === 0) return;
+  const body = doc.getText(NOTE_KEYS.body);
+  const current = body.toString();
+  const lines = ['## 待办', ...todos.map((todo) => `- [${todo.done ? 'x' : ' '}] ${todo.text}`)];
+  const prefix = current.length === 0 ? '' : current.endsWith('\n\n') ? '' : current.endsWith('\n') ? '\n' : '\n\n';
+  body.insert(body.length, `${prefix}${lines.join('\n')}\n`);
 }

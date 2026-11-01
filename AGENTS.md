@@ -15,9 +15,9 @@ make db-up            # 开发库 :5433 + 测试库 :5434（集成测试和 E2E 
 make typecheck        # 全仓 tsc
 make lint             # eslint --max-warnings=0（有 warning 就算失败）
 
-make test-unit        # 203 项，纯内存，不需要数据库
-make test-integration # 112 项，需要 :5434（真实 Postgres + 真实 Hocuspocus WebSocket）
-make test-e2e         # 22 项，需要 :5433 + 已构建的 apps/web/dist
+make test-unit        # 225 项，纯内存，不需要数据库
+make test-integration # 118 项，需要 :5434（真实 Postgres + 真实 Hocuspocus WebSocket）
+make test-e2e         # 23 项，需要 :5433 + 已构建的 apps/web/dist
 
 make dev              # Postgres + API(:3000) + Vite(:5173)
 pnpm --filter @aimarkdown/desktop dev    # Electron 外壳，需先有 make dev

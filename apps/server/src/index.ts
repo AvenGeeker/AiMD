@@ -7,6 +7,7 @@ import { createLocalStorage } from './services/storage.js';
 import { createCollabServer, type CollabServer } from './collab/server.js';
 import { buildApp, bootstrapAdmin } from './app.js';
 import { createConsoleLogger } from './utils/logger.js';
+import { createAiService } from './ai/service.js';
 
 /**
  * Process entrypoint.
@@ -35,13 +36,29 @@ async function main(): Promise<void> {
 
   const verifier = new TokenVerifier(config.JWT_SECRET);
   const ctx = createServerContext({ config, dbHandle, verifier, storage });
-  const collab = createCollabServer({ config, sql: dbHandle.sql, verifier, log });
+  let collab: CollabServer | null = null;
+  const ai = createAiService({
+    sql: dbHandle.sql,
+    config,
+    log,
+    getHocuspocus: () => collab?.hocuspocus ?? null,
+  });
+  collab = createCollabServer({
+    config,
+    sql: dbHandle.sql,
+    verifier,
+    log,
+    onNoteStored: (event) => ai.noteStored(event),
+  });
+  const collabServer = collab;
+  ctx.ai = ai;
 
-  const app = await buildApp({ ctx, log, collab: () => collab });
+  const app = await buildApp({ ctx, log, collab: () => collabServer });
 
-  await collab.start();
+  await collabServer.start();
   // `buildApp` closes over `collab` lazily, so route handlers see the instance from here on.
-  ctx.collab = collab.hocuspocus;
+  ctx.collab = collabServer.hocuspocus;
+  await ai.start();
 
   await bootstrapAdmin(ctx, log);
 
@@ -65,7 +82,11 @@ async function main(): Promise<void> {
       log.error({ err: error }, 'error closing HTTP server');
     }
 
-    const report = await collab.stop();
+    await ctx.ai?.stop().catch((error) => {
+      log.error({ err: error }, 'error stopping AI worker');
+    });
+
+    const report = await collabServer.stop();
     if (!report.drained) {
       log.warn({ pendingDocuments: report.pendingDocuments }, 'some documents were not flushed before timeout');
     }

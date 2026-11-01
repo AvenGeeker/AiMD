@@ -64,6 +64,8 @@ export default defineConfig({
       // Short debounce so sync assertions resolve quickly without being flaky.
       COLLAB_DEBOUNCE: '300',
       COLLAB_MAX_DEBOUNCE: '1500',
+      AI_ALLOW_PRIVATE_BASE_URL: 'true',
+      AI_REQUEST_INTERVAL_MS: '0',
     },
   },
 });
