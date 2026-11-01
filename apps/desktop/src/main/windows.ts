@@ -133,8 +133,15 @@ export function createCaptureWindow(): BrowserWindow {
     },
   });
 
-  // Float above full-screen apps and appear on every macOS Space.
-  captureWindow.setAlwaysOnTop(true, 'screen-saver');
+  // Float above full-screen apps and appear on every macOS Space. Keep macOS at the
+  // `floating` level: AppKit places IME candidate panels around level 20, so the old
+  // `screen-saver` level (1000) covered Chinese/Japanese input candidates. `floating`
+  // still sits above normal windows, and `fullscreenable: false` (above) plus
+  // `visibleOnFullScreen` keeps the panel visible over full-screen apps.
+  captureWindow.setAlwaysOnTop(
+    true,
+    process.platform === 'darwin' ? 'floating' : 'screen-saver',
+  );
   captureWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
   // Bound at creation; `applySettings` recreates the window when the preference changes so the
