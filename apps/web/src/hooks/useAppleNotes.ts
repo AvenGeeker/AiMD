@@ -70,7 +70,7 @@ export function useAppleNotes() {
     [bridge, run],
   );
 
-  const scan = useCallback(
+  const loadPreview = useCallback(
     (deep = false) =>
       run(async () => {
         const next = await bridge?.appleNotes?.preview(deep);
@@ -83,6 +83,8 @@ export function useAppleNotes() {
       }),
     [bridge, run],
   );
+
+  const scan = useCallback((deep = false) => loadPreview(deep), [loadPreview]);
 
   const apply = useCallback(
     (token: string) =>
@@ -97,18 +99,24 @@ export function useAppleNotes() {
   );
 
   const syncNow = useCallback(
-    () =>
-      run(async () => {
-        const next = await bridge?.appleNotes?.syncNow();
-        if (next) setStatus(next);
-        if (next?.pendingPreview) {
-          const p = await bridge?.appleNotes?.preview(false);
-          if (p) setPreview(p);
-        }
-        invalidateStructure(queryClient);
-        return next;
-      }),
-    [bridge, queryClient, run],
+    async () => {
+      const next = await run(async () => {
+        const status = await bridge?.appleNotes?.syncNow();
+        if (status) setStatus(status);
+        return status;
+      });
+      if (next?.error?.code === 'MAPPING_REQUIRES_PREVIEW') {
+        // Rebuilding a mapping is destructive enough to require the normal read-only preview
+        // and explicit confirmation, even when the user pressed “立即同步”.
+        await loadPreview(false);
+      } else if (next?.pendingPreview) {
+        const p = await bridge?.appleNotes?.preview(false);
+        if (p) setPreview(p);
+      }
+      invalidateStructure(queryClient);
+      return next;
+    },
+    [bridge, loadPreview, queryClient, run],
   );
 
   const cancel = useCallback(() => {

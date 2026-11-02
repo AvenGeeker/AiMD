@@ -66,33 +66,84 @@ function path(): string {
   return join(app.getPath('userData'), FILE);
 }
 
-/** Load the mapping only when it belongs to the same server/user/Apple account. */
-export function loadSyncState(namespace: SyncNamespace): AppleNotesState | null {
+export type SyncStateLoadResult =
+  | { status: 'ok'; state: AppleNotesState }
+  | { status: 'missing' }
+  | { status: 'namespace-mismatch'; namespace: SyncNamespace }
+  | { status: 'corrupt'; backupPath: string | null };
+
+/**
+ * Inspect the mapping without conflating a missing/corrupt file with one that belongs to a
+ * different server or account. The latter is a normal consequence of switching servers and must
+ * go through a fresh preview rather than being reported as file corruption.
+ */
+export function readSyncState(namespace: SyncNamespace): SyncStateLoadResult {
   const file = path();
-  if (!existsSync(file)) return null;
+  if (!existsSync(file)) return { status: 'missing' };
   try {
     const raw = JSON.parse(readFileSync(file, 'utf8')) as AppleNotesState;
-    if (raw?.version !== 1 || !raw.namespace || !sameNamespace(raw.namespace, namespace)) return null;
+    if (raw?.version !== 1 || !raw.namespace) {
+      return { status: 'corrupt', backupPath: backupFile(file, 'corrupt') };
+    }
+    if (!sameNamespace(raw.namespace, namespace)) {
+      return { status: 'namespace-mismatch', namespace: raw.namespace };
+    }
     return {
-      ...emptyState(namespace),
-      ...raw,
-      folders: raw.folders ?? {},
-      notes: raw.notes ?? {},
-      attachmentCache: raw.attachmentCache ?? {},
-      readOnly: raw.readOnly ?? {},
+      status: 'ok',
+      state: {
+        ...emptyState(namespace),
+        ...raw,
+        folders: raw.folders ?? {},
+        notes: raw.notes ?? {},
+        attachmentCache: raw.attachmentCache ?? {},
+        readOnly: raw.readOnly ?? {},
+      },
     };
   } catch {
     // Preserve the damaged file for inspection instead of silently overwriting a mapping that
     // may be the only record of which Apple note belongs to which app note.
-    const backup = `${file}.corrupt-${Date.now()}`;
-    try { renameSync(file, backup); } catch { /* ignore */ }
+    return { status: 'corrupt', backupPath: backupFile(file, 'corrupt') };
+  }
+}
+
+/** Load the mapping only when it belongs to the same server/user/Apple account. */
+export function loadSyncState(namespace: SyncNamespace): AppleNotesState | null {
+  const result = readSyncState(namespace);
+  return result.status === 'ok' ? result.state : null;
+}
+
+function backupFile(file: string, reason: string): string | null {
+  const backup = `${file}.${reason}-${Date.now()}`;
+  try {
+    renameSync(file, backup);
+    return backup;
+  } catch {
     return null;
+  }
+}
+
+function storedNamespace(file: string): { namespace: SyncNamespace | null; valid: boolean } {
+  try {
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as AppleNotesState;
+    return {
+      namespace: raw?.version === 1 && raw.namespace ? raw.namespace : null,
+      valid: raw?.version === 1 && Boolean(raw.namespace),
+    };
+  } catch {
+    return { namespace: null, valid: false };
   }
 }
 
 export function saveSyncState(state: AppleNotesState): void {
   const file = path();
   mkdirSync(dirname(file), { recursive: true });
+  if (existsSync(file)) {
+    const existing = storedNamespace(file);
+    // Switching server/account must never destroy the previous mapping on the first write.
+    if (!existing.valid || (existing.namespace && !sameNamespace(existing.namespace, state.namespace))) {
+      backupFile(file, existing.valid ? 'namespace-backup' : 'corrupt');
+    }
+  }
   const temp = `${file}.tmp-${process.pid}-${Date.now()}`;
   writeFileSync(temp, JSON.stringify(state, null, 2), { encoding: 'utf8', mode: 0o600 });
   renameSync(temp, file);

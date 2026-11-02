@@ -168,7 +168,18 @@ export function AppleNotesSettingsSection({ controller }: { controller: AppleNot
 
       {status.error && (
         <div className="rounded-lg border border-danger/35 bg-danger-soft px-3 py-2 text-[10.5px] text-danger">
-          {status.error.message}
+          <div>{status.error.message}</div>
+          {status.error.code === 'MAPPING_REQUIRES_PREVIEW' && (
+            <button
+              type="button"
+              className="button-secondary mt-2 !min-h-8 !px-3 text-[10px]"
+              disabled={running}
+              onClick={() => void controller.scan(false)}
+              data-testid="apple-notes-rebuild-mapping"
+            >
+              预览并重新建立映射
+            </button>
+          )}
         </div>
       )}
       {controller.error && !status.error && (
@@ -185,7 +196,7 @@ export function AppleNotesSettingsSection({ controller }: { controller: AppleNot
       )}
       {status.phase === 'needs-attention' && (
         <div className="rounded-lg border border-warning/35 bg-warning-soft px-3 py-2 text-[10.5px] text-warning">
-          同步已暂停。请先预览并确认，或处理上面的权限/删除阈值问题。
+          同步已暂停。请先按上面的提示处理；任何需要重建映射或超过安全阈值的写入都会先要求预览确认。
         </div>
       )}
     </div>

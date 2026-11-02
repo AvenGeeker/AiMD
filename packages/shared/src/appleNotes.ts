@@ -105,7 +105,7 @@ export interface AppleNotesSyncResult {
   conflicts: number;
   readOnly: number;
   errors: AppleNotesError[];
-  aborted?: 'permission' | 'auth' | 'canceled' | 'mass-deletion' | 'scan-incomplete' | 'server' | 'notes';
+  aborted?: 'permission' | 'auth' | 'canceled' | 'mass-deletion' | 'scan-incomplete' | 'mapping' | 'server' | 'notes';
 }
 
 export interface AppleNotesStatus {

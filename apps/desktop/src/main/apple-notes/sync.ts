@@ -46,11 +46,12 @@ import {
 import { appleStateHash, noteStateHash, sha256Hex } from './hash.js';
 import {
   emptyState,
-  loadSyncState,
+  readSyncState,
   saveSyncState,
   type AppleNotesState,
   type NoteLink,
   type SyncNamespace,
+  type SyncStateLoadResult,
 } from './state.js';
 
 const SPECIAL_ROOT_FOLDER = 'AiMD 根笔记 (App)';
@@ -144,6 +145,19 @@ function settingsToStore(settings: Partial<AppleNotesSettings>): AppleNotesSetti
   if (settings.firstSyncConfirmedAt !== undefined) patch.appleNotesFirstSyncConfirmedAt = settings.firstSyncConfirmedAt;
   saveState(patch);
   return settingsFromStore();
+}
+
+function mappingIssueMessage(
+  issue: Exclude<SyncStateLoadResult, { status: 'ok' }>,
+  namespace: SyncNamespace,
+): string {
+  if (issue.status === 'namespace-mismatch') {
+    return `本地同步映射属于其他服务端或账号（${issue.namespace.serverUrl}），不能直接用于当前连接（${namespace.serverUrl}）。请先预览并确认；确认后会按当前账号重新建立映射，旧映射会自动备份。`;
+  }
+  if (issue.status === 'corrupt') {
+    return `本地同步映射文件已损坏${issue.backupPath ? '，原文件已自动备份' : ''}。请先预览并确认；确认后会重新建立映射。`;
+  }
+  return '本地同步映射不存在。请先预览并确认；确认后会建立新的映射。';
 }
 
 function normalizeTitle(value: string): string {
@@ -399,11 +413,19 @@ export class AppleNotesSyncEngine {
         userId: me.id,
         appleAccountId: probe.accountId,
       };
-      const loadedState = loadSyncState(namespace);
-      if (!loadedState && !options.force) {
-        throw new SafetyAbort('scan-incomplete', '本地同步映射缺失或已损坏，请先在设置中预览并确认');
+      const mapping = readSyncState(namespace);
+      if (mapping.status !== 'ok' && !options.force) {
+        const message = mappingIssueMessage(mapping, namespace);
+        result.aborted = 'mapping';
+        result.finishedAt = new Date().toISOString();
+        this.lastResult = result;
+        this.phase = 'needs-attention';
+        this.lastError = { code: 'MAPPING_REQUIRES_PREVIEW', message };
+        saveState({ appleNotesLastResult: result });
+        this.callbacks.onNotify?.('AiMD 备忘录同步需要确认', message);
+        return this.getStatus();
       }
-      let state = loadedState ?? emptyState(namespace);
+      let state = mapping.status === 'ok' ? mapping.state : emptyState(namespace);
       const outcome = await this.collect(options.deep ?? false, false, state, namespace);
       state = outcome.state;
       result.conflicts = outcome.plan.conflicts;
@@ -546,7 +568,19 @@ export class AppleNotesSyncEngine {
       userId: me.id,
       appleAccountId: probe.accountId,
     };
-    const state = existingState ?? loadSyncState(ns) ?? emptyState(ns);
+    let mappingIssue: Exclude<SyncStateLoadResult, { status: 'ok' }> | null = null;
+    let state: AppleNotesState;
+    if (existingState) {
+      state = existingState;
+    } else {
+      const mapping = readSyncState(ns);
+      if (mapping.status === 'ok') {
+        state = mapping.state;
+      } else {
+        state = emptyState(ns);
+        mappingIssue = mapping;
+      }
+    }
     this.step('正在准备同步标签', 0, 1);
     await this.ensureTags(signal);
     this.step('正在读取 AiMD 目录和笔记', 1, 4);
@@ -571,12 +605,12 @@ export class AppleNotesSyncEngine {
       const refreshedAppNotes = await this.scanAppNotes(refreshedApp, state, deep, signal);
       const appleSnapshots = await this.scanAppleNotes(refreshedApple, state, deep, signal);
       const actionOutcome = this.planNotes(refreshedApp, refreshedApple, refreshedAppNotes, appTrash.items, appleSnapshots, state);
-      return this.finishCollect(state, refreshedApp, refreshedApple, refreshedAppNotes, appleSnapshots, actionOutcome, folderCounts, dryRun);
+      return this.finishCollect(state, refreshedApp, refreshedApple, refreshedAppNotes, appleSnapshots, actionOutcome, folderCounts, dryRun, mappingIssue);
     }
     this.step('正在读取变更笔记', 3, 4);
     const appleSnapshots = await this.scanAppleNotes(appleTree, state, deep, signal);
     const actionOutcome = this.planNotes(appTree, appleTree, appNotes, appTrash.items, appleSnapshots, state);
-    return this.finishCollect(state, appTree, appleTree, appNotes, appleSnapshots, actionOutcome, folderCounts, dryRun);
+    return this.finishCollect(state, appTree, appleTree, appNotes, appleSnapshots, actionOutcome, folderCounts, dryRun, mappingIssue);
   }
 
   private finishCollect(
@@ -588,6 +622,7 @@ export class AppleNotesSyncEngine {
     actionOutcome: { actions: NoteAction[]; warnings: string[]; samples: AppleNotesPreviewSample[]; completeScan: boolean },
     folderCounts: FolderPlanCounts,
     dryRun: boolean,
+    mappingIssue: Exclude<SyncStateLoadResult, { status: 'ok' }> | null,
   ): {
     state: AppleNotesState;
     counts: AppleNotesCounts;
@@ -635,7 +670,9 @@ export class AppleNotesSyncEngine {
       state,
       counts,
       plan,
-      warnings: actionOutcome.warnings,
+      warnings: mappingIssue
+        ? [mappingIssueMessage(mappingIssue, state.namespace), ...actionOutcome.warnings]
+        : actionOutcome.warnings,
       samples: actionOutcome.samples,
       completeScan: actionOutcome.completeScan,
       actions,
