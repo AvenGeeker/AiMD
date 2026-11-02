@@ -1076,6 +1076,15 @@ kbd {
   .icon-button {
     min-width: 44px;
   }
+
+  /* iOS Safari and WKWebView zoom the entire page when a focused text field is smaller than
+     16px, which makes the server-address screen overflow the viewport while typing. Keep every
+     text-entry control at 16px on touch devices so focusing it cannot change the page scale. */
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select,
+  textarea {
+    font-size: 16px;
+  }
 }
 
 /* Electron main-window chrome. The header is a drag region; interactive controls opt out so

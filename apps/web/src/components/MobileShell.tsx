@@ -30,7 +30,8 @@ import {
 } from '@aimarkdown/shared';
 import type { SyncStatus } from '../lib/sync.js';
 import { writeNoteTagIds } from '../hooks/useNoteDocument.js';
-import { useMobileBackButton } from '../lib/androidBack.js';
+import { useMobileBackButton, type BackLayerAction } from '../lib/androidBack.js';
+import { useIOSEdgeSwipeBack } from '../lib/iosSwipeBack.js';
 import type { QuickCaptureEntry } from '../lib/quickCaptures.js';
 import { Sidebar, type SidebarSelection } from './Sidebar.js';
 import { NoteList } from './NoteList.js';
@@ -180,7 +181,9 @@ export function MobileShell(props: MobileShellProps) {
   const [tagsOpen, setTagsOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
 
-  useMobileBackButton({ settingsOpen, aiOpen, tagsOpen, drawerOpen, view }, (action) => {
+  // Android's hardware key and iOS's left-edge gesture share one layer order: overlays first,
+  // then the editor, and only the root list is allowed to leave the app.
+  const applyBackAction = (action: BackLayerAction) => {
     switch (action) {
       case 'close-settings':
         onCloseSettings();
@@ -198,7 +201,11 @@ export function MobileShell(props: MobileShellProps) {
         setView('list');
         return;
     }
-  });
+  };
+
+  const backState = { settingsOpen, aiOpen, tagsOpen, drawerOpen, view };
+  useMobileBackButton(backState, applyBackAction);
+  useIOSEdgeSwipeBack(backState, applyBackAction);
 
   // Split view is a desktop affordance; a phone shows one pane at a time.
   const effectiveMode: EditorMode = inTrash
