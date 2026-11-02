@@ -36,9 +36,13 @@ if (!hvigorw) {
 }
 
 const devEcoContents = resolve(dirname(dirname(dirname(dirname(hvigorw))))); // .../tools/hvigor/bin -> .../Contents
-const nodeBin = resolve(devEcoContents, 'tools/node/bin');
+const nodeHome = resolve(devEcoContents, 'tools/node');
+const nodeBin = resolve(nodeHome, 'bin');
 const ohpmBin = resolve(devEcoContents, 'tools/ohpm/bin');
-if (!existsSync(nodeBin) || !existsSync(ohpmBin)) {
+// The HAP signer reads the auto-generated .p12 keystore, which is PBES2/HmacPBESHA256 and
+// therefore needs JDK 12+. DevEco bundles a JBR 21; the system java on this machine is 11.
+const jbrHome = resolve(devEcoContents, 'jbr/Contents/Home');
+if (!existsSync(join(nodeBin, 'node')) || !existsSync(ohpmBin)) {
   console.error(`[mobile] DevEco toolchain incomplete under ${devEcoContents}/tools (node/ohpm missing).`);
   process.exit(1);
 }
@@ -51,14 +55,26 @@ if (!existsSync(nodeBin) || !existsSync(ohpmBin)) {
  * `openharmony/<api>` or directly as `<api>`. Only numeric dirs named >= 12 qualify: an old
  * `openharmony/9` SDK is NOT interchangeable with the HarmonyOS NEXT SDK and must not be picked.
  */
+function looksLikeSdkRoot(dir) {
+  return existsSync(join(dir, 'ets/api'))
+    || existsSync(join(dir, 'openharmony/ets/api'))
+    || existsSync(join(dir, 'default/openharmony/ets/api'));
+}
+
 function findNextSdk() {
   const roots = [
     process.env.DEVECO_SDK_HOME,
+    // DevEco ships its own SDK root at Contents/sdk (layout: default/openharmony).
+    join(devEcoContents, 'sdk'),
     join(homedir(), 'Library', 'Huawei', 'Sdk'),
   ].filter(Boolean);
   const candidates = [];
   for (const root of roots) {
     if (!existsSync(root)) continue;
+    if (looksLikeSdkRoot(root)) {
+      candidates.push(root);
+      continue;
+    }
     for (const outer of readdirSync(root, { withFileTypes: true })) {
       if (!outer.isDirectory()) continue;
       if (/^\d+$/.test(outer.name) && Number(outer.name) >= 12) {
@@ -96,7 +112,8 @@ console.log(`[mobile] project : ${harmonyDir}`);
 
 const env = {
   ...process.env,
-  NODE_HOME: nodeBin,
+  NODE_HOME: nodeHome,
+  ...(existsSync(jbrHome) ? { JAVA_HOME: jbrHome } : {}),
   DEVECO_SDK_HOME: sdkHome,
   PATH: `${nodeBin}:${ohpmBin}:${process.env.PATH ?? ''}`,
 };

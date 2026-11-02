@@ -42,7 +42,7 @@ Hocuspocus WebSocket 同步，离线依赖 WebView 的 IndexedDB（y-indexeddb�
 「token 安全存储」一项，与 `apps/web/src/lib/mobile.ts` 的 `window.aiMarkdownHarmony` 桥对应。
 
 ```bash
-make mobile-hap        # copy-renderer → 同步 rawfile → ohpm install → hvigorw assembleHap
+make mobile-hap        # copy-renderer → 同步 resfile → ohpm install → hvigorw assembleHap
 # HAP 输出：apps/mobile/harmony/entry/build/default/outputs/default/
 ```
 

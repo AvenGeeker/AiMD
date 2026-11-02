@@ -6,7 +6,7 @@ const TAG = 'AiMD';
 
 /**
  * Standard Stage-model entry ability. The whole app is one Web component (ArkWeb) hosting the
- * shared renderer bundle from resources/rawfile/www; there is no native UI of its own.
+ * shared renderer bundle from resources/resfile/www; there is no native UI of its own.
  */
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {

@@ -15,10 +15,14 @@ const TAG = 'AiMD';
  */
 class TokenBridge {
   private pref: preferences.Preferences | null = null;
+  private initPromise: Promise<void> | null = null;
 
-  constructor(context: common.Context) {
-    preferences.getPreferences(context, { name: 'aimarkdown_tokens' })
-      .then((store) => {
+  init(context: common.Context): void {
+    if (this.initPromise !== null) {
+      return;
+    }
+    this.initPromise = preferences.getPreferences(context, { name: 'aimarkdown_tokens' })
+      .then((store: preferences.Preferences) => {
         this.pref = store;
       })
       .catch((err: Error) => {
@@ -27,29 +31,49 @@ class TokenBridge {
   }
 
   private async ready(): Promise<preferences.Preferences> {
-    // Preferences is initialised asynchronously; wait a bounded time for it.
-    for (let i = 0; i < 100 && this.pref === null; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
+    if (this.initPromise !== null) {
+      await this.initPromise;
     }
-    return this.pref as preferences.Preferences;
+    if (this.pref === null) {
+      throw new Error('preferences not initialized');
+    }
+    return this.pref;
   }
 
   async get(key: string): Promise<string> {
     const store = await this.ready();
-    const value = await store.get(key, '');
-    return typeof value === 'string' ? value : '';
+    try {
+      const value = await store.get(key, '');
+      return typeof value === 'string' ? value : '';
+    } catch (err) {
+      const e = err as Error;
+      hilog.error(0x0000, TAG, 'bridge get failed: %{public}s', e.message);
+      throw e;
+    }
   }
 
   async set(key: string, value: string): Promise<void> {
     const store = await this.ready();
-    await store.put(key, value);
-    await store.flush();
+    try {
+      await store.put(key, value);
+      await store.flush();
+    } catch (err) {
+      const e = err as Error;
+      hilog.error(0x0000, TAG, 'bridge set failed: %{public}s', e.message);
+      throw e;
+    }
   }
 
   async remove(key: string): Promise<void> {
     const store = await this.ready();
-    await store.delete(key);
-    await store.flush();
+    try {
+      await store.delete(key);
+      await store.flush();
+    } catch (err) {
+      const e = err as Error;
+      hilog.error(0x0000, TAG, 'bridge remove failed: %{public}s', e.message);
+      throw e;
+    }
   }
 }
 
@@ -57,17 +81,80 @@ class TokenBridge {
 @Component
 struct Index {
   @State private controller: webview.WebviewController = new webview.WebviewController();
-  private bridge: TokenBridge | null = null;
+  private bridge: TokenBridge = new TokenBridge();
+  private abilityContext: common.UIAbilityContext | null = null;
+  private wwwDir: string = '';
+  @State private pageUrl: string = '';
 
   aboutToAppear(): void {
-    this.bridge = new TokenBridge(getContext(this));
+    const context = this.getUIContext().getHostContext();
+    if (context !== undefined) {
+      this.abilityContext = context as common.UIAbilityContext;
+      this.bridge.init(context);
+      this.wwwDir = `${context.resourceDir}/www`;
+      this.pageUrl = `file://${this.wwwDir}/index.html`;
+    }
+  }
+
+  /**
+   * System back (gesture or navigation bar).
+   *
+   * The renderer owns navigation state and exposes `window.__aimdHandleBack()`, which peels one
+   * layer per press (overlay -> editor -> list) and answers `exit` only on the root list. ArkWeb
+   * has no history entries to pop here, so the decision has to be made in JS; the callback is
+   * async, hence we always consume the press and terminate the ability ourselves when needed.
+   */
+  onBackPress(): boolean {
+    this.handleBackPress();
+    return true;
+  }
+
+  private async handleBackPress(): Promise<void> {
+    let action = 'exit';
+    try {
+      const result = await this.controller.runJavaScript(
+        'window.__aimdHandleBack ? window.__aimdHandleBack() : "exit"');
+      action = result.split('"').join('').trim();
+    } catch (err) {
+      const e = err as Error;
+      hilog.error(0x0000, TAG, 'back dispatch failed: %{public}s', e.message);
+    }
+    if (action === 'exit') {
+      this.exitApp();
+    }
+  }
+
+  private exitApp(): void {
+    if (this.abilityContext === null) {
+      return;
+    }
+    try {
+      this.abilityContext.terminateSelf();
+    } catch (err) {
+      const e = err as Error;
+      hilog.error(0x0000, TAG, 'terminateSelf failed: %{public}s', e.message);
+    }
   }
 
   build() {
     Column() {
-      Web({ src: $rawfile('www/index.html'), controller: this.controller })
+      Web({ src: this.pageUrl, controller: this.controller })
+        // ES modules and stylesheets are rejected when loaded from resource://rawfile, because
+        // ArkWeb treats that origin as null and only allows CORS-capable schemes. Loading the
+        // bundle over file:// with this directory whitelisted keeps the ESM chunks working.
+        .onControllerAttached(() => {
+          if (this.wwwDir.length === 0) {
+            return;
+          }
+          try {
+            this.controller.setPathAllowingUniversalAccess([this.wwwDir]);
+          } catch (err) {
+            const e = err as Error;
+            hilog.error(0x0000, TAG, 'allow universal access failed: %{public}s', e.message);
+          }
+        })
         .javaScriptProxy({
-          object: this.bridge as TokenBridge,
+          object: this.bridge,
           name: 'aiMarkdownHarmony',
           methodList: [],
           asyncMethodList: ['get', 'set', 'remove'],
@@ -77,8 +164,20 @@ struct Index {
         // The renderer stores its CRDT cache in IndexedDB (y-indexeddb), exactly like the
         // browser and the Electron shell.
         .databaseAccess(true)
-        .allowFileAccess(true)
+        .fileAccess(true)
         .javaScriptAccess(true)
+        .onConsole((event) => {
+          if (event) {
+            hilog.debug(0x0000, TAG, 'console: %{public}s', event.message.getMessage());
+          }
+          return false;
+        })
+        .onErrorReceive((event) => {
+          if (event) {
+            hilog.error(0x0000, TAG, 'load error: %{public}s %{public}s',
+              event.request.getRequestUrl(), event.error.getErrorInfo());
+          }
+        })
         .width('100%')
         .height('100%')
     }

@@ -155,7 +155,7 @@ pnpm --filter @aimarkdown/mobile add:android
 pnpm --filter @aimarkdown/mobile add:ios
 
 # 改完 web 后重新打包
-make mobile-build         # web build → stage → 同步 www 与 harmony rawfile
+make mobile-build         # web build → stage → 同步 www 与 harmony resfile
 make mobile-apk           # Android debug APK → apps/mobile/android/app/build/outputs/apk/debug/
 make mobile-ipa           # iOS 模拟器构建（未签名）
 make mobile-hap           # HarmonyOS HAP —— 需要 DevEco Studio（本机未装，v1 为阻塞项）

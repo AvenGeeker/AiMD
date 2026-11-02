@@ -30,11 +30,7 @@ import {
 } from '@aimarkdown/shared';
 import type { SyncStatus } from '../lib/sync.js';
 import { writeNoteTagIds } from '../hooks/useNoteDocument.js';
-import {
-  exitAndroidApp,
-  resolveAndroidBackAction,
-  useAndroidBackButton,
-} from '../lib/androidBack.js';
+import { useMobileBackButton } from '../lib/androidBack.js';
 import type { QuickCaptureEntry } from '../lib/quickCaptures.js';
 import { Sidebar, type SidebarSelection } from './Sidebar.js';
 import { NoteList } from './NoteList.js';
@@ -184,8 +180,8 @@ export function MobileShell(props: MobileShellProps) {
   const [tagsOpen, setTagsOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
 
-  useAndroidBackButton(() => {
-    switch (resolveAndroidBackAction({ settingsOpen, aiOpen, tagsOpen, drawerOpen, view })) {
+  useMobileBackButton({ settingsOpen, aiOpen, tagsOpen, drawerOpen, view }, (action) => {
+    switch (action) {
       case 'close-settings':
         onCloseSettings();
         return;
@@ -200,9 +196,6 @@ export function MobileShell(props: MobileShellProps) {
         return;
       case 'show-list':
         setView('list');
-        return;
-      case 'exit':
-        void exitAndroidApp();
         return;
     }
   });

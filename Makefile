@@ -81,7 +81,7 @@ ps: ## Show production container status
 down: ## Stop the production stack (volumes are kept)
 	$(COMPOSE_PROD) down
 
-mobile-build: ## Stage the web renderer into the mobile shells (www + harmony rawfile)
+mobile-build: ## Stage the web renderer into the mobile shells (www + harmony resfile)
 	pnpm --filter @aimarkdown/mobile build:renderer
 	pnpm --filter @aimarkdown/mobile sync:harmony
 
