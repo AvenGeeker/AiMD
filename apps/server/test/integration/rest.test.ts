@@ -539,4 +539,22 @@ describeDb('REST API against a real Postgres', () => {
       expect(response.json()).toMatchObject({ status: 'ok', db: 'ok', collab: 'ok' });
     });
   });
+
+  describe('CORS preflight', () => {
+    it('allows the REST verbs used by the mobile WebView', async () => {
+      const response = await server.app.inject({
+        method: 'OPTIONS',
+        url: '/api/ai/config',
+        headers: {
+          origin: 'https://localhost',
+          'access-control-request-method': 'PUT',
+          'access-control-request-headers': 'authorization,content-type,x-token-transport',
+        },
+      });
+
+      expect(response.statusCode).toBe(204);
+      expect(response.headers['access-control-allow-methods']).toContain('PUT');
+      expect(response.headers['access-control-allow-methods']).toContain('DELETE');
+    });
+  });
 });

@@ -674,6 +674,7 @@ function Workspace() {
           captureView={captureView}
           captureCount={captures.length}
           reveal={editorReveal}
+          settingsOpen={settingsOpen}
           tagBusy={updateNote.isPending || upsertTag.isPending}
           onSelect={handleSidebarSelect}
           onOpenNote={handleOpenNote}
@@ -692,6 +693,7 @@ function Workspace() {
           onSourceChange={setSource}
           onModeChange={handleModeChange}
           onOpenSettings={() => openSettings()}
+          onCloseSettings={() => setSettingsOpen(false)}
           onExportNote={() => void handleExportNote()}
           onLogout={() => void logout()}
           onCreateTag={handleCreateTag}

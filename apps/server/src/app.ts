@@ -64,6 +64,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await app.register(cors, {
     origin: corsOriginList(config),
     credentials: true,
+    // @fastify/cors defaults to GET,HEAD,POST. The mobile WebView is a cross-origin client, so
+    // every REST verb it uses (notably PUT /api/ai/config) needs an explicit preflight grant.
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     exposedHeaders: ['content-disposition'],
   });
 

@@ -30,6 +30,11 @@ import {
 } from '@aimarkdown/shared';
 import type { SyncStatus } from '../lib/sync.js';
 import { writeNoteTagIds } from '../hooks/useNoteDocument.js';
+import {
+  exitAndroidApp,
+  resolveAndroidBackAction,
+  useAndroidBackButton,
+} from '../lib/androidBack.js';
 import type { QuickCaptureEntry } from '../lib/quickCaptures.js';
 import { Sidebar, type SidebarSelection } from './Sidebar.js';
 import { NoteList } from './NoteList.js';
@@ -72,6 +77,7 @@ export interface MobileShellProps {
   captureView: boolean;
   captureCount: number;
   reveal: EditorReveal | null;
+  settingsOpen: boolean;
   /** True while a tag mutation is in flight (disables the tag editor input). */
   tagBusy: boolean;
 
@@ -92,6 +98,7 @@ export interface MobileShellProps {
   onSourceChange(source: string): void;
   onModeChange(mode: EditorMode): void;
   onOpenSettings(): void;
+  onCloseSettings(): void;
   onExportNote(): void;
   onLogout(): void;
   onCreateTag(name: string): Promise<TagDto | undefined>;
@@ -145,6 +152,7 @@ export function MobileShell(props: MobileShellProps) {
     captureView,
     captureCount,
     reveal,
+    settingsOpen,
     tagBusy,
     onSelect,
     onOpenNote,
@@ -163,6 +171,7 @@ export function MobileShell(props: MobileShellProps) {
     onSourceChange,
     onModeChange,
     onOpenSettings,
+    onCloseSettings,
     onExportNote,
     onLogout,
     onCreateTag,
@@ -174,6 +183,29 @@ export function MobileShell(props: MobileShellProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [tagsOpen, setTagsOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+
+  useAndroidBackButton(() => {
+    switch (resolveAndroidBackAction({ settingsOpen, aiOpen, tagsOpen, drawerOpen, view })) {
+      case 'close-settings':
+        onCloseSettings();
+        return;
+      case 'close-ai':
+        setAiOpen(false);
+        return;
+      case 'close-tags':
+        setTagsOpen(false);
+        return;
+      case 'close-drawer':
+        setDrawerOpen(false);
+        return;
+      case 'show-list':
+        setView('list');
+        return;
+      case 'exit':
+        void exitAndroidApp();
+        return;
+    }
+  });
 
   // Split view is a desktop affordance; a phone shows one pane at a time.
   const effectiveMode: EditorMode = inTrash

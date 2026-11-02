@@ -7,7 +7,7 @@
   "scripts": {
     "build": "pnpm --filter @aimarkdown/web build && node scripts/copy-renderer.mjs && cap sync",
     "build:renderer": "pnpm --filter @aimarkdown/web build && node scripts/copy-renderer.mjs",
-    "build:apk": "node scripts/copy-renderer.mjs && cd android && ./gradlew assembleDebug",
+    "build:apk": "pnpm build:renderer && cap sync android && cd android && ./gradlew assembleDebug",
     "build:ipa": "node scripts/copy-renderer.mjs && cd ios/App && xcodebuild -project App.xcodeproj -scheme App -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath ../../build/ios CODE_SIGNING_ALLOWED=NO build",
     "build:hap": "node scripts/copy-renderer.mjs && node scripts/sync-harmony-www.mjs && node scripts/check-harmony.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -24,6 +24,7 @@
   "dependencies": {
     "@aparajita/capacitor-secure-storage": "^8.0.1",
     "@capacitor/android": "^8.6.0",
+    "@capacitor/app": "^8.1.2",
     "@capacitor/cli": "^8.6.0",
     "@capacitor/core": "^8.6.0",
     "@capacitor/ios": "^8.6.0",

@@ -29,8 +29,6 @@ export interface MobileTokens {
   refreshToken: string | null;
 }
 
-type PreferencesModule = typeof import('@capacitor/preferences');
-
 /**
  * Last-resort storage for native shells without a working plug-in bridge (notably the minimal
  * HarmonyOS ArkWeb harness until its javaScriptProxy bridge is verified) and for tests.
@@ -60,35 +58,64 @@ function localRemove(key: string): void {
   }
 }
 
-async function preferences(): Promise<PreferencesModule | null> {
-  try {
-    return await import('@capacitor/preferences');
-  } catch {
-    return null;
-  }
+interface PreferencesStore {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string): Promise<void>;
+  remove(key: string): Promise<void>;
 }
 
-interface SecureStorageModule {
-  SecureStorage: {
-    getItem(key: string): Promise<string | null>;
-    setItem(key: string, value: string): Promise<void>;
-    removeItem(key: string): Promise<void>;
-  };
+let preferencesPromise: Promise<PreferencesStore | null> | null = null;
+
+/**
+ * Resolve Preferences through a plain wrapper.
+ *
+ * Capacitor plug-ins are Proxy objects. Resolving one directly from an async function makes the
+ * Promise machinery probe its synthetic `then`, and Capacitor answers that probe by rejecting an
+ * orphaned native call while the outer Promise never settles. Keep the proxy inside this closure.
+ */
+function preferences(): Promise<PreferencesStore | null> {
+  preferencesPromise ??= import('@capacitor/preferences')
+    .then(({ Preferences }) => ({
+      get: async (key: string) => (await Preferences.get({ key })).value,
+      set: async (key: string, value: string) => {
+        await Preferences.set({ key, value });
+      },
+      remove: async (key: string) => {
+        await Preferences.remove({ key });
+      },
+    }))
+    .catch(() => null);
+  return preferencesPromise;
 }
 
-async function secureStorage(): Promise<SecureStorageModule['SecureStorage'] | null> {
-  try {
-    const mod = (await import('@aparajita/capacitor-secure-storage')) as SecureStorageModule;
-    return mod.SecureStorage ?? null;
-  } catch {
-    return null;
-  }
+interface SecureStorageStore {
+  getItem(key: string): Promise<string | null>;
+  setItem(key: string, value: string): Promise<void>;
+  removeItem(key: string): Promise<void>;
 }
 
-async function kvGet(key: string): Promise<string | null> {
+let secureStoragePromise: Promise<SecureStorageStore | null> | null = null;
+
+/** Same Proxy caveat as `preferences()`: resolve a wrapper, never the Capacitor proxy itself. */
+function secureStorage(): Promise<SecureStorageStore | null> {
+  secureStoragePromise ??= import('@aparajita/capacitor-secure-storage')
+    .then(({ SecureStorage }) =>
+      SecureStorage
+        ? {
+            getItem: (key: string) => SecureStorage.getItem(key),
+            setItem: (key: string, value: string) => SecureStorage.setItem(key, value),
+            removeItem: (key: string) => SecureStorage.removeItem(key),
+          }
+        : null,
+    )
+    .catch(() => null);
+  return secureStoragePromise;
+}
+
+async function kvGet(key: string, secure = false): Promise<string | null> {
   try {
     // HarmonyOS first: the native bridge avoids depending on a community plug-in port.
-    const bridge = harmonyBridge();
+    const bridge = secure ? harmonyBridge() : null;
     if (bridge) {
       try {
         return (await bridge.get(key)) || null;
@@ -96,7 +123,7 @@ async function kvGet(key: string): Promise<string | null> {
         /* fall through to Preferences */
       }
     }
-    if (mobilePlatform() === 'android' || mobilePlatform() === 'ios') {
+    if (secure && (mobilePlatform() === 'android' || mobilePlatform() === 'ios')) {
       const store = await secureStorage();
       if (store) {
         try {
@@ -109,8 +136,8 @@ async function kvGet(key: string): Promise<string | null> {
     const store = await preferences();
     if (store) {
       try {
-        const result = await store.Preferences.get({ key });
-        if (result.value) return result.value;
+        const value = await store.get(key);
+        if (value !== null) return value;
       } catch {
         /* plug-in unavailable on this shell — fall back to localStorage below */
       }
@@ -121,9 +148,9 @@ async function kvGet(key: string): Promise<string | null> {
   return localGet(key) || null;
 }
 
-async function kvSet(key: string, value: string): Promise<void> {
+async function kvSet(key: string, value: string, secure = false): Promise<void> {
   try {
-    const bridge = harmonyBridge();
+    const bridge = secure ? harmonyBridge() : null;
     if (bridge) {
       try {
         await bridge.set(key, value);
@@ -132,7 +159,7 @@ async function kvSet(key: string, value: string): Promise<void> {
         /* fall through */
       }
     }
-    if (mobilePlatform() === 'android' || mobilePlatform() === 'ios') {
+    if (secure && (mobilePlatform() === 'android' || mobilePlatform() === 'ios')) {
       const store = await secureStorage();
       if (store) {
         try {
@@ -146,7 +173,7 @@ async function kvSet(key: string, value: string): Promise<void> {
     const store = await preferences();
     if (store) {
       try {
-        await store.Preferences.set({ key, value });
+        await store.set(key, value);
         return;
       } catch {
         /* fall through to localStorage */
@@ -158,9 +185,9 @@ async function kvSet(key: string, value: string): Promise<void> {
   }
 }
 
-async function kvRemove(key: string): Promise<void> {
+async function kvRemove(key: string, secure = false): Promise<void> {
   try {
-    const bridge = harmonyBridge();
+    const bridge = secure ? harmonyBridge() : null;
     if (bridge) {
       try {
         await bridge.remove(key);
@@ -169,7 +196,7 @@ async function kvRemove(key: string): Promise<void> {
         /* fall through */
       }
     }
-    if (mobilePlatform() === 'android' || mobilePlatform() === 'ios') {
+    if (secure && (mobilePlatform() === 'android' || mobilePlatform() === 'ios')) {
       const store = await secureStorage();
       if (store) {
         try {
@@ -183,7 +210,7 @@ async function kvRemove(key: string): Promise<void> {
     const store = await preferences();
     if (store) {
       try {
-        await store.Preferences.remove({ key });
+        await store.remove(key);
         return;
       } catch {
         /* fall through to localStorage */
@@ -208,8 +235,8 @@ export async function mobileSetServerUrl(url: string): Promise<void> {
 export async function mobileGetTokens(): Promise<MobileTokens> {
   if (!isMobile()) return { accessToken: null, refreshToken: null };
   const [accessToken, refreshToken] = await Promise.all([
-    kvGet(ACCESS_TOKEN_KEY),
-    kvGet(REFRESH_TOKEN_KEY),
+    kvGet(ACCESS_TOKEN_KEY, true),
+    kvGet(REFRESH_TOKEN_KEY, true),
   ]);
   return { accessToken, refreshToken };
 }
@@ -218,15 +245,18 @@ export async function mobileSetTokens(tokens: MobileTokens): Promise<void> {
   if (!isMobile()) return;
   await Promise.all([
     tokens.accessToken
-      ? kvSet(ACCESS_TOKEN_KEY, tokens.accessToken)
-      : kvRemove(ACCESS_TOKEN_KEY),
+      ? kvSet(ACCESS_TOKEN_KEY, tokens.accessToken, true)
+      : kvRemove(ACCESS_TOKEN_KEY, true),
     tokens.refreshToken
-      ? kvSet(REFRESH_TOKEN_KEY, tokens.refreshToken)
-      : kvRemove(REFRESH_TOKEN_KEY),
+      ? kvSet(REFRESH_TOKEN_KEY, tokens.refreshToken, true)
+      : kvRemove(REFRESH_TOKEN_KEY, true),
   ]);
 }
 
 export async function mobileClearTokens(): Promise<void> {
   if (!isMobile()) return;
-  await Promise.all([kvRemove(ACCESS_TOKEN_KEY), kvRemove(REFRESH_TOKEN_KEY)]);
+  await Promise.all([
+    kvRemove(ACCESS_TOKEN_KEY, true),
+    kvRemove(REFRESH_TOKEN_KEY, true),
+  ]);
 }
