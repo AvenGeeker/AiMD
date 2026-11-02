@@ -27,6 +27,30 @@ pnpm --filter @aimarkdown/mobile build:hap        # HarmonyOS —— 需要 DevE
 App 内首次启动会引导填写自托管服务器地址（与桌面端一致），之后走既有 bearer 鉴权 +
 Hocuspocus WebSocket 同步，离线依赖 WebView 的 IndexedDB（y-indexeddb），与浏览器一致。
 
+## 折叠屏与横竖屏
+
+三端共用 `apps/web` 的同一套响应式移动壳，原生壳只负责方向、窗口尺寸和安全区，不各自实现布局。
+判定使用 CSS 像素宽度，折叠、展开、旋转和 Android 分屏都会实时重新计算，无需重启或重新加载：
+
+| 可用宽度 | 布局 | 交互 |
+| --- | --- | --- |
+| < 600px | 单栏 | 笔记列表 ⇄ 编辑器，左侧导航从抽屉打开（折叠状态手机） |
+| 600–839px | 双栏 | 左笔记列表 + 右编辑器；导航抽屉保留，左侧列表可隐藏 |
+| ≥ 840px | 三栏 | 导航栏 + 笔记列表 + 编辑器，接近桌面端；左侧导航可隐藏 |
+
+因此典型折叠屏：折叠竖持是单栏；展开竖持是双栏；展开横持或平板宽度是三栏。布局偏好按设备保存在
+`localStorage`，折叠后再展开不会把用户主动隐藏的侧栏重新弹出来。
+
+- Android：`MainActivity` 已声明 `orientation|screenSize|smallestScreenSize|screenLayout|density`
+  等 `configChanges`，WebView 不会因旋转/折叠重建。
+- iOS：`Info.plist` 同时允许 iPhone/iPad 的横竖屏，根视图使用 `100dvh` 和
+  `safe-area-inset-*`，横屏刘海/圆角不会压住工具栏。
+- HarmonyOS：`Web` 组件宽高均为 `100%`，设备方向沿用系统自动旋转；`phone`/`tablet` 都声明为
+  支持的 deviceType。
+
+回归用例在 `apps/web/e2e/mobile-foldable.spec.ts`，覆盖 700px 展开双栏、折叠回 390px 单栏，
+以及 900px 三栏左侧导航的隐藏/恢复。
+
 ## Android / iOS 明文 HTTP（自用侧载专用）
 
 自托管服务若未上 HTTPS，移动端 WebView 默认会拦截 http 请求。v1 自用侧载构建在：

@@ -963,6 +963,89 @@ kbd {
 
 /* ------------------------------- mobile shell ------------------------------ */
 
+/* The shell tracks the dynamic viewport so iOS toolbars and Android gesture insets cannot
+   cover the bottom mode bar. Horizontal safe areas matter on landscape foldables/notched phones. */
+.mobile-shell {
+  height: 100vh;
+  height: 100dvh;
+  padding-right: env(safe-area-inset-right);
+  padding-left: env(safe-area-inset-left);
+  overflow: hidden;
+}
+
+.mobile-layout-wide {
+  width: 100%;
+}
+
+/* Unfolded portrait: note list + editor. */
+.mobile-list-pane {
+  min-width: 0;
+  flex: none;
+  border-right: 1px solid var(--border-subtle);
+  background: var(--panel);
+}
+
+.mobile-layout-split .mobile-list-pane {
+  width: clamp(232px, 34vw, 296px);
+}
+
+/* Unfolded landscape / tablet: persistent navigation + note list + editor, like the desktop. */
+.mobile-nav-pane {
+  width: clamp(196px, 22vw, 232px);
+  min-width: 0;
+  flex: none;
+  padding-top: env(safe-area-inset-top);
+  border-right: 1px solid var(--border-subtle);
+  background: var(--surface);
+}
+
+.mobile-nav-pane .sidebar-panel {
+  width: 100%;
+  border-right: 0;
+}
+
+.mobile-layout-expanded .mobile-list-pane {
+  width: clamp(236px, 30vw, 296px);
+}
+
+.mobile-list-pane .notes-panel {
+  width: 100%;
+  border-right: 0;
+}
+
+.mobile-editor-pane {
+  min-width: 0;
+  background: var(--background);
+}
+
+.mobile-layout-wide .mobile-header {
+  min-height: 52px;
+}
+
+.mobile-layout-wide .mobile-bottom-bar {
+  min-height: 52px;
+}
+
+/* The desktop 768–1100px rule shrinks segmented controls to icon-only 27px buttons. The mobile
+   editor keeps text labels, so opt out or "编辑/预览" wraps into a vertical stack on foldables. */
+.mobile-bottom-bar .segmented {
+  flex: none;
+}
+
+.mobile-bottom-bar .segmented-button {
+  width: auto;
+  min-width: 60px;
+  flex: none;
+  padding-right: 10px;
+  padding-left: 10px;
+  white-space: nowrap;
+}
+
+.mobile-bottom-bar > button {
+  flex: none;
+  white-space: nowrap;
+}
+
 .mobile-backdrop {
   position: fixed;
   inset: 0;
@@ -977,6 +1060,8 @@ kbd {
   width: min(88vw, 350px);
   height: 100%;
   flex-direction: column;
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
   border-right: 1px solid var(--border);
   background: var(--surface);
   box-shadow: 18px 0 48px rgba(0, 0, 0, 0.18);
@@ -998,6 +1083,7 @@ kbd {
   max-height: 68vh;
   margin-top: auto;
   flex-direction: column;
+  padding-bottom: env(safe-area-inset-bottom);
   border-top: 1px solid var(--border);
   border-radius: 18px 18px 0 0;
   background: var(--elevated);
@@ -1063,6 +1149,34 @@ kbd {
   .segmented-button {
     width: 27px;
     padding: 0;
+  }
+}
+
+/* Short landscape windows (folded phone rotated, unfolded foldable in landscape): keep the
+   editor and mode controls usable instead of letting two 56px bars dominate the height. */
+@media (max-height: 520px) and (orientation: landscape) {
+  .mobile-header {
+    min-height: 46px;
+  }
+
+  .mobile-layout-wide .mobile-header,
+  .mobile-layout-wide .mobile-bottom-bar,
+  .mobile-bottom-bar {
+    min-height: 46px;
+  }
+
+  .mobile-bottom-bar {
+    gap: 4px;
+  }
+
+  .mobile-bottom-bar .segmented {
+    gap: 0;
+  }
+
+  .mobile-bottom-bar .segmented-button {
+    height: 30px;
+    padding-right: 9px;
+    padding-left: 9px;
   }
 }
 
