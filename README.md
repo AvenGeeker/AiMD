@@ -63,6 +63,23 @@ make down            # 停止（保留数据卷）
 30 3 * * * cd /path/to/AiMD && ./scripts/backup.sh --keep 14 >> /var/log/aimarkdown-backup.log 2>&1
 ```
 
+### 部署 / 更新 / 回滚脚本
+
+服务器上推荐用 `scripts/aimd.sh`，它把备份、构建、健康检查和镜像回滚串在一起：
+
+```bash
+./scripts/aimd.sh deploy          # 首次部署；已有部署时按更新处理
+./scripts/aimd.sh update          # 备份 -> 构建 -> 切换 -> 健康检查，失败自动回滚镜像
+./scripts/aimd.sh apply           # 只应用 deploy/.env 修改，不重新构建
+./scripts/aimd.sh rollback        # 回滚到上一版应用镜像
+./scripts/aimd.sh releases        # 查看发布记录
+./scripts/aimd.sh status          # 当前版本、容器、健康检查、DNS、证书
+./scripts/aimd.sh logs app        # 跟踪 app 日志
+./scripts/aimd.sh backup --keep 14
+```
+
+发布记录、当前镜像和 `.env` 快照保存在 `.deploy/`（已 gitignore）。回滚只切换应用镜像，**不会回滚数据库迁移**；需要回滚数据时，使用 `backups/` 里的备份包，并按其中的 `BACKUP.json` 操作。
+
 ---
 
 ## 在 Mac 上编译运行
@@ -238,6 +255,7 @@ macOS 桌面端标题栏有「备忘录」按钮，设置里有「macOS 备忘�
 - 笔记正文/文件夹冲突按最新修改优先；失败版本会复制到 app 并打「Apple 同步冲突」标签
 - 图片、PDF、普通文件尽量双向同步；Apple Notes 无法导出的绘图/扫描件/录音、加密或共享内容会让对应笔记进入只读并打「Apple 同步只读」标签
 - 同步引擎运行在 Electron 主进程，映射保存在本机 `userData/apple-notes-sync.json`。同一账号只应在一台 Mac 上启用；换 Mac 前先停用旧机器
+- 更换服务端或登录账号后，旧映射不会直接复用：点「立即同步」会自动打开只读预览，确认后按当前账号重建映射，旧映射保留为带时间戳的备份文件
 - 首次同步/重建未签名 app 后，点设置里的「请求授权」或「预览差异」才会触发 macOS「控制备忘录」授权框；授权前「系统设置 → 隐私与安全性 → 自动化」里不会出现 AiMD。拒绝或重置后可在那里重新授权
 - 定时同步要求 AiMD 保持运行；关闭窗口驻留托盘即可。笔记排序、置顶、标签和 Apple 智能文件夹不参与同步
 

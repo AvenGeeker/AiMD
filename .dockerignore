@@ -1,0 +1,22 @@
+# Build context hygiene: keep local secrets, deployment state and large artifacts out.
+.git
+.github
+node_modules
+**/node_modules
+**/dist
+apps/desktop/release
+apps/desktop/renderer
+apps/mobile
+backups
+.deploy
+deploy
+data
+uploads
+.env
+.env.*
+coverage
+playwright-report
+test-results
+*.log
+*.tsbuildinfo
+.DS_Store

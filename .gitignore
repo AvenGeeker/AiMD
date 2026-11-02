@@ -39,3 +39,6 @@ apps/mobile/harmony/local.properties
 apps/mobile/harmony/**/oh_modules/
 apps/mobile/android/.idea/
 apps/mobile/ios/.idea/
+
+# Server deployment state (release metadata + env snapshots; may contain secrets)
+.deploy/
