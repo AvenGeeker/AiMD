@@ -464,6 +464,7 @@ export function MobileShell(props: MobileShellProps) {
             onDelete={onDeleteNote}
             onRestore={onRestoreNote}
             onCreateNote={() => void handleCreateNote()}
+            onCreateFavorite={onCreateFavorite}
           />
         )}
       </div>

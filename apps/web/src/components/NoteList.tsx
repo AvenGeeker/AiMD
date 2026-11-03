@@ -1,4 +1,12 @@
-import { FileText, MessageSquareText, Pin, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import {
+  BookmarkPlus,
+  FileText,
+  MessageSquareText,
+  Pin,
+  Plus,
+  RotateCcw,
+  Trash2,
+} from 'lucide-react';
 import type { NoteSummaryDto } from '@aimarkdown/shared';
 
 /** Middle rail: the notes matching the current sidebar selection. */
@@ -13,6 +21,7 @@ interface NoteListProps {
   inTrash: boolean;
   loading: boolean;
   onCreateNote?(): void;
+  onCreateFavorite?(): void;
   onAskAi?(): void;
 }
 
@@ -34,6 +43,7 @@ export function NoteList({
   inTrash,
   loading,
   onCreateNote,
+  onCreateFavorite,
   onAskAi,
 }: NoteListProps) {
   return (
@@ -47,6 +57,19 @@ export function NoteList({
           {!inTrash && onAskAi && (
             <button type="button" className="icon-button !h-7 !w-7" onClick={onAskAi} title="问 AI" aria-label="问 AI">
               <MessageSquareText size={14} />
+            </button>
+          )}
+          {!inTrash && onCreateFavorite && (
+            <button
+              type="button"
+              className="flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-muted transition-colors hover:bg-hover hover:text-foreground"
+              onClick={onCreateFavorite}
+              title="收藏链接"
+              aria-label="收藏链接"
+              data-testid="note-list-favorite-add"
+            >
+              <BookmarkPlus size={14} />
+              收藏
             </button>
           )}
           {!inTrash && onCreateNote && (

@@ -35,6 +35,20 @@
         ]
       }
     ],
+    "extensionAbilities": [
+      {
+        "name": "FavoriteWidgetAbility",
+        "srcEntry": "./ets/entryformability/FavoriteWidgetAbility.ets",
+        "description": "$string:favorite_widget_description",
+        "type": "form",
+        "metadata": [
+          {
+            "name": "ohos.extension.form",
+            "resource": "$profile:favorite_widget"
+          }
+        ]
+      }
+    ],
     "requestPermissions": [
       {
         "name": "ohos.permission.INTERNET"

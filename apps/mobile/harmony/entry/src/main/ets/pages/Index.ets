@@ -86,9 +86,14 @@ struct Index {
   private wwwDir: string = '';
   @State private pageUrl: string = '';
   @StorageLink('aimdSharePayload') @Watch('onSharePayloadChange') private sharePayload: string = '';
+  @StorageLink('aimdOpenFavorite') @Watch('onOpenFavoriteChange') private openFavoriteToken: string = '';
 
   onSharePayloadChange(): void {
     this.flushShare();
+  }
+
+  onOpenFavoriteChange(): void {
+    this.flushOpenFavorite();
   }
 
   aboutToAppear(): void {
@@ -142,6 +147,22 @@ struct Index {
     });
   }
 
+  private flushOpenFavorite(): void {
+    if (this.openFavoriteToken.length === 0) {
+      return;
+    }
+    const token = this.openFavoriteToken;
+    this.openFavoriteToken = '';
+    this.controller.runJavaScript('window.__aimdOpenFavorite && window.__aimdOpenFavorite();')
+      .catch((err: Error) => {
+        hilog.error(0x0000, TAG, 'favorite inject failed: %{public}s', err.message);
+      })
+      .finally(() => {
+        this.openFavoriteToken = '';
+        hilog.info(0x0000, TAG, 'favorite action consumed %{public}s', token);
+      });
+  }
+
   private exitApp(): void {
     if (this.abilityContext === null) {
       return;
@@ -173,6 +194,7 @@ struct Index {
         })
         .onPageEnd(() => {
           this.flushShare();
+          this.flushOpenFavorite();
         })
         .javaScriptProxy({
           object: this.bridge,

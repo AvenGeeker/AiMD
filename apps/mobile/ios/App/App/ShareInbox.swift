@@ -24,7 +24,7 @@ enum AimdShareInbox {
         }
     }
 
-    private static func findBridge(_ controller: UIViewController?) -> CAPBridgeViewController? {
+    static func findBridge(_ controller: UIViewController?) -> CAPBridgeViewController? {
         guard let controller else { return nil }
         if let bridge = controller as? CAPBridgeViewController { return bridge }
         for child in controller.children {

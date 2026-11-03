@@ -519,11 +519,11 @@ How it behaves:
 
 The sidebar exposes a dedicated **Favourites** section. The desktop app also adds a tray action and a configurable global shortcut (default `CommandOrControl+Shift+F`) that brings up the main window and opens the paste box immediately. A favourite is still a normal note, so the editor, search, trash, export and Yjs sync all keep working; it additionally stores the source URL, platform, author, cover and media-processing state.
 
-- Click the bookmark-plus button next to **Favourites**, paste a URL and press Enter. The server extracts WeChat articles and ordinary pages automatically. If Xiaohongshu/Douyin anti-bot pages or any other site cannot be parsed, the URL itself is still saved without asking for a form.
+- Click the bookmark-plus button next to **Favourites**, paste a URL and press Enter. On mobile, a persistent **Favourites** button sits in the note-list header, and the system share sheet can send links or media directly. The server extracts WeChat articles and ordinary pages automatically. If Xiaohongshu/Douyin anti-bot pages or any other site cannot be parsed, the URL itself is still saved without asking for a form.
 - Article images are downloaded as authenticated attachments. Images can be OCR'd by a vision model; videos are converted to audio with ffmpeg and transcribed through an OpenAI-compatible `audio/transcriptions` endpoint. Media models are optional in **Settings → AI**; favourites still save when they are absent.
 - The Favourites section creates the preset categories (学习, AI, 大模型, 旅游, 购物, 生活, 职场, 健康, 其他) up front. New favourites start in 待分类 and AI files them automatically; a non-preset category is only created after confirmation.
 - Every real folder can open **Ask AI** with Q&A, search and trip modes. Answers cite saved notes; trip planning enables the model's native web search by default, while other modes expose it as an optional toggle.
-- Mobile sharing uses Android `ACTION_SEND`, an iOS Share Extension (App Group + `aimarkdown://share`) and HarmonyOS `sendData`. iOS device builds require a signing team and the App Group capability.
+- Mobile sharing uses Android `ACTION_SEND`, an iOS Share Extension (App Group + `aimarkdown://share`) and HarmonyOS `sendData`. Each mobile platform also ships a **Favourite link** home-screen card — Android AppWidget, iOS WidgetKit and HarmonyOS FormExtensionAbility — that opens the capture box directly. iOS device builds require a signing team for both the share extension and the widget.
 
 The server needs `ffmpeg`/`ffprobe` (installed in the Docker image; use `brew install ffmpeg` for local development). Saving the same URL updates the existing favourite by default.
 

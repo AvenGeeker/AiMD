@@ -25,11 +25,14 @@ import java.util.UUID;
  * can upload them after the user confirms the favourite preview.
  */
 public class MainActivity extends BridgeActivity {
+    public static final String ACTION_OPEN_FAVORITE = "com.aimarkdown.mobile.action.OPEN_FAVORITE";
+    public static final String EXTRA_OPEN_FAVORITE = "openFavorite";
     private static final String PENDING_KEY = "aimarkdown.pendingShare";
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        dispatchNativeAction(getIntent());
         dispatchShare(getIntent());
     }
 
@@ -37,7 +40,24 @@ public class MainActivity extends BridgeActivity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        dispatchNativeAction(intent);
         dispatchShare(intent);
+    }
+
+    private void dispatchNativeAction(Intent intent) {
+        if (intent == null) return;
+        boolean openFavorite = intent.getBooleanExtra(EXTRA_OPEN_FAVORITE, false)
+            || ACTION_OPEN_FAVORITE.equals(intent.getAction());
+        if (!openFavorite) return;
+        // A widget tap is a one-shot command; do not replay it after process recreation.
+        intent.removeExtra(EXTRA_OPEN_FAVORITE);
+        intent.setAction(null);
+        String requestId = String.valueOf(System.currentTimeMillis());
+        injectWithRetries("(() => {"
+            + " if (!window.__aimdOpenFavorite || window.__aimdWidgetRequest === '" + requestId + "') return;"
+            + " window.__aimdWidgetRequest = '" + requestId + "';"
+            + " window.__aimdOpenFavorite();"
+            + " })();");
     }
 
     private void dispatchShare(Intent intent) {
@@ -70,7 +90,7 @@ public class MainActivity extends BridgeActivity {
 
             String json = payload.toString();
             getSharedPreferences("aimd_share", MODE_PRIVATE).edit().putString(PENDING_KEY, json).apply();
-            injectWithRetries(json);
+            injectWithRetries("window.__aimdReceiveShare && window.__aimdReceiveShare(" + json + ");");
         } catch (Exception ignored) {
             // A malformed share must never crash the notebook.
         }
@@ -114,8 +134,7 @@ public class MainActivity extends BridgeActivity {
         return uri.getLastPathSegment();
     }
 
-    private void injectWithRetries(String json) {
-        String script = "window.__aimdReceiveShare && window.__aimdReceiveShare(" + json + ");";
+    private void injectWithRetries(String script) {
         long[] delays = new long[] {800L, 2500L, 6000L};
         android.os.Handler handler = new android.os.Handler(getMainLooper());
         for (long delay : delays) {

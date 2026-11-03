@@ -2,11 +2,13 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App.js';
+import { installNativeActions } from './lib/nativeActions.js';
 import { installShareReceiver } from './lib/shareInbox.js';
 import './styles/index.css';
 import './styles/preview.css';
 import 'katex/dist/katex.min.css';
 
+installNativeActions();
 installShareReceiver();
 
 /**

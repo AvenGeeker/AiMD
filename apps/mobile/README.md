@@ -86,6 +86,7 @@ make mobile-hap        # copy-renderer → 同步 resfile → ohpm install → h
 
 ## 分享到收藏
 
+- 应用内：笔记列表标题栏常驻「收藏」按钮，可在一级页面直接粘贴链接；收藏列表和抽屉中也保留入口。
 - **Android**：`MainActivity` 接收 `ACTION_SEND` / `ACTION_SEND_MULTIPLE`，把文本和文件写入缓存后注入 `window.__aimdReceiveShare`。可用 `adb shell am start -a android.intent.action.SEND -t text/plain --es android.intent.extra.TEXT "https://..." com.aimarkdown.mobile` 冒烟。
 - **iOS**：`AiMDShare` Share Extension 把 URL/文本/图片/视频写入 App Group `group.com.aimarkdown.mobile`，再通过 `aimarkdown://share` 拉起宿主 App。模拟器构建已验证；真机需要开发者团队签名并为宿主与扩展同时启用 App Group。
 - **HarmonyOS**：`module.json5` 声明 `ohos.want.action.sendData`，`EntryAbility` 在冷/热启动时把分享内容写入 `AppStorage`，`Index.ets` 注入 WebView。ArkWeb 分享目录需要加入 `setPathAllowingUniversalAccess`。
@@ -93,3 +94,14 @@ make mobile-hap        # copy-renderer → 同步 resfile → ohpm install → h
 
 
 桌面端「设置 → 速记与桌面」还可以录制「收藏链接」全局快捷键，默认 `CommandOrControl+Shift+F`；托盘菜单同样提供「收藏链接…」入口。
+
+
+## 桌面卡片
+
+三端都提供「收藏链接」快捷卡片，点按后打开同一个收藏输入框：
+
+- **Android**：`FavoriteWidgetProvider` 注册 2×1 AppWidget；点击用显式 `PendingIntent` 拉起 `MainActivity`，再注入 `window.__aimdOpenFavorite()`。
+- **iOS**：`AiMDWidgets` WidgetKit 扩展支持小号和中号卡片，通过 `aimarkdown://favorite` 深链唤起宿主；真机需要为 `com.aimarkdown.mobile.widget` 扩展单独签名。
+- **HarmonyOS**：`FavoriteWidgetAbility` 注册 2×2 服务卡片；点击通过 `postCardAction` 路由到 `EntryAbility`，再注入同一个 JS 方法。
+
+共享 renderer 在 React 挂载前安装 `window.__aimdOpenFavorite()`，并用 `localStorage` 暂存请求，因此冷启动、未登录或需要先登录时都不会丢失卡片动作。

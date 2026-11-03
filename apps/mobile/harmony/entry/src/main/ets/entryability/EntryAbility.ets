@@ -48,14 +48,28 @@ function queueShare(want: Want): void {
   }
 }
 
+/** A form tap routes through EntryAbility so a warm or cold app both reach the same queue. */
+function queueOpenFavorite(want: Want): void {
+  try {
+    const params = (want.parameters ?? {}) as Record<string, Object>;
+    if (params['aimdAction'] !== 'open-favorite') return;
+    AppStorage.setOrCreate('aimdOpenFavorite', `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  } catch (err) {
+    const e = err as Error;
+    hilog.error(0x0000, TAG, 'favorite action parse failed: %{public}s', e.message);
+  }
+}
+
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     hilog.info(0x0000, TAG, 'Ability onCreate %{public}s', JSON.stringify(want));
+    queueOpenFavorite(want);
     queueShare(want);
   }
 
   onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     hilog.info(0x0000, TAG, 'Ability onNewWant %{public}s', JSON.stringify(want));
+    queueOpenFavorite(want);
     queueShare(want);
   }
 

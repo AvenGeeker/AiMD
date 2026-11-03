@@ -11,6 +11,14 @@
     {
       "name": "EntryAbility_label",
       "value": "AiMD"
+    },
+    {
+      "name": "favorite_widget_name",
+      "value": "AiMD 收藏"
+    },
+    {
+      "name": "favorite_widget_description",
+      "value": "一键收藏链接到 AiMD"
     }
   ]
 }

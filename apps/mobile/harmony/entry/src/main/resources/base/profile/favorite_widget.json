@@ -1,0 +1,20 @@
+{
+  "forms": [
+    {
+      "name": "favorite_widget",
+      "displayName": "$string:favorite_widget_name",
+      "description": "$string:favorite_widget_description",
+      "src": "./ets/widget/pages/FavoriteWidgetCard.ets",
+      "uiSyntax": "arkts",
+      "window": {
+        "designWidth": 720,
+        "autoDesignWidth": true
+      },
+      "colorMode": "auto",
+      "isDefault": true,
+      "updateEnabled": false,
+      "defaultDimension": "2*2",
+      "supportDimensions": ["2*2"]
+    }
+  ]
+}

@@ -846,6 +846,23 @@ kbd {
 
 /* -------------------------------- dialogs -------------------------------- */
 
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) 14px max(16px, env(safe-area-inset-bottom));
+  background: rgba(12, 16, 24, 0.34);
+  backdrop-filter: blur(5px);
+  animation: overlay-in 150ms ease-out;
+}
+
+.dark .dialog-backdrop {
+  background: rgba(4, 6, 10, 0.56);
+}
+
 .dialog-overlay {
   position: fixed;
   inset: 0;

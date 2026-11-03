@@ -4,4 +4,8 @@
     <string name="title_activity_main">AiMD</string>
     <string name="package_name">com.aimarkdown.mobile</string>
     <string name="custom_url_scheme">com.aimarkdown.mobile</string>
+    <string name="favorite_widget_name">AiMD 收藏</string>
+    <string name="favorite_widget_description">一键收藏链接到 AiMD</string>
+    <string name="favorite_widget_title">收藏链接</string>
+    <string name="favorite_widget_hint">打开 AiMD 粘贴链接</string>
 </resources>

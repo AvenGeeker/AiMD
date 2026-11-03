@@ -7,6 +7,7 @@ import { DEFAULT_SETTINGS, MIN_SEARCH_QUERY_LENGTH } from '@aimarkdown/shared';
 import { AuthProvider, useAuth } from './lib/auth.js';
 import { request } from './lib/api.js';
 import { isQuickCaptureWindow } from './lib/platform.js';
+import { consumeOpenFavoriteRequest, subscribeOpenFavorite } from './lib/nativeActions.js';
 import { consumeNextShare, subscribeShares } from './lib/shareInbox.js';
 import { useIsMobile } from './hooks/useIsMobile.js';
 import { syncManager } from './lib/sync.js';
@@ -225,6 +226,16 @@ function Workspace() {
     openShared();
     return subscribeShares(openShared);
   }, [user, settings.favoritesInboxFolderId]);
+
+  useEffect(() => {
+    const openFavorite = () => {
+      if (!consumeOpenFavoriteRequest()) return;
+      setSharedCapture(null);
+      setFavoriteDialogOpen(true);
+    };
+    openFavorite();
+    return subscribeOpenFavorite(openFavorite);
+  }, []);
 
   // Keep the Electron tray honest about connectivity, and push synced settings into the shell so
   // the global hotkey follows changes made on any device. Both are no-ops in a browser tab.
@@ -726,6 +737,40 @@ function Workspace() {
     />
   );
 
+  const favoriteDialog = (
+    <FavoriteCaptureDialog
+      open={favoriteDialogOpen}
+      initial={sharedCapture}
+      onClose={() => {
+        setFavoriteDialogOpen(false);
+        setSharedCapture(null);
+      }}
+      onSaved={(noteId) => {
+        setFavoriteDialogOpen(false);
+        setSharedCapture(null);
+        setSelection({
+          ...EMPTY_SELECTION,
+          folderId: settings.favoritesInboxFolderId,
+          favorites: true,
+          recursive: true,
+        });
+        setSelectedNoteId(noteId);
+        flash('已保存收藏，AI 将自动分类');
+      }}
+    />
+  );
+
+  const folderAiPanel = (
+    <FolderAiPanel
+      open={folderAiOpen}
+      folderId={selection.folderId ?? null}
+      folderName={folderName}
+      onClose={() => setFolderAiOpen(false)}
+      onOpenNote={handleOpenNote}
+      onSaveNote={handleSaveAiNote}
+    />
+  );
+
   if (mobile) {
     return (
       <>
@@ -798,6 +843,8 @@ function Workspace() {
             initialTab={settingsInitialTab}
           />
         )}
+        {favoriteDialog}
+        {folderAiPanel}
       </>
     );
   }
@@ -990,35 +1037,8 @@ function Workspace() {
         />
       )}
 
-      <FavoriteCaptureDialog
-        open={favoriteDialogOpen}
-        initial={sharedCapture}
-        onClose={() => {
-          setFavoriteDialogOpen(false);
-          setSharedCapture(null);
-        }}
-        onSaved={(noteId) => {
-          setFavoriteDialogOpen(false);
-          setSharedCapture(null);
-          setSelection({
-            ...EMPTY_SELECTION,
-            folderId: settings.favoritesInboxFolderId,
-            favorites: true,
-            recursive: true,
-          });
-          setSelectedNoteId(noteId);
-          flash('已保存收藏，AI 将自动分类');
-        }}
-      />
-
-      <FolderAiPanel
-        open={folderAiOpen}
-        folderId={selection.folderId ?? null}
-        folderName={folderName}
-        onClose={() => setFolderAiOpen(false)}
-        onOpenNote={handleOpenNote}
-        onSaveNote={handleSaveAiNote}
-      />
+      {favoriteDialog}
+      {folderAiPanel}
 
       {appleNotes.preview && (
         <AppleNotesPreviewDialog

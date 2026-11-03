@@ -1,5 +1,5 @@
 import { createServer, type Server } from 'node:http';
-import { expect, test } from '@playwright/test';
+import { devices, expect, test, type DeviceDescriptor } from '@playwright/test';
 import { registerThroughUi } from './helpers.js';
 
 let fixture: Server;
@@ -32,4 +32,38 @@ test('saves a link into the favourites section', async ({ page }) => {
   await page.getByTestId('favorite-url').press('Enter');
   await expect(page.getByTestId('favorite-list')).toContainText('周末旅行收藏');
   await expect(page.getByTestId('favorite-note-bar')).toContainText('网页');
+});
+
+const iphone13 = { ...devices['iPhone 13'] } as DeviceDescriptor;
+delete (iphone13 as { defaultBrowserType?: string }).defaultBrowserType;
+
+test.describe('mobile favourites', () => {
+  test.use(iphone13);
+
+  test('adds a favourite from the note-list header without opening the drawer', async ({ page }) => {
+    await registerThroughUi(page);
+
+    // The mobile home screen keeps favourite capture one tap away instead of hiding it in the drawer.
+    const add = page.getByTestId('note-list-favorite-add');
+    await expect(add).toBeVisible();
+    await expect(add).toContainText('收藏');
+    await add.tap();
+    await expect(page.getByRole('dialog', { name: '收藏链接' })).toBeVisible();
+    await expect(page.getByTestId('favorite-url')).toBeInViewport();
+
+    await page.getByTestId('favorite-url').fill(`http://127.0.0.1:${port}/post`);
+    await page.getByTestId('favorite-url').press('Enter');
+    await expect(page.getByTestId('favorite-list')).toContainText('周末旅行收藏');
+  });
+
+  test('opens the capture dialog through the native widget bridge', async ({ page }) => {
+    await registerThroughUi(page);
+
+    await page.evaluate(() => {
+      (window as Window & { __aimdOpenFavorite?: () => void }).__aimdOpenFavorite?.();
+    });
+
+    await expect(page.getByRole('dialog', { name: '收藏链接' })).toBeVisible();
+    await expect(page.getByTestId('favorite-url')).toBeInViewport();
+  });
 });

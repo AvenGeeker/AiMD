@@ -12,11 +12,16 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window?.makeKeyAndVisible()
 
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
-        AimdShareInbox.consumeAndInject(root: window?.rootViewController)
+        if !connectionOptions.urlContexts.contains(where: { AimdActions.handle(url: $0.url, root: window?.rootViewController) }) {
+            AimdShareInbox.consumeAndInject(root: window?.rootViewController)
+        }
     }
 
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
         SceneDelegateProxy.shared.scene(scene, openURLContexts: URLContexts)
+        if URLContexts.contains(where: { AimdActions.handle(url: $0.url, root: window?.rootViewController) }) {
+            return
+        }
         if URLContexts.contains(where: { $0.url.scheme == "aimarkdown" }) {
             AimdShareInbox.consumeAndInject(root: window?.rootViewController)
         }
