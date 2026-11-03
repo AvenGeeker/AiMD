@@ -169,7 +169,35 @@ make down            # 停止（保留数据卷）
 30 3 * * * cd /path/to/AiMD && ./scripts/backup.sh --keep 14 >> /var/log/aimarkdown-backup.log 2>&1
 ```
 
-首次构建、依赖变化或 Web 源码变化时，Vite 需要压缩 mermaid/shiki 等大分块，小内存 VPS 上可能持续数分钟；这通常是编译而不是卡死。Dockerfile 已把 Web 构建放在服务端源码之前，仅修改 `apps/server` 时会复用 Web 构建缓存。
+### 推荐：在 CI 构建，VPS 只拉镜像
+
+从源码构建时，首次构建、依赖变化或 Web 源码变化会让 Vite/Rolldown 处理 4,000+ 个模块并压缩
+mermaid/shiki 等大分块；小内存 VPS（尤其是 CPU 积分耗尽的突发型实例）上可能持续数分钟，这不是卡死。
+服务端源码变化会命中 Web 层缓存，但 Web 一改就躲不开整次打包。
+
+更好的做法是把打包放到 CI 或本机。仓库的 CI 会在 `main` 与 `v*` tag 上发布镜像到 GHCR：
+
+- `ghcr.io/<owner>/<repo>:latest`、`:main`（默认分支滚动标签）
+- `ghcr.io/<owner>/<repo>:sha-xxxxxxx`（每次提交）
+- `ghcr.io/<owner>/<repo>:v1.2.3` / `:1.2.3`（tag 发布）
+
+服务器只需要拉镜像，不装 Node，也不跑 Vite：
+
+```bash
+# deploy/.env
+APP_IMAGE=ghcr.io/<owner>/<repo>:latest
+```
+
+```bash
+./scripts/aimd.sh update   # 自动 docker pull -> 切换 -> 健康检查，失败回滚
+```
+
+> GHCR 包首次发布后默认是 private：在 GitHub 仓库的 **Packages** 设置里把该包改成 public，
+> 或在服务器上 `docker login ghcr.io`。大陆网络拉取 ghcr.io 不稳定时，可以把镜像同步到阿里云
+> ACR 等可达仓库，再把 `APP_IMAGE` 指向那里；也可以继续用下面的离线 `docker save/load` 方式。
+
+只有确实需要在服务器上从源码构建时，才使用 `./scripts/deploy.sh --rebuild` 或
+`make deploy-rebuild`。
 
 发布记录、当前镜像与 `.env` 快照保存在 `.deploy/`（已 gitignore）。**回滚只切换应用镜像，不会回滚数据库迁移**；
 需要回滚数据时用 `backups/` 里的备份包，按其中的 `BACKUP.json` 操作。
@@ -368,7 +396,7 @@ REST 写操作（移动目录、置顶、打标签）不会绕过 CRDT：服务�
 | `ACME_EMAIL` | 空 | Let's Encrypt 到期通知邮箱（仅域名模式） |
 | `HTTP_PORT` / `HTTPS_PORT` | `80` / `443` | 宿主机对外端口 |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `aimarkdown` / — / `aimarkdown` | `deploy.sh` 会用 `openssl rand` 生成密码 |
-| `APP_IMAGE` | 空 | 指向预构建镜像（如 `ghcr.io/you/aimarkdown:0.1.0`）即跳过在服务器上构建 |
+| `APP_IMAGE` | 空 | 指向预构建镜像（如 `ghcr.io/you/aimarkdown:latest`）即跳过在服务器上构建；CI 会自动发布到 GHCR，`aimd.sh update` 会先拉取最新 tag |
 
 完整模板见 [`deploy/.env.example`](./deploy/.env.example) 与 [`.env.example`](./.env.example)（含注释）。
 

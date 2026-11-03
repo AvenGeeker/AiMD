@@ -7,16 +7,51 @@
  * preview can be re-enhanced after every keystroke without duplicated work.
  */
 
+import type { LanguageInput } from 'shiki/core';
+
 type Highlighter = {
   codeToHtml(code: string, options: { lang: string; themes: Record<string, string> }): string;
 };
 
-const SUPPORTED_LANGS = [
-  'javascript', 'typescript', 'tsx', 'jsx', 'json', 'jsonc', 'python', 'bash', 'shell',
-  'css', 'scss', 'html', 'xml', 'yaml', 'toml', 'sql', 'rust', 'go', 'java', 'c', 'cpp',
-  'csharp', 'php', 'ruby', 'swift', 'kotlin', 'diff', 'markdown', 'dockerfile', 'lua',
-  'ini', 'graphql', 'text', 'plaintext',
-] as const;
+/** Shiki's built-in no-op grammars, used for unknown/plain fences. */
+const PLAIN_LANGS = ['text', 'plaintext'] as const;
+
+const SHIKI_LANGS = {
+  javascript: () => import('shiki/langs/javascript.mjs'),
+  typescript: () => import('shiki/langs/typescript.mjs'),
+  tsx: () => import('shiki/langs/tsx.mjs'),
+  jsx: () => import('shiki/langs/jsx.mjs'),
+  json: () => import('shiki/langs/json.mjs'),
+  jsonc: () => import('shiki/langs/jsonc.mjs'),
+  python: () => import('shiki/langs/python.mjs'),
+  bash: () => import('shiki/langs/bash.mjs'),
+  css: () => import('shiki/langs/css.mjs'),
+  scss: () => import('shiki/langs/scss.mjs'),
+  html: () => import('shiki/langs/html.mjs'),
+  xml: () => import('shiki/langs/xml.mjs'),
+  yaml: () => import('shiki/langs/yaml.mjs'),
+  toml: () => import('shiki/langs/toml.mjs'),
+  sql: () => import('shiki/langs/sql.mjs'),
+  rust: () => import('shiki/langs/rust.mjs'),
+  go: () => import('shiki/langs/go.mjs'),
+  java: () => import('shiki/langs/java.mjs'),
+  c: () => import('shiki/langs/c.mjs'),
+  cpp: () => import('shiki/langs/cpp.mjs'),
+  csharp: () => import('shiki/langs/csharp.mjs'),
+  php: () => import('shiki/langs/php.mjs'),
+  ruby: () => import('shiki/langs/ruby.mjs'),
+  swift: () => import('shiki/langs/swift.mjs'),
+  kotlin: () => import('shiki/langs/kotlin.mjs'),
+  diff: () => import('shiki/langs/diff.mjs'),
+  markdown: () => import('shiki/langs/markdown.mjs'),
+  dockerfile: () => import('shiki/langs/dockerfile.mjs'),
+  lua: () => import('shiki/langs/lua.mjs'),
+  ini: () => import('shiki/langs/ini.mjs'),
+  graphql: () => import('shiki/langs/graphql.mjs'),
+} satisfies Record<string, () => Promise<unknown>>;
+
+/** Languages accepted from a fence. Kept in sync with the grammars loaded above. */
+const SUPPORTED_LANGS: readonly string[] = [...Object.keys(SHIKI_LANGS), ...PLAIN_LANGS];
 
 const LANG_ALIASES: Record<string, string> = {
   js: 'javascript',
@@ -25,6 +60,7 @@ const LANG_ALIASES: Record<string, string> = {
   ts: 'typescript',
   py: 'python',
   sh: 'bash',
+  shell: 'bash',
   zsh: 'bash',
   console: 'bash',
   yml: 'yaml',
@@ -40,10 +76,19 @@ function loadHighlighter(): Promise<Highlighter | null> {
   if (!highlighterPromise) {
     highlighterPromise = (async () => {
       try {
-        const shiki = await import('shiki/bundle/web');
-        return (await shiki.createHighlighter({
-          themes: ['github-light', 'github-dark'],
-          langs: [...SUPPORTED_LANGS],
+        const [{ createHighlighterCore }, { createOnigurumaEngine }] = await Promise.all([
+          import('shiki/core'),
+          import('shiki/engine/oniguruma'),
+        ]);
+        return (await createHighlighterCore({
+          themes: [
+            import('shiki/themes/github-light.mjs'),
+            import('shiki/themes/github-dark.mjs'),
+          ],
+          // The dynamic import types resolve to `unknown` under the package's wildcard export map;
+          // Shiki accepts the module namespaces ({ default: LanguageRegistration[] }) at runtime.
+          langs: Object.values(SHIKI_LANGS).map((load) => load()) as unknown as LanguageInput[],
+          engine: createOnigurumaEngine(import('shiki/wasm')),
         })) as unknown as Highlighter;
       } catch (error) {
         console.warn('[markdown] shiki unavailable, skipping highlight', error);
@@ -57,7 +102,7 @@ function loadHighlighter(): Promise<Highlighter | null> {
 function normaliseLang(raw: string): string {
   const lower = raw.toLowerCase();
   if (lower in LANG_ALIASES) return LANG_ALIASES[lower] as string;
-  return SUPPORTED_LANGS.includes(lower as (typeof SUPPORTED_LANGS)[number]) ? lower : 'text';
+  return SUPPORTED_LANGS.includes(lower) ? lower : 'text';
 }
 
 /** Replace `<pre><code class="language-x">` bodies with shiki-highlighted HTML. */

@@ -188,7 +188,38 @@ The backup script exports `pg_dump` (custom format) plus the attachment volume a
 30 3 * * * cd /path/to/AiMD && ./scripts/backup.sh --keep 14 >> /var/log/aimarkdown-backup.log 2>&1
 ```
 
-The first build, dependency changes, or Web source changes require Vite to minify large mermaid/shiki chunks and may take several minutes on a small VPS; that is compilation, not a deadlock. The Dockerfile now builds the Web bundle before copying `apps/server`, so server-only changes reuse that layer.
+### Recommended: build in CI, let the VPS pull the image
+
+A source build has to run Vite/Rolldown over 4,000+ modules on the first build, after dependency
+changes, or whenever Web sources change, then minify the large mermaid/shiki chunks. On a small VPS
+(especially a burstable instance whose CPU credits are exhausted) that can take several minutes — it is
+compilation, not a deadlock. Server-only changes reuse the Web layer, but a Web change always pays for
+the whole bundle.
+
+Build off the VPS instead. CI publishes images to GHCR on `main` and `v*` tags:
+
+- `ghcr.io/<owner>/<repo>:latest`, `:main` (rolling default-branch tag)
+- `ghcr.io/<owner>/<repo>:sha-xxxxxxx` (every commit)
+- `ghcr.io/<owner>/<repo>:v1.2.3` / `:1.2.3` (tag releases)
+
+The server only pulls layers; it needs neither Node nor Vite:
+
+```bash
+# deploy/.env
+APP_IMAGE=ghcr.io/<owner>/<repo>:latest
+```
+
+```bash
+./scripts/aimd.sh update   # docker pull -> switch -> health check, auto-rollback on failure
+```
+
+> GHCR packages are private by default after the first publish: either make the package public in the
+> repository's **Packages** settings, or run `docker login ghcr.io` on the server. If ghcr.io is slow or
+> unreachable from mainland China, mirror the image to Aliyun ACR (or another reachable registry) and
+> point `APP_IMAGE` there, or use the offline `docker save/load` flow below.
+
+Use `./scripts/deploy.sh --rebuild` / `make deploy-rebuild` only when you really need to build from
+source on the server.
 
 Release records, the current image and the `.env` snapshot live in `.deploy/` (gitignored).
 **Rollback only switches the app image; it does not roll back database migrations.** To roll data
@@ -404,7 +435,7 @@ misconfiguration fails immediately with a readable reason** instead of misbehavi
 | `ACME_EMAIL` | empty | Let's Encrypt expiry notices (domain mode only) |
 | `HTTP_PORT` / `HTTPS_PORT` | `80` / `443` | Host-side ports |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `aimarkdown` / — / `aimarkdown` | `deploy.sh` generates the password with `openssl rand` |
-| `APP_IMAGE` | empty | Point at a prebuilt image (e.g. `ghcr.io/you/aimarkdown:0.1.0`) to skip building on the server |
+| `APP_IMAGE` | empty | Point at a prebuilt image (e.g. `ghcr.io/you/aimarkdown:latest`) to skip building on the server; CI publishes to GHCR and `aimd.sh update` pulls the latest tag first |
 
 Full annotated templates: [`deploy/.env.example`](./deploy/.env.example) and [`.env.example`](./.env.example).
 

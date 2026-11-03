@@ -199,7 +199,16 @@ UP_ARGS=(-d)
 if [[ "$REBUILD" == "1" ]]; then UP_ARGS+=(--build --force-recreate); fi
 if [[ "$NO_BUILD" == "1" ]]; then
   [[ -n "${APP_IMAGE:-}" ]] || fail "--no-build requires APP_IMAGE in ${ENV_FILE}"
-  info "Using prebuilt image ${APP_IMAGE}"
+  if [[ "$APP_IMAGE" == *"/"* || "$APP_IMAGE" == *"."* ]]; then
+    # Registry reference: always refresh mutable tags such as :latest before recreating.
+    info "Pulling prebuilt image ${APP_IMAGE}"
+    docker pull "$APP_IMAGE" || fail "could not pull ${APP_IMAGE}"
+  else
+    # Bare local tag (docker load / local build).
+    docker image inspect "$APP_IMAGE" >/dev/null 2>&1 \
+      || fail "local image ${APP_IMAGE} not found; docker load it first"
+    info "Using local prebuilt image ${APP_IMAGE}"
+  fi
 else
   info "Building application image (this can take a few minutes on a small VPS)"
   info "Only dependency/Web changes rebuild the heavy mermaid/shiki bundle; server-only updates reuse that Docker layer."

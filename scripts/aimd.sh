@@ -270,15 +270,28 @@ backup_stack() {
   fi
 }
 
+# A bare name such as aimarkdown-app:local (or the release-* tags we create) lives only in the
+# local daemon. Anything with a registry host or a namespace (ghcr.io/..., user/app:tag) is remote.
+image_is_local() {
+  [[ "$1" != *"/"* && "$1" != *"."* ]]
+}
+
 build_app() {
   if [[ -n "${APP_IMAGE:-}" ]]; then
-    warn "APP_IMAGE=$APP_IMAGE 非空，跳过本地构建，直接使用该镜像"
-    if ! docker image inspect "$APP_IMAGE" >/dev/null 2>&1; then
-      info "拉取 $APP_IMAGE"
-      if ! docker pull "$APP_IMAGE"; then
-        warn "拉取失败: $APP_IMAGE"
+    warn "APP_IMAGE=$APP_IMAGE 非空，跳过本地构建"
+    if image_is_local "$APP_IMAGE"; then
+      if ! docker image inspect "$APP_IMAGE" >/dev/null 2>&1; then
+        warn "本地镜像不存在: $APP_IMAGE（先用 docker load 导入）"
         return 1
       fi
+      return 0
+    fi
+    # Always ask the registry, even when the tag already exists locally. Otherwise a mutable tag
+    # such as :latest silently redeploys the previous image after a new release is published.
+    info "拉取 $APP_IMAGE"
+    if ! docker pull "$APP_IMAGE"; then
+      warn "拉取失败: $APP_IMAGE"
+      return 1
     fi
     return 0
   fi

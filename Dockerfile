@@ -37,16 +37,29 @@ RUN pnpm --filter @aimarkdown/shared build \
  && pnpm --filter @aimarkdown/markdown build
 
 COPY apps/web ./apps/web
-RUN pnpm --filter @aimarkdown/web build
+# CI already runs `pnpm -r typecheck` before publishing; skip the duplicate tsc pass here so a
+# source build on a small VPS spends its CPU on Rolldown/Vite instead. `vite build` still fails
+# on unresolved imports and other bundling errors.
+RUN pnpm --filter @aimarkdown/web exec vite build
 
 COPY apps/server ./apps/server
 RUN pnpm --filter @aimarkdown/server build
 
-# ---------- 3. drop devDependencies (vite, electron, playwright, test tooling) ----------
-FROM build AS proddeps
+# ---------- 3. production-only dependency tree ----------
+# Do not prune the build stage: `pnpm prune --prod` does not reliably remove devDependencies from
+# a workspace and used to leave Electron/Playwright/Vite in the image (~700 MB of node_modules).
+# A fresh prod-only install for just the server + the packages it imports is both smaller and
+# easier to reason about. The `apps/*` and `packages/*` globs only see the package.json files
+# copied here, so web/desktop build dependencies are not installed at all.
+FROM node:${NODE_VERSION} AS proddeps
 WORKDIR /repo
-# Best effort: if prune cannot run in this workspace layout, the image is simply larger.
-RUN pnpm prune --prod || echo "pnpm prune unavailable; keeping the full dependency tree"
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/server/package.json apps/server/
+COPY packages/shared/package.json packages/shared/
+COPY packages/markdown/package.json packages/markdown/
+ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
+RUN pnpm install --prod --frozen-lockfile
 
 # ---------- 4. runtime ----------
 FROM node:${NODE_VERSION} AS runtime
@@ -59,16 +72,20 @@ RUN apk add --no-cache curl ffmpeg
 # Dependency trees at their original relative paths, so pnpm's symlinks still resolve.
 COPY --from=proddeps /repo/node_modules ./node_modules
 COPY --from=proddeps /repo/apps/server/node_modules ./apps/server/node_modules
-# Includes packages/*/node_modules and the built dist/ for shared + markdown.
+# Production dependency links + package.json files for shared/markdown; dist comes from `build`.
 COPY --from=proddeps /repo/packages ./packages
-COPY --from=proddeps /repo/apps/server/dist ./apps/server/dist
-COPY --from=proddeps /repo/apps/server/migrations ./apps/server/migrations
-COPY --from=proddeps /repo/apps/server/package.json ./apps/server/package.json
-COPY --from=proddeps /repo/apps/web/dist ./apps/web/dist
-COPY --from=proddeps /repo/package.json ./package.json
+COPY --from=build /repo/packages/shared/dist ./packages/shared/dist
+COPY --from=build /repo/packages/markdown/dist ./packages/markdown/dist
+COPY --from=build /repo/apps/server/dist ./apps/server/dist
+COPY --from=build /repo/apps/server/migrations ./apps/server/migrations
+COPY --from=build /repo/apps/server/package.json ./apps/server/package.json
+COPY --from=build /repo/apps/web/dist ./apps/web/dist
+COPY --from=build /repo/package.json ./package.json
 
 # Attachments live on a named volume; the directory must exist and be writable by `node`.
-RUN mkdir -p /data/uploads && chown -R node:node /data /app
+# Do not `chown -R /app`: that copies every root-owned file into a new layer (hundreds of MB);
+# the runtime only needs read access to the code.
+RUN mkdir -p /data/uploads && chown -R node:node /data
 USER node
 
 ENV UPLOAD_DIR=/data/uploads \
