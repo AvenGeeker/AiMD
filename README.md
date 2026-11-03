@@ -39,6 +39,7 @@ markdown-it / KaTeX / mermaid / DOMPurify。**唯一真相是 Y.Doc**，关系�
 | **Markdown 编辑与预览** | CodeMirror 6 源码编辑 + 实时预览，分栏 / 纯编辑 / 纯预览三态；GFM、任务列表、KaTeX 公式、mermaid 图、`[[wikilink]]` |
 | **全局快捷键速记** | 桌面端可分别设置「打开主窗口」与「打开速记窗」的全局热键，设置页直接录制按键；内容以 CRDT 追加写入收集箱，与正在进行的编辑安全合并 |
 | **AI 总结与自动标签** | 服务端调用任意 OpenAI 兼容接口，生成摘要、要点、可勾选待办与最多 3 个标签；支持批量回填、进度可视与取消 |
+| **收藏夹与文件夹 AI** | 收藏小红书/抖音/公众号/网页链接或手机分享的图片视频，图片本地化、OCR/视频转写后 AI 自动归入收藏分类；任意文件夹可问答、查询和生成出行规划 |
 | **macOS 备忘录双向同步** | 桌面端与 Apple Notes 全库双向镜像（文件夹 / 笔记 / 附件），冲突与只读项打标签标识，删除可恢复 |
 | **目录与标签** | 无限层级目录、拖拽移动、标签多选 AND 过滤；排序用分数索引，插入不打乱并发编辑 |
 | **搜索** | Postgres `pg_trgm` 子串匹配，中文可用（至少 2 个字符） |
@@ -167,6 +168,8 @@ make down            # 停止（保留数据卷）
 ```cron
 30 3 * * * cd /path/to/AiMD && ./scripts/backup.sh --keep 14 >> /var/log/aimarkdown-backup.log 2>&1
 ```
+
+首次构建、依赖变化或 Web 源码变化时，Vite 需要压缩 mermaid/shiki 等大分块，小内存 VPS 上可能持续数分钟；这通常是编译而不是卡死。Dockerfile 已把 Web 构建放在服务端源码之前，仅修改 `apps/server` 时会复用 Web 构建缓存。
 
 发布记录、当前镜像与 `.env` 快照保存在 `.deploy/`（已 gitignore）。**回滚只切换应用镜像，不会回滚数据库迁移**；
 需要回滚数据时用 `backups/` 里的备份包，按其中的 `BACKUP.json` 操作。
@@ -455,6 +458,21 @@ git update-index --skip-worktree apps/mobile/ios/App/App.xcodeproj/project.pbxpr
   轮换 `JWT_SECRET` 后需要重新填写 AI Key。
 - 自定义 Base URL 默认仅允许 HTTPS 公网地址，防止 SSRF。本地 Ollama 等内网服务需显式设置 `AI_ALLOW_PRIVATE_BASE_URL=true`。
 - **部分云厂商的个人版套餐可能限制自定义后端或批量调用**。请先确认套餐条款；回填按钮会要求二次确认并提示额度风险。
+
+
+---
+
+## 收藏夹
+
+侧边栏的「收藏」是独立一级入口；桌面端还提供托盘菜单「收藏链接…」和可录制的全局快捷键（默认 `CommandOrControl+Shift+F`）。按快捷键会唤起主窗口并直接打开粘贴框。收藏项仍然是普通笔记，沿用编辑器、搜索、回收站、导出与 Yjs 同步，并额外保存原文链接、平台、作者、封面和媒体处理状态。
+
+- 点击左侧「收藏」旁的 `书签+`，粘贴链接并回车即可。服务端自动解析公众号和普通网页；小红书/抖音受反爬限制或任意网页解析失败时，自动退化为只保存网址，不再要求填写表单。
+- 正文图片会下载为鉴权附件；图片可走视觉模型 OCR，视频会用 ffmpeg 提取音频后走 OpenAI 兼容 `audio/transcriptions` 转写。媒体模型在「设置 → AI 助手」里可选配置，未配置时收藏仍会保存。
+- 收藏区会自动创建预设类别：学习、AI、大模型、旅游、购物、生活、职场、健康、其他；新收藏先进入「待分类」，AI 再自动归入对应类别。非预设新类别需要确认后才会创建。
+- 任意真实文件夹都能打开「问 AI」，支持问答、查询和出行规划。回答优先引用收藏并给出可点击引用；出行规划默认尝试模型原生联网搜索，其他模式可手动开启。
+- 手机端支持 Android `ACTION_SEND`、iOS Share Extension（App Group + `aimarkdown://share`）和 HarmonyOS `sendData`。iOS 真机分享扩展需要开发者团队签名和 App Group capability。
+
+服务端需要 `ffmpeg`/`ffprobe`（Docker 镜像已安装；本机开发可 `brew install ffmpeg`）。同一链接默认更新已有收藏。
 
 ---
 

@@ -6,6 +6,8 @@ import {
   Folder as FolderIcon,
   Inbox,
   NotebookPen,
+  Bookmark,
+  BookmarkPlus,
   Search,
   Trash2,
   X,
@@ -21,6 +23,8 @@ export interface SidebarSelection {
   tagIds: string[];
   archived: 'true' | 'false' | 'only';
   q: string;
+  favorites: boolean;
+  recursive: boolean;
 }
 
 export const EMPTY_SELECTION: SidebarSelection = {
@@ -29,6 +33,8 @@ export const EMPTY_SELECTION: SidebarSelection = {
   tagIds: [],
   archived: 'false',
   q: '',
+  favorites: false,
+  recursive: false,
 };
 
 interface SidebarProps {
@@ -46,6 +52,13 @@ interface SidebarProps {
   captureCount: number;
   capturesActive: boolean;
   onOpenCaptures(): void;
+  favoritesFolderId: string | null;
+  favoritesInboxFolderId: string | null;
+  favoriteCount: number;
+  favoritesPending: number;
+  onOpenFavorites(): void;
+  onOpenFavoriteFolder(folderId: string): void;
+  onCreateFavorite(): void;
 }
 
 interface TreeNode {
@@ -100,6 +113,13 @@ export function Sidebar(props: SidebarProps) {
     captureCount,
     capturesActive,
     onOpenCaptures,
+    favoritesFolderId,
+    favoritesInboxFolderId,
+    favoriteCount,
+    favoritesPending,
+    onOpenFavorites,
+    onOpenFavoriteFolder,
+    onCreateFavorite,
   } = props;
 
   const [query, setQuery] = useState(selection.q);
@@ -107,7 +127,30 @@ export function Sidebar(props: SidebarProps) {
   const [editingFolder, setEditingFolder] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  const folders = useMemo(() => buildTree(tree?.folders ?? []), [tree?.folders]);
+  const favoriteSubtrees = useMemo(() => {
+    const ids = new Set<string>();
+    if (!favoritesFolderId) return ids;
+    ids.add(favoritesFolderId);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const folder of tree?.folders ?? []) {
+        if (folder.parentId && ids.has(folder.parentId) && !ids.has(folder.id)) {
+          ids.add(folder.id);
+          changed = true;
+        }
+      }
+    }
+    return ids;
+  }, [tree?.folders, favoritesFolderId]);
+  const folders = useMemo(
+    () => buildTree((tree?.folders ?? []).filter((folder) => !favoriteSubtrees.has(folder.id))),
+    [tree?.folders, favoriteSubtrees],
+  );
+  const favoriteCategories = useMemo(
+    () => (tree?.folders ?? []).filter((folder) => folder.parentId === favoritesFolderId),
+    [tree?.folders, favoritesFolderId],
+  );
   const tags = tree?.tags ?? [];
   const queryTooShort = query.trim().length > 0 && query.trim().length < MIN_SEARCH_QUERY_LENGTH;
 
@@ -127,6 +170,8 @@ export function Sidebar(props: SidebarProps) {
       rootOnly: folderId === null,
       q: selection.q,
       tagIds: selection.tagIds,
+      favorites: false,
+      recursive: false,
     });
   };
 
@@ -221,6 +266,54 @@ export function Sidebar(props: SidebarProps) {
       className={`sidebar-panel flex h-full flex-col ${variant === 'drawer' ? '!w-full' : ''}`}
       data-testid="sidebar"
     >
+      {favoritesFolderId ? (
+        <div className="px-3 pb-2 pt-3" data-testid="favorites-nav">
+          <div className="mb-2 flex items-center justify-between px-1">
+            <button
+              type="button"
+              className={`flex items-center gap-1.5 text-[11px] font-semibold tracking-wide ${selection.favorites ? 'text-accent' : 'text-muted'}`}
+              onClick={onOpenFavorites}
+            >
+              <Bookmark size={13} /> 收藏
+              <span className="text-[10px] font-normal tabular-nums text-muted/70">{favoriteCount}</span>
+            </button>
+            <div className="flex items-center gap-0.5">
+              <button
+                type="button"
+                className="icon-button !h-7 !w-7"
+                onClick={() => onCreateFolder(favoritesFolderId)}
+                title="新建收藏类别"
+                aria-label="新建收藏类别"
+              >
+                <FolderPlus size={14} />
+              </button>
+              <button type="button" className="icon-button !h-7 !w-7" onClick={onCreateFavorite} title="收藏链接" aria-label="收藏链接">
+                <BookmarkPlus size={15} />
+              </button>
+            </div>
+          </div>
+          <button type="button" className={`folder-row w-full ${selection.favorites && selection.folderId === favoritesFolderId ? 'is-active' : ''}`} onClick={onOpenFavorites}>
+            <Bookmark size={13} className="shrink-0 text-muted" />
+            <span className="min-w-0 flex-1 truncate text-left">全部收藏</span>
+            <span className="text-[10.5px] tabular-nums text-muted/70">{favoriteCount}</span>
+          </button>
+          {favoriteCategories.map((folder) => (
+            <button
+              key={folder.id}
+              type="button"
+              className={`folder-row w-full pl-6 ${selection.favorites && selection.folderId === folder.id ? 'is-active' : ''}`}
+              onClick={() => onOpenFavoriteFolder(folder.id)}
+            >
+              <FolderIcon size={12} className="shrink-0 text-muted" />
+              <span className="min-w-0 flex-1 truncate text-left">{folder.name}</span>
+              <span className="text-[10.5px] tabular-nums text-muted/70">
+                {folder.id === favoritesInboxFolderId ? favoritesPending : folder.noteCount}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       <div className="px-3 pb-2 pt-3">
         <div className="mb-2 flex items-center justify-between px-1">
           <span className="text-[11px] font-semibold tracking-wide text-muted">笔记库</span>

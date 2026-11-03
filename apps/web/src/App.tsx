@@ -7,6 +7,7 @@ import { DEFAULT_SETTINGS, MIN_SEARCH_QUERY_LENGTH } from '@aimarkdown/shared';
 import { AuthProvider, useAuth } from './lib/auth.js';
 import { request } from './lib/api.js';
 import { isQuickCaptureWindow } from './lib/platform.js';
+import { consumeNextShare, subscribeShares } from './lib/shareInbox.js';
 import { useIsMobile } from './hooks/useIsMobile.js';
 import { syncManager } from './lib/sync.js';
 import {
@@ -56,6 +57,11 @@ import { QuickCapture } from './components/QuickCapture.js';
 import { useQuickCaptures, type QuickCaptureEntry } from './lib/quickCaptures.js';
 import { useAppleNotes } from './hooks/useAppleNotes.js';
 import { AppleNotesPreviewDialog } from './components/AppleNotesPreviewDialog.js';
+import { FavoriteList } from './components/FavoriteList.js';
+import { FavoriteCaptureDialog } from './components/FavoriteCaptureDialog.js';
+import type { SharedCapture } from './lib/shareInbox.js';
+import { FolderAiPanel } from './components/FolderAiPanel.js';
+import { FavoriteNoteBar } from './components/FavoriteNoteBar.js';
 
 /** Per-device UI preferences for the two desktop rails. */
 const SIDEBAR_VISIBLE_KEY = 'aimarkdown.sidebar-visible';
@@ -117,6 +123,10 @@ function Workspace() {
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('outline');
   const [captureView, setCaptureView] = useState(false);
   const [captureReveal, setCaptureReveal] = useState<CaptureReveal | null>(null);
+  const [favoriteDialogOpen, setFavoriteDialogOpen] = useState(false);
+  const [sharedCapture, setSharedCapture] = useState<SharedCapture | null>(null);
+  const [folderAiOpen, setFolderAiOpen] = useState(false);
+  const [favoritePlatform, setFavoritePlatform] = useState('');
   const firstFilterEffect = useRef(true);
   const creatingNoteRef = useRef(false);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -137,7 +147,9 @@ function Workspace() {
       tagIds: selection.tagIds,
       q: selection.q || undefined,
       archived: selection.archived,
-      sort: 'updated',
+      sort: selection.favorites ? 'collected' : 'updated',
+      recursive: selection.recursive,
+      sourcePlatform: selection.favorites ? favoritePlatform || undefined : undefined,
     },
     Boolean(user),
   );
@@ -168,7 +180,7 @@ function Workspace() {
 
   // Changing the filter clears the selection; the effect below then picks the first note of the
   // *settled* result set.
-  const filterKey = `${selection.folderId ?? '*'}|${selection.rootOnly}|${selection.tagIds.join(',')}|${selection.q}|${selection.archived}`;
+  const filterKey = `${selection.folderId ?? '*'}|${selection.rootOnly}|${selection.tagIds.join(',')}|${selection.q}|${selection.archived}|${selection.favorites}|${selection.recursive}|${favoritePlatform}`;
   useEffect(() => {
     // The initial selection is already null; clearing it again after a fast "new note" click
     // can race the create mutation and send the editor back to the inbox.
@@ -200,6 +212,19 @@ function Workspace() {
     document.documentElement.classList.toggle('dark', dark);
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   }, [dark]);
+
+  useEffect(() => {
+    if (!user || !settings.favoritesInboxFolderId) return;
+    const openShared = () => {
+      void consumeNextShare().then((shared) => {
+        if (!shared) return;
+        setSharedCapture(shared);
+        setFavoriteDialogOpen(true);
+      });
+    };
+    openShared();
+    return subscribeShares(openShared);
+  }, [user, settings.favoritesInboxFolderId]);
 
   // Keep the Electron tray honest about connectivity, and push synced settings into the shell so
   // the global hotkey follows changes made on any device. Both are no-ops in a browser tab.
@@ -300,6 +325,43 @@ function Workspace() {
     if (settings.inboxNoteId) setSelectedNoteId(settings.inboxNoteId);
   }, [settings.inboxNoteId]);
 
+  const handleOpenFavorites = useCallback(() => {
+    if (!settings.favoritesFolderId) return;
+    setCaptureView(false);
+    setCaptureReveal(null);
+    setSelectedNoteId(null);
+    setFolderAiOpen(false);
+    setSelection({
+      ...EMPTY_SELECTION,
+      folderId: settings.favoritesFolderId,
+      favorites: true,
+      recursive: true,
+    });
+  }, [settings.favoritesFolderId]);
+
+  const handleOpenFavoriteFolder = useCallback((folderId: string) => {
+    setCaptureView(false);
+    setCaptureReveal(null);
+    setSelectedNoteId(null);
+    setFolderAiOpen(false);
+    setSelection({
+      ...EMPTY_SELECTION,
+      folderId,
+      favorites: true,
+      recursive: true,
+    });
+  }, []);
+
+  const handleCreateFavorite = useCallback(() => {
+    setSharedCapture(null);
+    setFavoriteDialogOpen(true);
+  }, []);
+
+  const folderName = useMemo(() => {
+    if (!selection.folderId) return '收藏';
+    return treeQuery.data?.folders.find((folder) => folder.id === selection.folderId)?.name ?? '收藏';
+  }, [selection.folderId, treeQuery.data?.folders]);
+
   const handleOpenCapture = useCallback(
     (entry: QuickCaptureEntry) => {
       const inboxId = settings.inboxNoteId;
@@ -333,6 +395,20 @@ function Workspace() {
       }, 0);
     }
   }, [createNote, selection.folderId, selection.tagIds]);
+
+  const handleSaveAiNote = useCallback(
+    async (input: { title: string; body: string }) => {
+      const created = await createNote.mutateAsync({
+        title: input.title,
+        body: input.body,
+        folderId: selection.folderId ?? null,
+      });
+      setFolderAiOpen(false);
+      handleOpenNote(created.id);
+      flash('已保存为笔记');
+    },
+    [createNote, flash, handleOpenNote, selection.folderId],
+  );
 
   const handleCreateFolder = useCallback(
     async (parentId: string | null) => {
@@ -483,6 +559,9 @@ function Workspace() {
           break;
         case 'quick-capture':
           void handleQuickCapture();
+          break;
+        case 'open-favorite':
+          handleCreateFavorite();
           break;
         case 'import':
           importInputRef.current?.click();
@@ -699,6 +778,16 @@ function Workspace() {
           onCreateTag={handleCreateTag}
           resolveWikilink={resolveWikilink}
           onNavigate={handleOpenNote}
+          favoritesFolderId={settings.favoritesFolderId}
+          favoritesInboxFolderId={settings.favoritesInboxFolderId}
+          favoriteCount={treeQuery.data?.counts.favorites ?? 0}
+          favoritesPending={treeQuery.data?.counts.favoritesPending ?? 0}
+          favoritePlatform={favoritePlatform}
+          onFavoritePlatformChange={setFavoritePlatform}
+          onOpenFavorites={handleOpenFavorites}
+          onOpenFavoriteFolder={handleOpenFavoriteFolder}
+          onCreateFavorite={handleCreateFavorite}
+          onAskFolderAi={() => setFolderAiOpen(true)}
         />
         {settingsOpen && (
           <SettingsDialog
@@ -764,6 +853,13 @@ function Workspace() {
             captureCount={captures.length}
             capturesActive={captureView}
             onOpenCaptures={handleOpenCaptures}
+            favoritesFolderId={settings.favoritesFolderId}
+            favoritesInboxFolderId={settings.favoritesInboxFolderId}
+            favoriteCount={treeQuery.data?.counts.favorites ?? 0}
+            favoritesPending={treeQuery.data?.counts.favoritesPending ?? 0}
+            onOpenFavorites={handleOpenFavorites}
+            onOpenFavoriteFolder={handleOpenFavoriteFolder}
+            onCreateFavorite={handleCreateFavorite}
           />
         )}
 
@@ -775,6 +871,17 @@ function Workspace() {
             onOpen={handleOpenCapture}
             onCapture={() => void handleQuickCapture()}
           />
+        ) : selection.favorites ? (
+          <FavoriteList
+            notes={notes}
+            selectedId={selectedNoteId}
+            onOpen={handleOpenNote}
+            loading={notesQuery.isFetching}
+            platform={favoritePlatform}
+            onPlatformChange={setFavoritePlatform}
+            onCreateFavorite={handleCreateFavorite}
+            onAskAi={() => setFolderAiOpen(true)}
+          />
         ) : (
           <NoteList
             notes={notes}
@@ -783,6 +890,7 @@ function Workspace() {
             inTrash={inTrash}
             loading={notesQuery.isFetching}
             onCreateNote={() => void handleCreateNote()}
+            onAskAi={selection.folderId ? () => setFolderAiOpen(true) : undefined}
             onTogglePin={(note) => void updateNote.mutateAsync({ id: note.id, patch: { pinned: !note.pinned } })}
             onDelete={handleDeleteNote}
             onRestore={handleRestoreNote}
@@ -807,6 +915,9 @@ function Workspace() {
                 onDelete={() => handleDeleteNote(selectedNoteId)}
                 onRestore={() => handleRestoreNote(selectedNoteId)}
               />
+              {selectedNote?.source ? (
+                <FavoriteNoteBar note={selectedNote} tree={treeQuery.data} />
+              ) : null}
               <MarkdownEditor
                 noteId={selectedNoteId}
                 doc={doc}
@@ -878,6 +989,36 @@ function Workspace() {
           initialTab={settingsInitialTab}
         />
       )}
+
+      <FavoriteCaptureDialog
+        open={favoriteDialogOpen}
+        initial={sharedCapture}
+        onClose={() => {
+          setFavoriteDialogOpen(false);
+          setSharedCapture(null);
+        }}
+        onSaved={(noteId) => {
+          setFavoriteDialogOpen(false);
+          setSharedCapture(null);
+          setSelection({
+            ...EMPTY_SELECTION,
+            folderId: settings.favoritesInboxFolderId,
+            favorites: true,
+            recursive: true,
+          });
+          setSelectedNoteId(noteId);
+          flash('已保存收藏，AI 将自动分类');
+        }}
+      />
+
+      <FolderAiPanel
+        open={folderAiOpen}
+        folderId={selection.folderId ?? null}
+        folderName={folderName}
+        onClose={() => setFolderAiOpen(false)}
+        onOpenNote={handleOpenNote}
+        onSaveNote={handleSaveAiNote}
+      />
 
       {appleNotes.preview && (
         <AppleNotesPreviewDialog

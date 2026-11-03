@@ -23,6 +23,8 @@ export interface PersistedState {
   hotkey: string;
   /** Accelerator currently registered for bringing the main window forward. */
   mainWindowHotkey: string;
+  /** Accelerator for the global quick-favourite action. */
+  favoriteHotkey: string;
   inboxNoteId: string | null;
   stampFormat: string;
   launchAtLogin: boolean;
@@ -48,6 +50,7 @@ const DEFAULTS: PersistedState = {
   hotkey: process.platform === 'darwin' ? 'Alt+Space' : 'Ctrl+Alt+Space',
   // Keep defaults local: the packaged main process must not require the workspace package at runtime.
   mainWindowHotkey: 'CommandOrControl+Shift+M',
+  favoriteHotkey: 'CommandOrControl+Shift+F',
   inboxNoteId: null,
   stampFormat: 'heading',
   launchAtLogin: false,
@@ -133,6 +136,7 @@ export function loadState(): PersistedState {
       refreshToken: decrypt(str('refreshToken', '')) ?? null,
       hotkey: str('hotkey', DEFAULTS.hotkey),
       mainWindowHotkey: str('mainWindowHotkey', DEFAULTS.mainWindowHotkey),
+      favoriteHotkey: str('favoriteHotkey', DEFAULTS.favoriteHotkey),
       inboxNoteId: strOrNull('inboxNoteId'),
       stampFormat: str('stampFormat', DEFAULTS.stampFormat),
       launchAtLogin: bool('launchAtLogin', DEFAULTS.launchAtLogin),
@@ -161,6 +165,7 @@ export function saveState(patch: Partial<PersistedState>): PersistedState {
     refreshToken: next.refreshToken ? encrypt(next.refreshToken) : '',
     hotkey: next.hotkey,
     mainWindowHotkey: next.mainWindowHotkey,
+    favoriteHotkey: next.favoriteHotkey,
     inboxNoteId: next.inboxNoteId,
     stampFormat: next.stampFormat,
     launchAtLogin: next.launchAtLogin,

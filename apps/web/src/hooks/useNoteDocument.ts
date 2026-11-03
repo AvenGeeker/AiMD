@@ -240,6 +240,16 @@ export function useNoteAi(doc: Y.Doc | null): {
         error: str('error', null),
         autoAttemptedAt: str('autoAttemptedAt', null),
         lastAttemptAt: str('lastAttemptAt', null),
+        categoryFolderId: str('categoryFolderId', null),
+        categoryName: str('categoryName', null),
+        categoryStatus: (['idle', 'queued', 'running', 'done', 'suggested', 'error'] as const).includes(
+          (str('categoryStatus', 'idle') ?? 'idle') as 'idle',
+        )
+          ? ((str('categoryStatus', 'idle') ?? 'idle') as import('@aimarkdown/shared').FavoriteCategoryStatus)
+          : 'idle',
+        categorySuggestion: str('categorySuggestion', null),
+        categoryAt: str('categoryAt', null),
+        categoryError: str('categoryError', null),
       },
       todos,
     };

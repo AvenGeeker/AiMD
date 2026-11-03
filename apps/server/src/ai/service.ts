@@ -3,6 +3,7 @@ import type { Sql } from 'postgres';
 import * as Y from 'yjs';
 import {
   AI_AUTO_MIN_CHARS,
+  FAVORITE_CATEGORY_PRESETS,
   ApiError,
   ERROR_CODES,
   noteDocName,
@@ -30,10 +31,11 @@ import {
   readTagIds,
   writeAiState,
   writeAiTodos,
+  writeNoteMeta,
   setTagIds,
 } from '../collab/docFactory.js';
-import { upsertTag, type WorkspaceDeps } from '../services/workspace.js';
-import { createOpenAiCompatibleClient, type AiClient, type AiProviderConfig } from './client.js';
+import { createFolder, upsertTag, type WorkspaceDeps } from '../services/workspace.js';
+import { createOpenAiCompatibleClient, type AiClient, type AiProviderConfig, type FolderAnswerInput, type FolderAnswerOutput, type FolderCatalogNote } from './client.js';
 import { decryptSecret, encryptSecret, maskApiKey } from './crypto.js';
 import type { AiAnalysis } from './parse.js';
 import { mergeTodoEntries } from './todos.js';
@@ -59,6 +61,16 @@ export interface AiService {
   deleteConfig(ownerId: string): Promise<void>;
   testConfig(ownerId: string, input: AiConfigTestInput): Promise<AiConfigTestResultDto>;
   enqueueNote(ownerId: string, noteId: string, options?: { auto?: boolean }): Promise<AiJobDto>;
+  enqueueFavorite(ownerId: string, noteId: string): Promise<AiJobDto>;
+  ocrImage(ownerId: string, base64: string, mime: string, signal?: AbortSignal): Promise<string>;
+  pickRelevantNotes(
+    ownerId: string,
+    question: string,
+    catalog: FolderCatalogNote[],
+    signal?: AbortSignal,
+  ): Promise<string[]>;
+  answerFolder(ownerId: string, input: Omit<FolderAnswerInput, 'config'>, signal?: AbortSignal): Promise<FolderAnswerOutput>;
+  transcribeAudio(ownerId: string, data: Uint8Array, filename: string, mime: string, signal?: AbortSignal): Promise<string>;
   startBackfill(ownerId: string): Promise<AiJobDto>;
   cancelJob(ownerId: string, jobId: string): Promise<AiJobDto>;
 }
@@ -71,7 +83,7 @@ interface StoredConfig extends AiProviderConfig {
 interface ClaimedItem {
   jobId: string;
   ownerId: string;
-  kind: 'note' | 'backfill';
+  kind: 'note' | 'backfill' | 'favorite';
   noteId: string;
   mode: 'full' | 'tags_only';
   auto: boolean;
@@ -147,8 +159,8 @@ export function createAiService(deps: AiServiceDeps): AiService {
 
   async function readStoredConfig(ownerId: string): Promise<StoredConfig | null> {
     const rows = await sql`
-      select user_id, enabled, preset, base_url, model, api_key_enc, api_key_hint,
-             last_test_at, last_test_ok, last_test_error
+      select user_id, enabled, preset, base_url, model, vision_model, transcription_model,
+             web_search_mode, api_key_enc, api_key_hint, last_test_at, last_test_ok, last_test_error
       from ai_provider_configs where user_id = ${ownerId}
     `;
     const row = rows[0];
@@ -164,6 +176,11 @@ export function createAiService(deps: AiServiceDeps): AiService {
       preset: String(row.preset),
       baseUrl: String(row.base_url),
       model: String(row.model),
+      visionModel: typeof row.vision_model === 'string' ? row.vision_model : null,
+      transcriptionModel: typeof row.transcription_model === 'string' ? row.transcription_model : null,
+      webSearchMode: (row.web_search_mode === 'dashscope' || row.web_search_mode === 'openai_chat')
+        ? row.web_search_mode
+        : 'none',
       apiKey,
       hint: String(row.api_key_hint ?? ''),
       lastTest: row.last_test_at
@@ -190,6 +207,9 @@ export function createAiService(deps: AiServiceDeps): AiService {
       preset: stored.preset as AiConfigDto['preset'],
       baseUrl: stored.baseUrl,
       model: stored.model,
+      visionModel: stored.visionModel ?? null,
+      transcriptionModel: stored.transcriptionModel ?? null,
+      webSearchMode: stored.webSearchMode ?? 'none',
       apiKeyConfigured: stored.apiKey.length > 0,
       apiKeyHint: stored.hint,
       lastTest: stored.lastTest,
@@ -309,6 +329,33 @@ export function createAiService(deps: AiServiceDeps): AiService {
     return [...new Set(out)];
   }
 
+  async function favoriteCategories(ownerId: string): Promise<{
+    rootId: string | null;
+    inboxId: string | null;
+    names: string[];
+  }> {
+    const rows = await sql`select settings from user_settings where user_id = ${ownerId}`;
+    const settings = (rows[0]?.settings ?? {}) as Record<string, unknown>;
+    const rootId = typeof settings.favoritesFolderId === 'string' ? settings.favoritesFolderId : null;
+    const inboxId = typeof settings.favoritesInboxFolderId === 'string' ? settings.favoritesInboxFolderId : null;
+    if (!rootId) return { rootId, inboxId, names: [] };
+    const folderRows = await sql`
+      select name from folders where owner_id = ${ownerId} and parent_id = ${rootId} order by name
+    `;
+    return { rootId, inboxId, names: folderRows.map((row) => String(row.name)) };
+  }
+
+  async function ensureFavoriteFolder(ownerId: string, rootId: string, name: string): Promise<string> {
+    const existing = await sql`
+      select id from folders
+      where owner_id = ${ownerId} and parent_id = ${rootId} and lower(name) = lower(${name})
+      limit 1
+    `;
+    if (existing[0]) return String(existing[0].id);
+    const created = await createFolder(workspaceDeps, ownerId, { name, parentId: rootId });
+    return created.id;
+  }
+
   async function claimNextItem(): Promise<ClaimedItem | null> {
     return sql.begin(async (tx) => {
       const rows = await tx`
@@ -413,6 +460,7 @@ export function createAiService(deps: AiServiceDeps): AiService {
 
       const doc = await readLiveDoc(item.noteId);
       const projection = projectNote(doc);
+      const isFavorite = item.kind === 'favorite' || projection.source != null;
       const body = projection.bodyText;
       if (!body.trim()) {
         result = { status: 'skipped' };
@@ -431,12 +479,16 @@ export function createAiService(deps: AiServiceDeps): AiService {
       const existingTags = await sql`
         select name from tags where owner_id = ${item.ownerId} order by name asc
       `;
+      const categories = isFavorite ? await favoriteCategories(item.ownerId) : null;
       const output = await client.analyze({
         config: provider,
         note: {
           title: projection.title,
           body,
           existingTags: existingTags.map((row) => String(row.name)),
+          classify: isFavorite,
+          existingCategories: categories?.names ?? [],
+          presetCategories: [...FAVORITE_CATEGORY_PRESETS],
         },
         signal: controller.signal,
       });
@@ -454,6 +506,34 @@ export function createAiService(deps: AiServiceDeps): AiService {
       const mergedTodos: AiTodoEntry[] = mergeTodoEntries(currentTodos, analysis.todos, now);
       const sourceHash = sha256Hex(body);
 
+      let categoryFolderId: string | null = existingAi.categoryFolderId;
+      let categoryName: string | null = existingAi.categoryName;
+      let categoryStatus: NoteAiState['categoryStatus'] = existingAi.categoryStatus;
+      let categorySuggestion: string | null = existingAi.categorySuggestion;
+      const categoryError: string | null = null;
+      if (isFavorite && categories?.rootId) {
+        const known = categories.names.some((name) => name.toLowerCase() === (analysis.category ?? '').toLowerCase());
+        const preset = (FAVORITE_CATEGORY_PRESETS as readonly string[]).some(
+          (name) => name.toLowerCase() === (analysis.category ?? '').toLowerCase(),
+        );
+        if (analysis.category && analysis.categoryConfidence >= 0.65 && (known || preset)) {
+          categoryFolderId = await ensureFavoriteFolder(item.ownerId, categories.rootId, analysis.category);
+          categoryName = analysis.category;
+          categoryStatus = 'done';
+          categorySuggestion = null;
+        } else if (analysis.suggestedCategory) {
+          categoryFolderId = categories.inboxId;
+          categoryName = null;
+          categoryStatus = 'suggested';
+          categorySuggestion = analysis.suggestedCategory;
+        } else {
+          categoryFolderId = categories.inboxId;
+          categoryName = null;
+          categoryStatus = 'done';
+          categorySuggestion = null;
+        }
+      }
+
       await applyNoteMutation(item.noteId, item.ownerId, (target) => {
         if (item.mode === 'full') {
           writeAiState(target, {
@@ -466,6 +546,16 @@ export function createAiService(deps: AiServiceDeps): AiService {
             error: null,
             lastAttemptAt: now,
             ...(!existingAi.autoAttemptedAt ? { autoAttemptedAt: now } : {}),
+            ...(isFavorite
+              ? {
+                  categoryFolderId,
+                  categoryName,
+                  categoryStatus,
+                  categorySuggestion,
+                  categoryAt: now,
+                  categoryError,
+                }
+              : {}),
           });
           writeAiTodos(target, mergedTodos);
         } else {
@@ -478,6 +568,9 @@ export function createAiService(deps: AiServiceDeps): AiService {
         }
         if (aiTagIds.length > 0 && readTagIds(target).length === 0) {
           setTagIds(target, aiTagIds);
+        }
+        if (isFavorite && categoryFolderId) {
+          writeNoteMeta(target, { folderId: categoryFolderId });
         }
       });
 
@@ -500,6 +593,9 @@ export function createAiService(deps: AiServiceDeps): AiService {
             error: message,
             lastAttemptAt: now,
             autoAttemptedAt: now,
+            ...(item.kind === 'favorite'
+              ? { categoryStatus: 'error' as const, categoryError: message, categoryAt: now }
+              : {}),
           });
         } catch (stateError) {
           log.error({ err: stateError, noteId: item.noteId }, 'failed to persist AI error state');
@@ -532,7 +628,7 @@ export function createAiService(deps: AiServiceDeps): AiService {
   async function enqueueNoteJob(
     ownerId: string,
     noteId: string,
-    options: { auto?: boolean; mode?: 'full' | 'tags_only' } = {},
+    options: { auto?: boolean; mode?: 'full' | 'tags_only'; kind?: 'note' | 'favorite' } = {},
   ): Promise<AiJobDto> {
     await requireConfig(ownerId);
     const noteRows = await sql`
@@ -545,7 +641,7 @@ export function createAiService(deps: AiServiceDeps): AiService {
     const createdId = await sql.begin(async (tx) => {
       const inserted = await tx`
         insert into ai_jobs (id, owner_id, kind, status, note_id, total)
-        values (${jobId}, ${ownerId}, 'note', 'queued', ${noteId}, 1)
+        values (${jobId}, ${ownerId}, ${options.kind ?? 'note'}, 'queued', ${noteId}, 1)
         on conflict do nothing
         returning id
       `;
@@ -591,6 +687,11 @@ export function createAiService(deps: AiServiceDeps): AiService {
 
     async noteCreated(input) {
       if (input.body.trim().length < AI_AUTO_MIN_CHARS) return;
+      const favoriteRows = await sql`
+        select 1 from notes where id = ${input.noteId} and owner_id = ${input.ownerId}
+          and source_platform is not null limit 1
+      `;
+      if (favoriteRows.length > 0) return;
       try {
         await enqueueNoteJob(input.ownerId, input.noteId, { auto: true });
       } catch (error) {
@@ -604,6 +705,7 @@ export function createAiService(deps: AiServiceDeps): AiService {
 
     async noteStored(event) {
       if (event.projection.bodyText.trim().length < AI_AUTO_MIN_CHARS) return;
+      if (event.projection.source) return;
       if (event.projection.aiGeneratedAt || event.projection.aiAutoAttemptedAt) return;
       if (event.projection.aiStatus !== 'idle') return;
       try {
@@ -644,43 +746,33 @@ export function createAiService(deps: AiServiceDeps): AiService {
       const existing = await readStoredConfig(ownerId).catch(() => null);
       const apiKey = input.apiKey ?? existing?.apiKey;
       if (!apiKey) throw new ApiError(ERROR_CODES.AI_NOT_CONFIGURED, '请填写 API Key');
+      const hint = maskApiKey(apiKey);
       const encrypted = input.apiKey
         ? encryptSecret(input.apiKey, credentialSecret(), ownerId)
         : null;
-      const hint = maskApiKey(apiKey);
-      if (encrypted) {
-        await sql`
-          insert into ai_provider_configs (
-            user_id, enabled, preset, base_url, model, api_key_enc, api_key_hint, updated_at
-          ) values (
-            ${ownerId}, ${input.enabled}, ${input.preset}, ${input.baseUrl}, ${input.model},
-            ${encrypted}, ${hint}, now()
-          )
-          on conflict (user_id) do update set
-            enabled = excluded.enabled,
-            preset = excluded.preset,
-            base_url = excluded.base_url,
-            model = excluded.model,
-            api_key_enc = excluded.api_key_enc,
-            api_key_hint = excluded.api_key_hint,
-            updated_at = now()
-        `;
-      } else {
-        await sql`
-          insert into ai_provider_configs (
-            user_id, enabled, preset, base_url, model, api_key_enc, api_key_hint, updated_at
-          ) values (
-            ${ownerId}, ${input.enabled}, ${input.preset}, ${input.baseUrl}, ${input.model},
-            ${encryptSecret(apiKey, credentialSecret(), ownerId)}, ${hint}, now()
-          )
-          on conflict (user_id) do update set
-            enabled = excluded.enabled,
-            preset = excluded.preset,
-            base_url = excluded.base_url,
-            model = excluded.model,
-            updated_at = now()
-        `;
-      }
+      const visionModel = input.visionModel?.trim() || null;
+      const transcriptionModel = input.transcriptionModel?.trim() || null;
+      await sql`
+        insert into ai_provider_configs (
+          user_id, enabled, preset, base_url, model, vision_model, transcription_model,
+          web_search_mode, api_key_enc, api_key_hint, updated_at
+        ) values (
+          ${ownerId}, ${input.enabled}, ${input.preset}, ${input.baseUrl}, ${input.model},
+          ${visionModel}, ${transcriptionModel}, ${input.webSearchMode},
+          ${encrypted ?? encryptSecret(apiKey, credentialSecret(), ownerId)}, ${hint}, now()
+        )
+        on conflict (user_id) do update set
+          enabled = excluded.enabled,
+          preset = excluded.preset,
+          base_url = excluded.base_url,
+          model = excluded.model,
+          vision_model = excluded.vision_model,
+          transcription_model = excluded.transcription_model,
+          web_search_mode = excluded.web_search_mode,
+          api_key_enc = case when ${encrypted === null} then ai_provider_configs.api_key_enc else excluded.api_key_enc end,
+          api_key_hint = case when ${encrypted === null} then ai_provider_configs.api_key_hint else excluded.api_key_hint end,
+          updated_at = now()
+      `;
       const saved = await readStoredConfig(ownerId);
       return maskedConfig(saved)!;
     },
@@ -727,6 +819,33 @@ export function createAiService(deps: AiServiceDeps): AiService {
 
     async enqueueNote(ownerId, noteId, options) {
       return enqueueNoteJob(ownerId, noteId, { ...options, mode: 'full' });
+    },
+
+    async enqueueFavorite(ownerId, noteId) {
+      return enqueueNoteJob(ownerId, noteId, { kind: 'favorite', mode: 'full' });
+    },
+
+    async ocrImage(ownerId, base64, mime, signal) {
+      const provider = await requireConfig(ownerId);
+      return client.ocrImage({ config: provider, base64, mime, signal });
+    },
+
+    async pickRelevantNotes(ownerId, question, catalog, signal) {
+      const provider = await requireConfig(ownerId);
+      return client.pickRelevantNotes({ config: provider, question, catalog, signal });
+    },
+
+    async answerFolder(ownerId, input, signal) {
+      const provider = await requireConfig(ownerId);
+      if (input.allowWebSearch && (!provider.webSearchMode || provider.webSearchMode === 'none')) {
+        throw new ApiError(ERROR_CODES.AI_WEB_SEARCH_NOT_CONFIGURED, '当前 AI 服务未配置联网搜索');
+      }
+      return client.answerFolder({ config: provider, ...input, signal });
+    },
+
+    async transcribeAudio(ownerId, data, filename, mime, signal) {
+      const provider = await requireConfig(ownerId);
+      return client.transcribeAudio({ config: provider, data, filename, mime, signal });
     },
 
     async startBackfill(ownerId) {

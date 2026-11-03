@@ -18,6 +18,7 @@ import { registerAttachmentRoutes } from './routes/attachments.js';
 import { registerVaultRoutes } from './routes/vault.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerAiRoutes } from './routes/ai.js';
+import { registerFavoriteRoutes } from './routes/favorites.js';
 import { ensureBootstrapAdmin, type UsersDeps } from './services/users.js';
 import { DEFAULT_TTLS } from './auth/tokens.js';
 import type { NotesDeps } from './services/notes.js';
@@ -119,7 +120,18 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   registerHealthRoutes(app, collab);
   registerAuthRoutes(app, usersDeps);
-  if (ctx.ai) registerAiRoutes(app, ctx.ai);
+  if (ctx.ai) registerAiRoutes(app, ctx.ai, ctx.folderQueries);
+  if (ctx.ai) {
+    registerFavoriteRoutes(app, {
+      sql: ctx.dbHandle.sql,
+      config,
+      log,
+      storage: ctx.storage,
+      notes: notesDeps,
+      workspace: workspaceDeps,
+      ai: ctx.ai,
+    });
+  }
   registerNoteRoutes(app, notesDeps, workspaceDeps);
   registerTreeRoutes(app, workspaceDeps);
   registerAttachmentRoutes(app, {

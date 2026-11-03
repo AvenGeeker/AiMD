@@ -11,7 +11,12 @@ import type {
   AiConfigTestResultDto,
   AiJobDto,
   AiOverviewDto,
+  FavoritePreviewDto,
+  FavoriteSaveInput,
+  FavoriteSaveResultDto,
   FolderDto,
+  FolderQueryDto,
+  FolderQueryInput,
   ImportResultDto,
   NoteDto,
   NoteListDto,
@@ -29,6 +34,8 @@ export interface NoteFilter {
   folderId?: string | null;
   rootOnly?: boolean;
   tagIds?: string[];
+  recursive?: boolean;
+  sourcePlatform?: string;
   q?: string;
   archived?: 'true' | 'false' | 'only' | 'all';
   sort?: NoteSort;
@@ -43,6 +50,7 @@ export const keys = {
   settings: () => ['settings'] as const,
   aiOverview: () => ['ai', 'overview'] as const,
   aiJob: (id: string) => ['ai', 'job', id] as const,
+  folderQuery: (id: string) => ['ai', 'folder-query', id] as const,
 };
 
 function toQuery(filter: NoteFilter): Record<string, string | number | boolean | undefined> {
@@ -50,6 +58,8 @@ function toQuery(filter: NoteFilter): Record<string, string | number | boolean |
     folderId: filter.folderId === undefined ? undefined : (filter.folderId ?? ''),
     rootOnly: filter.rootOnly ? 'true' : undefined,
     tagIds: filter.tagIds && filter.tagIds.length > 0 ? filter.tagIds.join(',') : undefined,
+    recursive: filter.recursive ? 'true' : undefined,
+    sourcePlatform: filter.sourcePlatform || undefined,
     q: filter.q || undefined,
     archived: filter.archived ?? 'false',
     sort: filter.sort ?? 'updated',
@@ -323,5 +333,100 @@ export async function uploadAttachment(file: File, noteId?: string): Promise<Upl
   return request<UploadResult>(`/attachments${noteId ? `?noteId=${encodeURIComponent(noteId)}` : ''}`, {
     method: 'POST',
     body: form,
+  });
+}
+
+
+/* ------------------------------- favourites ------------------------------- */
+
+export function useFavoritePreview() {
+  return useMutation({
+    mutationFn: (url: string) =>
+      request<FavoritePreviewDto>('/favorites/preview', { method: 'POST', body: { url } }),
+  });
+}
+
+export function useSaveFavorite() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: FavoriteSaveInput) =>
+      request<FavoriteSaveResultDto>('/favorites', { method: 'POST', body: input }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['notes'] });
+      void client.invalidateQueries({ queryKey: keys.tree() });
+    },
+  });
+}
+
+export async function importFavoriteMedia(input: {
+  files: File[];
+  title: string;
+  body: string;
+  url?: string | null;
+  platform?: string;
+  folderId?: string | null;
+}): Promise<FavoriteSaveResultDto> {
+  const form = new FormData();
+  form.append('title', input.title);
+  form.append('body', input.body);
+  if (input.url) form.append('url', input.url);
+  if (input.platform) form.append('platform', input.platform);
+  if (input.folderId) form.append('folderId', input.folderId);
+  for (const file of input.files) form.append('files', file, file.name);
+  return request<FavoriteSaveResultDto>('/favorites/import-media', { method: 'POST', body: form });
+}
+
+export function useClassifyFavorite() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (noteId: string) =>
+      request<{ job: AiJobDto }>(`/favorites/${noteId}/classify`, { method: 'POST' }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['notes'] });
+      void client.invalidateQueries({ queryKey: keys.tree() });
+    },
+  });
+}
+
+export function useSetFavoriteCategory() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { noteId: string; action: 'set'; folderId: string; name: string } | { noteId: string; action: 'dismiss' }) =>
+      request<{ ok: boolean }>(`/favorites/${input.noteId}/category`, { method: 'POST', body: input }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['notes'] });
+      void client.invalidateQueries({ queryKey: keys.tree() });
+    },
+  });
+}
+
+export function useRetryFavoriteMedia() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (noteId: string) =>
+      request<{ ok: boolean }>(`/favorites/${noteId}/media/retry`, { method: 'POST' }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['notes'] }),
+  });
+}
+
+export function useCreateFolderQuery() {
+  return useMutation({
+    mutationFn: ({ folderId, input }: { folderId: string; input: FolderQueryInput }) =>
+      request<{ query: FolderQueryDto }>(`/ai/folders/${folderId}/query`, {
+        method: 'POST',
+        body: input,
+      }),
+  });
+}
+
+export function useFolderQuery(id: string | null) {
+  return useQuery({
+    queryKey: keys.folderQuery(id ?? 'none'),
+    queryFn: () => request<{ query: FolderQueryDto }>(`/ai/queries/${id}`),
+    enabled: Boolean(id),
+    refetchInterval: (query) => {
+      const status = query.state.data?.query.status;
+      return status === 'queued' || status === 'running' ? 1_200 : false;
+    },
   });
 }

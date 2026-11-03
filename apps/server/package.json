@@ -25,22 +25,29 @@
     "@fastify/static": "^10.1.8",
     "@hocuspocus/extension-database": "^4.8.0",
     "@hocuspocus/server": "^4.8.0",
+    "@mozilla/readability": "^0.6.0",
     "@node-rs/argon2": "^2.2.2",
     "fastify": "^5.12.7",
+    "fflate": "^0.8.3",
     "jose": "^6.2.14",
+    "linkedom": "^0.18.15",
     "nanoid": "^6.0.2",
     "postgres": "^4.0.0",
+    "sanitize-html": "^2.18.1",
+    "turndown": "^7.2.0",
+    "turndown-plugin-gfm": "^1.0.2",
     "y-protocols": "^1.0.6",
     "yjs": "^13.6.33",
-    "zod": "^4.6.7",
-    "fflate": "^0.8.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@hocuspocus/provider": "^4.8.0",
     "@types/node": "^24.0.0",
+    "@types/sanitize-html": "^2.16.2",
+    "@types/turndown": "^5.0.6",
     "tsx": "^4.19.0",
     "typescript": "~5.9.3",
     "vitest": "^5.0.5",
-    "@hocuspocus/provider": "^4.8.0",
     "y-indexeddb": "^9.0.12"
   }
 }

@@ -11,12 +11,17 @@ import {
   noteDocName,
   type NoteSort,
   type StampFormat,
+  type NoteSourceState,
+  type MediaStatus,
+  type FavoriteCategoryStatus,
+  type SourcePlatform,
+  type CaptureStatus,
 } from '@aimarkdown/shared';
 import { NOTE_KEYS, type NoteBodyDto, type NoteSummaryDto } from '@aimarkdown/shared';
 import type { Logger } from '../utils/logger.js';
 import { newId } from '../utils/ids.js';
 import { decodeBytea, encodeBytea } from '../db/bytea.js';
-import { createNoteDoc, appendToBody, readBody, replaceBody, writeNoteMeta, setTagIds } from '../collab/docFactory.js';
+import { createNoteDoc, appendToBody, readBody, replaceBody, writeNoteMeta, writeSource, setTagIds } from '../collab/docFactory.js';
 import { mirrorNote } from '../collab/persistence.js';
 import { projectNote } from '../collab/projection.js';
 import { noteStateHash } from '../utils/hash.js';
@@ -57,6 +62,16 @@ export interface NoteRecord {
   contentUpdatedAt: Date;
   updatedAt: Date;
   tagIds: string[];
+  source: NoteSourceState | null;
+  mediaStatus: MediaStatus;
+  category: {
+    folderId: string | null;
+    name: string | null;
+    status: FavoriteCategoryStatus;
+    suggestion: string | null;
+    updatedAt: Date | null;
+    error: string | null;
+  } | null;
 }
 
 export interface CreateNoteInput {
@@ -69,6 +84,8 @@ export interface CreateNoteInput {
   tagIds?: string[];
   body?: string;
   position?: string;
+  source?: Partial<NoteSourceState>;
+  media?: { status?: MediaStatus };
 }
 
 /** Build the initial document + row for a note and insert both atomically. */
@@ -111,6 +128,8 @@ export async function createNote(
     },
     tagIds: input.tagIds ?? [],
     body,
+    source: input.source,
+    media: input.media,
   });
 
   await sql.begin(async (tx) => {
@@ -184,6 +203,9 @@ export async function getNote(
     select
       n.id, n.owner_id, n.folder_id, n.title, n.body_text, n.is_pinned, n.is_archived,
       n.deleted_at, n.position, n.word_count, n.created_at, n.content_updated_at, n.updated_at,
+      n.source_url, n.source_platform, n.source_author, n.source_cover_id, n.source_original_title,
+      n.collected_at, n.capture_status, n.media_status, n.ai_category_folder_id, n.ai_category_name,
+      n.ai_category_status, n.ai_category_suggestion, n.ai_category_at, n.ai_category_error,
       coalesce(
         array_agg(nt.tag_id) filter (where nt.tag_id is not null),
         '{}'
@@ -217,6 +239,42 @@ function mapRow(row: Record<string, unknown>): NoteRecord {
     contentUpdatedAt: toDateOr(row.content_updated_at, new Date(0)),
     updatedAt: toDateOr(row.updated_at, new Date(0)),
     tagIds: Array.isArray(row.tag_ids) ? (row.tag_ids as string[]).map(String) : [],
+    source: mapSource(row),
+    mediaStatus: (row.media_status == null ? 'idle' : String(row.media_status)) as MediaStatus,
+    category: mapCategory(row),
+  };
+}
+
+function mapSource(row: Record<string, unknown>): NoteSourceState | null {
+  const url = row.source_url == null ? null : String(row.source_url);
+  const platform = row.source_platform == null ? null : String(row.source_platform);
+  const author = row.source_author == null ? null : String(row.source_author);
+  const coverAttachmentId = row.source_cover_id == null ? null : String(row.source_cover_id);
+  const originalTitle = row.source_original_title == null ? null : String(row.source_original_title);
+  const collectedAt = row.collected_at == null ? null : toDateOr(row.collected_at, new Date(0)).toISOString();
+  const captureStatus = row.capture_status == null ? null : String(row.capture_status);
+  if (!url && !platform && !author && !collectedAt) return null;
+  return {
+    url,
+    platform: platform as SourcePlatform | null,
+    author,
+    coverAttachmentId,
+    originalTitle,
+    collectedAt,
+    captureStatus: captureStatus as CaptureStatus | null,
+  };
+}
+
+function mapCategory(row: Record<string, unknown>) {
+  const status = row.ai_category_status == null ? 'idle' : String(row.ai_category_status);
+  if (status === 'idle' && row.ai_category_folder_id == null && row.ai_category_name == null) return null;
+  return {
+    folderId: row.ai_category_folder_id == null ? null : String(row.ai_category_folder_id),
+    name: row.ai_category_name == null ? null : String(row.ai_category_name),
+    status: status as FavoriteCategoryStatus,
+    suggestion: row.ai_category_suggestion == null ? null : String(row.ai_category_suggestion),
+    updatedAt: row.ai_category_at == null ? null : toDateOr(row.ai_category_at, new Date(0)),
+    error: row.ai_category_error == null ? null : String(row.ai_category_error),
   };
 }
 
@@ -228,6 +286,8 @@ export interface ListNotesInput {
   rootOnly?: boolean;
   /** When provided, restrict to notes carrying *all* of these tags. */
   tagIds?: string[];
+  recursive?: boolean;
+  sourcePlatform?: string | null;
   q?: string | null;
   archived?: 'true' | 'false' | 'only' | 'all';
   sort?: NoteSort;
@@ -246,6 +306,7 @@ const ORDER_BY: Record<NoteSort, string> = {
   created: 'n.is_pinned desc, n.created_at desc',
   title: 'n.is_pinned desc, n.title asc',
   position: 'n.is_pinned desc, n.position asc',
+  collected: 'n.is_pinned desc, coalesce(n.collected_at, n.created_at) desc',
 };
 
 /** Decode an opaque list cursor into an offset. */
@@ -291,12 +352,16 @@ export async function listNotes(
     select
       n.id, n.folder_id, n.title, n.body_text, n.is_pinned, n.is_archived, n.deleted_at,
       n.position, n.word_count, n.created_at, n.content_updated_at, n.updated_at,
+      n.source_url, n.source_platform, n.source_author, n.source_cover_id, n.source_original_title,
+      n.collected_at, n.capture_status, n.media_status, n.ai_category_folder_id, n.ai_category_name,
+      n.ai_category_status, n.ai_category_suggestion, n.ai_category_at, n.ai_category_error,
       coalesce(array_agg(nt.tag_id) filter (where nt.tag_id is not null), '{}') as tag_ids
     from notes n
     left join note_tags nt on nt.note_id = n.id
     where n.owner_id = ${ownerId}
       and ${visibilityClause(sql, archivedMode)}
-      and ${folderClause(sql, folderFilter)}
+      and ${folderClause(sql, ownerId, folderFilter, input.recursive === true)}
+      and ${sourcePlatformClause(sql, input.sourcePlatform ?? null)}
       and ${searchClause(sql, q)}
       and ${tagClause(sql, tagIds)}
     group by n.id
@@ -309,7 +374,8 @@ export async function listNotes(
     from notes n
     where n.owner_id = ${ownerId}
       and ${visibilityClause(sql, archivedMode)}
-      and ${folderClause(sql, folderFilter)}
+      and ${folderClause(sql, ownerId, folderFilter, input.recursive === true)}
+      and ${sourcePlatformClause(sql, input.sourcePlatform ?? null)}
       and ${searchClause(sql, q)}
       and ${tagClause(sql, tagIds)}
   `;
@@ -339,10 +405,29 @@ function visibilityClause(sql: Sql, mode: 'true' | 'false' | 'only' | 'all') {
   return sql`n.deleted_at is null and n.is_archived = false`;
 }
 
-function folderClause(sql: Sql, folderId: string | null | undefined) {
+function folderClause(
+  sql: Sql,
+  ownerId: string,
+  folderId: string | null | undefined,
+  recursive: boolean,
+) {
   if (folderId === undefined) return sql`true`;
   if (folderId === null) return sql`n.folder_id is null`;
-  return sql`n.folder_id = ${folderId}`;
+  if (!recursive) return sql`n.folder_id = ${folderId}`;
+  return sql`n.folder_id in (
+    with recursive subtree as (
+      select id from folders where owner_id = ${ownerId} and id = ${folderId}
+      union
+      select f.id from folders f join subtree s on f.parent_id = s.id
+      where f.owner_id = ${ownerId}
+    )
+    select id from subtree
+  )`;
+}
+
+function sourcePlatformClause(sql: Sql, platform: string | null) {
+  if (!platform) return sql`true`;
+  return sql`n.source_platform = ${platform}`;
 }
 
 function searchClause(sql: Sql, q: string) {
@@ -379,6 +464,28 @@ export function toSummary(record: NoteRecord, query = ''): NoteSummaryDto {
     createdAt: record.createdAt.toISOString(),
     contentUpdatedAt: record.contentUpdatedAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
+    source: record.source
+      ? {
+          url: record.source.url,
+          platform: record.source.platform,
+          author: record.source.author,
+          coverAttachmentId: record.source.coverAttachmentId,
+          originalTitle: record.source.originalTitle,
+          collectedAt: record.source.collectedAt,
+          captureStatus: record.source.captureStatus,
+        }
+      : null,
+    mediaStatus: record.mediaStatus,
+    aiCategory: record.category
+      ? {
+          folderId: record.category.folderId,
+          name: record.category.name,
+          status: record.category.status,
+          suggestion: record.category.suggestion,
+          updatedAt: record.category.updatedAt?.toISOString() ?? null,
+          error: record.category.error,
+        }
+      : null,
   };
   if (query) {
     const matches = findMatches(record.bodyText, query, 3);
@@ -425,6 +532,7 @@ export interface NoteMetaPatch {
   /** Atomic optimistic-concurrency guard for external sync writes. */
   expectedStateHash?: string;
   tagIds?: string[];
+  source?: Partial<NoteSourceState>;
 }
 
 /**
@@ -475,6 +583,7 @@ export async function patchNoteMeta(
       writeNoteMeta(doc, metaPatch);
       if (patch.body !== undefined) replaceBody(doc, patch.body);
       if (patch.tagIds) setTagIds(doc, patch.tagIds);
+      if (patch.source) writeSource(doc, patch.source);
     });
     const projected = docFromSnapshot(snapshot);
     await deps.sql.begin((tx) => mirrorNote(tx, noteId, ownerId, projected));
@@ -493,6 +602,7 @@ export async function patchNoteMeta(
     writeNoteMeta(doc, metaPatch);
     if (patch.body !== undefined) replaceBody(doc, patch.body);
     if (patch.tagIds) setTagIds(doc, patch.tagIds);
+    if (patch.source) writeSource(doc, patch.source);
     await deps.sql.begin(async (tx) => {
       await tx`
         update note_documents set ydoc = ${encodeBytea(Y.encodeStateAsUpdate(doc))}::bytea, updated_at = now()
@@ -644,4 +754,28 @@ export async function appendQuickCapture(
 export function positionBetween(before: string | null | undefined, after: string | null | undefined): string {
   if (!before && !after) return firstKey();
   return keyBetween(before ?? null, after ?? null);
+}
+
+/** Fetch summaries for a bounded id list, preserving the caller's id order. */
+export async function noteSummariesByIds(
+  deps: NotesDeps,
+  ownerId: string,
+  ids: string[],
+): Promise<NoteSummaryDto[]> {
+  if (ids.length === 0) return [];
+  const rows = await deps.sql`
+    select
+      n.id, n.folder_id, n.title, n.body_text, n.is_pinned, n.is_archived, n.deleted_at,
+      n.position, n.word_count, n.created_at, n.content_updated_at, n.updated_at,
+      n.source_url, n.source_platform, n.source_author, n.source_cover_id, n.source_original_title,
+      n.collected_at, n.capture_status, n.media_status, n.ai_category_folder_id, n.ai_category_name,
+      n.ai_category_status, n.ai_category_suggestion, n.ai_category_at, n.ai_category_error,
+      coalesce(array_agg(nt.tag_id) filter (where nt.tag_id is not null), '{}') as tag_ids
+    from notes n
+    left join note_tags nt on nt.note_id = n.id
+    where n.owner_id = ${ownerId} and n.id = any(${ids}::text[]) and n.deleted_at is null
+    group by n.id
+  `;
+  const byId = new Map(rows.map((row) => [String(row.id), toSummary(mapRow(row))]));
+  return ids.map((id) => byId.get(id)).filter((item): item is NoteSummaryDto => Boolean(item));
 }

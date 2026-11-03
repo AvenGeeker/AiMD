@@ -44,6 +44,7 @@ That invariant runs through the whole repository — see [Architecture](#archite
 | **Markdown editing and preview** | CodeMirror 6 source editing with live preview, and split / edit-only / preview-only modes; GFM, task lists, KaTeX math, mermaid diagrams, `[[wikilinks]]` |
 | **Global-hotkey quick capture** | Separate desktop hotkeys for "show main window" and "show capture window", recorded by pressing keys in Settings; captured text is appended to the inbox through the CRDT, merging safely with edits already in flight |
 | **AI summaries and auto-tags** | The server calls any OpenAI-compatible endpoint to produce a summary, key points, checkable todos and up to 3 tags; batch backfill with visible progress and cancellation |
+| **Favourites and folder AI** | Save Xiaohongshu/Douyin/WeChat/web links or share media from a phone; OCR/transcription enriches the note and AI files it under Favourites categories. Any folder supports Q&A, search and trip planning |
 | **Two-way macOS Notes sync** | The desktop app mirrors your whole Apple Notes account (folders, notes, attachments) both ways; conflicts and read-only items are tagged, deletions are recoverable |
 | **Folders and tags** | Unlimited folder depth, drag to move, multi-tag AND filtering; fractional-index ordering so inserting never disturbs a concurrent edit |
 | **Search** | Postgres `pg_trgm` substring matching, works for Chinese (minimum 2 characters) |
@@ -186,6 +187,8 @@ The backup script exports `pg_dump` (custom format) plus the attachment volume a
 ```cron
 30 3 * * * cd /path/to/AiMD && ./scripts/backup.sh --keep 14 >> /var/log/aimarkdown-backup.log 2>&1
 ```
+
+The first build, dependency changes, or Web source changes require Vite to minify large mermaid/shiki chunks and may take several minutes on a small VPS; that is compilation, not a deadlock. The Dockerfile now builds the Web bundle before copying `apps/server`, so server-only changes reuse that layer.
 
 Release records, the current image and the `.env` snapshot live in `.deploy/` (gitignored).
 **Rollback only switches the app image; it does not roll back database migrations.** To roll data
@@ -508,6 +511,21 @@ How it behaves:
   `AI_ALLOW_PRIVATE_BASE_URL=true`.
 - **Some providers restrict custom backends or bulk calls on consumer plans.** Check your plan terms
   first; the backfill button asks for a second confirmation and warns about quota.
+
+
+---
+
+## Favourites
+
+The sidebar exposes a dedicated **Favourites** section. The desktop app also adds a tray action and a configurable global shortcut (default `CommandOrControl+Shift+F`) that brings up the main window and opens the paste box immediately. A favourite is still a normal note, so the editor, search, trash, export and Yjs sync all keep working; it additionally stores the source URL, platform, author, cover and media-processing state.
+
+- Click the bookmark-plus button next to **Favourites**, paste a URL and press Enter. The server extracts WeChat articles and ordinary pages automatically. If Xiaohongshu/Douyin anti-bot pages or any other site cannot be parsed, the URL itself is still saved without asking for a form.
+- Article images are downloaded as authenticated attachments. Images can be OCR'd by a vision model; videos are converted to audio with ffmpeg and transcribed through an OpenAI-compatible `audio/transcriptions` endpoint. Media models are optional in **Settings → AI**; favourites still save when they are absent.
+- The Favourites section creates the preset categories (学习, AI, 大模型, 旅游, 购物, 生活, 职场, 健康, 其他) up front. New favourites start in 待分类 and AI files them automatically; a non-preset category is only created after confirmation.
+- Every real folder can open **Ask AI** with Q&A, search and trip modes. Answers cite saved notes; trip planning enables the model's native web search by default, while other modes expose it as an optional toggle.
+- Mobile sharing uses Android `ACTION_SEND`, an iOS Share Extension (App Group + `aimarkdown://share`) and HarmonyOS `sendData`. iOS device builds require a signing team and the App Group capability.
+
+The server needs `ffmpeg`/`ffprobe` (installed in the Docker image; use `brew install ffmpeg` for local development). Saving the same URL updates the existing favourite by default.
 
 ---
 

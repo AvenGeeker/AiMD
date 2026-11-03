@@ -12,6 +12,7 @@ import {
 import {
   DEFAULT_HOTKEY,
   DEFAULT_MAIN_WINDOW_HOTKEY,
+  DEFAULT_FAVORITE_HOTKEY,
   EDITOR_MODES,
   STAMP_FORMATS,
   THEMES,
@@ -82,13 +83,14 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes, initialT
         setHotkeyStates({
           capture: legacy,
           main: { accelerator: '', registered: false, error: '当前桌面版本不支持主窗口快捷键' },
+          favorite: { accelerator: '', registered: false, error: '当前桌面版本不支持收藏快捷键' },
         });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [desktop, settings.hotkey, settings.mainWindowHotkey]);
+  }, [desktop, settings.hotkey, settings.mainWindowHotkey, settings.favoriteHotkey]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -116,7 +118,12 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes, initialT
   };
 
   const applyHotkey = async (target: HotkeyTarget, accelerator: string) => {
-    const patch = target === 'capture' ? { hotkey: accelerator } : { mainWindowHotkey: accelerator };
+    const patch =
+      target === 'capture'
+        ? { hotkey: accelerator }
+        : target === 'favorite'
+          ? { favoriteHotkey: accelerator }
+          : { mainWindowHotkey: accelerator };
     setDraft((prev) => ({ ...prev, ...patch }));
     if (desktop) {
       const result = await getBridge()?.setHotkey(target, accelerator);
@@ -128,6 +135,7 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes, initialT
       setHotkeyStates((prev) => ({
         capture: prev?.capture ?? { accelerator: '', registered: false },
         main: prev?.main ?? { accelerator: '', registered: false },
+        favorite: prev?.favorite ?? { accelerator: '', registered: false },
         [target]: state,
       }));
     }
@@ -137,6 +145,7 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes, initialT
   const currentPlatform = platform() === 'darwin' ? 'darwin' : platform() === 'win32' ? 'win32' : 'linux';
   const defaultHotkey = DEFAULT_HOTKEY[currentPlatform];
   const defaultMainHotkey = DEFAULT_MAIN_WINDOW_HOTKEY;
+  const defaultFavoriteHotkey = DEFAULT_FAVORITE_HOTKEY;
 
   const hotkeyWarning = (label: string, state: HotkeyState | undefined) =>
     state && !state.registered ? (
@@ -343,16 +352,36 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes, initialT
                         </div>
                       </Row>
                       {hotkeyWarning('数据窗口快捷键', hotkeyStates?.capture)}
+
+                      <Row label="收藏链接">
+                        <div className="flex items-center gap-2">
+                          <HotkeyRecorder
+                            value={draft.favoriteHotkey}
+                            onChange={(accelerator) => void applyHotkey('favorite', accelerator)}
+                            testId="hotkey-favorite-input"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void applyHotkey('favorite', defaultFavoriteHotkey)}
+                            className="button-ghost !min-h-7 px-2 text-[10.5px]"
+                          >
+                            恢复默认
+                          </button>
+                        </div>
+                      </Row>
+                      {hotkeyWarning('收藏与链接快捷键', hotkeyStates?.favorite)}
                     </div>
                     {!desktop && (
                       <p className="mt-3 rounded-lg bg-panel px-3 py-2 text-[10px] leading-5 text-muted">
                         全局快捷键仅在桌面客户端生效；当前预览为 {formatHotkey(draft.mainWindowHotkey)} /{' '}
-                        {formatHotkey(draft.hotkey)}。
+                        {formatHotkey(draft.hotkey)} / {formatHotkey(draft.favoriteHotkey)}。
                       </p>
                     )}
-                    {hotkeyStates?.main.registered && hotkeyStates.capture.registered && (
-                      <div className="mt-3 text-[10.5px] text-success">两个快捷键均已生效</div>
-                    )}
+                    {hotkeyStates?.main.registered &&
+                      hotkeyStates.capture.registered &&
+                      hotkeyStates.favorite?.registered && (
+                        <div className="mt-3 text-[10.5px] text-success">三个快捷键均已生效</div>
+                      )}
                   </SettingGroup>
 
                   <SettingGroup title="窗口行为">

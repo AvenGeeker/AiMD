@@ -83,6 +83,18 @@ const configSchema = z.object({
   AI_MAX_CHUNK_CHARS: z.coerce.number().int().min(1_000).default(16_000),
   AI_MAX_CHUNKS: z.coerce.number().int().min(1).default(48),
 
+  /** Allow private/loopback link targets. Intended for local deployments and tests only. */
+  LINK_FETCH_ALLOW_PRIVATE: z.preprocess(blankToUndefined, booleanish.default(false)),
+  LINK_FETCH_TIMEOUT_MS: z.coerce.number().int().min(1_000).default(15_000),
+  LINK_FETCH_MAX_BYTES: z.coerce.number().int().min(64 * 1024).default(8 * 1024 * 1024),
+  LINK_FETCH_MAX_IMAGES: z.coerce.number().int().min(0).default(20),
+  LINK_FETCH_MAX_IMAGE_BYTES: z.coerce.number().int().min(1024).default(10 * 1024 * 1024),
+  LINK_FETCH_MAX_TOTAL_MEDIA_BYTES: z.coerce.number().int().min(0).default(40 * 1024 * 1024),
+  MEDIA_JOB_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(1),
+  MEDIA_MAX_DURATION_SECONDS: z.coerce.number().int().min(1).default(7200),
+  FFMPEG_PATH: z.string().default('ffmpeg'),
+  FFPROBE_PATH: z.string().default('ffprobe'),
+
   /** Absolute path to the SQL migrations directory. */
   MIGRATIONS_DIR: optionalString,
 

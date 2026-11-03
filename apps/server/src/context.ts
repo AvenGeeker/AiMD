@@ -4,6 +4,8 @@ import type { DbHandle } from './db/client.js';
 import type { TokenVerifier } from './auth/tokens.js';
 import type { AttachmentStorage } from './services/storage.js';
 import type { AiService } from './ai/service.js';
+import type { MediaWorker } from './media/worker.js';
+import type { FolderQueryService } from './ai/folderQuery.js';
 
 /** Everything a request handler or collaboration hook needs, injected rather than global. */
 export interface ServerContext {
@@ -15,6 +17,8 @@ export interface ServerContext {
   collab: Hocuspocus | null;
   /** Server-owned AI worker. Created before the collab server so note-store callbacks can use it. */
   ai: AiService | null;
+  media: MediaWorker | null;
+  folderQueries: FolderQueryService | null;
   startedAt: number;
 }
 
@@ -24,7 +28,7 @@ export function createServerContext(parts: {
   verifier: TokenVerifier;
   storage: AttachmentStorage;
 }): ServerContext {
-  return { ...parts, collab: null, ai: null, startedAt: Date.now() };
+  return { ...parts, collab: null, ai: null, media: null, folderQueries: null, startedAt: Date.now() };
 }
 
 export interface AuthUser {

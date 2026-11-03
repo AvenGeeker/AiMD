@@ -6,12 +6,15 @@ import {
   aiConfigTestInput,
   aiJobEnvelopeDto,
   aiOverviewDto,
+  folderQueryEnvelopeDto,
+  folderQueryInput,
 } from '@aimarkdown/shared';
 import { requireAuth, currentUser } from '../plugins/auth.js';
 import { parse } from '../utils/validate.js';
 import type { AiService } from '../ai/service.js';
+import type { FolderQueryService } from '../ai/folderQuery.js';
 
-export function registerAiRoutes(app: FastifyInstance, ai: AiService): void {
+export function registerAiRoutes(app: FastifyInstance, ai: AiService, folderQueries: FolderQueryService | null): void {
   const opts = { preHandler: [requireAuth] };
 
   app.get('/api/ai/overview', opts, async (request, reply) => {
@@ -56,4 +59,26 @@ export function registerAiRoutes(app: FastifyInstance, ai: AiService): void {
     const job = await ai.cancelJob(currentUser(request).id, id);
     return reply.send(aiJobEnvelopeDto.parse({ job }));
   });
+
+  if (folderQueries) {
+  app.post('/api/ai/folders/:folderId/query', { ...opts, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request, reply) => {
+    const { folderId } = request.params as { folderId: string };
+    const input = parse(folderQueryInput, request.body ?? {}, '文件夹 AI 参数');
+    const query = await folderQueries.enqueue(currentUser(request).id, folderId, input);
+    return reply.code(202).send(folderQueryEnvelopeDto.parse({ query }));
+  });
+
+  app.get('/api/ai/queries/:id', opts, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const query = await folderQueries.get(currentUser(request).id, id);
+    if (!query) throw new ApiError(ERROR_CODES.NOT_FOUND, 'AI 查询不存在');
+    return reply.send(folderQueryEnvelopeDto.parse({ query }));
+  });
+
+  app.post('/api/ai/queries/:id/cancel', opts, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const query = await folderQueries.cancel(currentUser(request).id, id);
+    return reply.send(folderQueryEnvelopeDto.parse({ query }));
+  });
+  }
 }

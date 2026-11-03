@@ -44,6 +44,20 @@ export interface NoteRow {
   ai_generated_at: Date | null;
   ai_source_hash: string | null;
   ai_error: string | null;
+  source_url: string | null;
+  source_platform: string | null;
+  source_author: string | null;
+  source_cover_id: string | null;
+  source_original_title: string | null;
+  collected_at: Date | null;
+  capture_status: string | null;
+  media_status: string;
+  ai_category_folder_id: string | null;
+  ai_category_name: string | null;
+  ai_category_status: string;
+  ai_category_suggestion: string | null;
+  ai_category_at: Date | null;
+  ai_category_error: string | null;
 }
 
 
@@ -53,6 +67,9 @@ export interface AiProviderConfigRow {
   preset: string;
   base_url: string;
   model: string;
+  vision_model: string | null;
+  transcription_model: string | null;
+  web_search_mode: string;
   api_key_enc: string;
   api_key_hint: string;
   last_test_at: Date | null;
@@ -138,6 +155,42 @@ export interface AttachmentRow {
   created_at: Date;
 }
 
+export interface MediaJobRow {
+  id: string;
+  owner_id: string;
+  note_id: string;
+  status: string;
+  image_ids: string[];
+  video_id: string | null;
+  attempts: number;
+  error: string | null;
+  created_at: Date;
+  started_at: Date | null;
+  finished_at: Date | null;
+  updated_at: Date;
+}
+
+export interface AiFolderQueryRow {
+  id: string;
+  owner_id: string;
+  folder_id: string;
+  mode: string;
+  status: string;
+  question: string;
+  allow_web: boolean;
+  history: unknown;
+  answer: string;
+  citations: unknown;
+  web_sources: unknown;
+  web_used: boolean;
+  truncated: boolean;
+  error: string | null;
+  created_at: Date;
+  started_at: Date | null;
+  finished_at: Date | null;
+  updated_at: Date;
+}
+
 export interface RefreshTokenRow {
   id: string;
   user_id: string;
@@ -163,6 +216,8 @@ export const TABLES = [
   'ai_provider_configs',
   'ai_jobs',
   'ai_job_items',
+  'media_jobs',
+  'ai_folder_queries',
 ] as const;
 
 export type TableName = (typeof TABLES)[number];
@@ -175,6 +230,9 @@ export const EXPECTED_COLUMNS: Record<TableName, readonly string[]> = {
     'id', 'owner_id', 'folder_id', 'title', 'body_text', 'is_pinned', 'is_archived',
     'deleted_at', 'position', 'word_count', 'created_at', 'content_updated_at', 'updated_at',
     'ai_status', 'ai_result', 'ai_generated_at', 'ai_source_hash', 'ai_error',
+    'source_url', 'source_platform', 'source_author', 'source_cover_id', 'source_original_title',
+    'collected_at', 'capture_status', 'media_status', 'ai_category_folder_id', 'ai_category_name',
+    'ai_category_status', 'ai_category_suggestion', 'ai_category_at', 'ai_category_error',
   ],
   note_documents: ['note_id', 'ydoc', 'updated_at'],
   workspace_documents: ['user_id', 'ydoc', 'updated_at'],
@@ -186,6 +244,7 @@ export const EXPECTED_COLUMNS: Record<TableName, readonly string[]> = {
   ai_provider_configs: [
     'user_id', 'enabled', 'preset', 'base_url', 'model', 'api_key_enc', 'api_key_hint',
     'last_test_at', 'last_test_ok', 'last_test_error', 'created_at', 'updated_at',
+    'vision_model', 'transcription_model', 'web_search_mode',
   ],
   ai_jobs: [
     'id', 'owner_id', 'kind', 'status', 'note_id', 'current_note_id', 'total', 'completed', 'succeeded', 'failed',
@@ -194,5 +253,14 @@ export const EXPECTED_COLUMNS: Record<TableName, readonly string[]> = {
   ai_job_items: [
     'job_id', 'note_id', 'status', 'mode', 'auto', 'error', 'call_count', 'input_tokens',
     'output_tokens', 'created_at', 'started_at', 'finished_at',
+  ],
+  media_jobs: [
+    'id', 'owner_id', 'note_id', 'status', 'image_ids', 'video_id', 'attempts', 'error',
+    'created_at', 'started_at', 'finished_at', 'updated_at',
+  ],
+  ai_folder_queries: [
+    'id', 'owner_id', 'folder_id', 'mode', 'status', 'question', 'allow_web', 'history', 'answer',
+    'citations', 'web_sources', 'web_used', 'truncated', 'error', 'created_at', 'started_at',
+    'finished_at', 'updated_at',
   ],
 };

@@ -11,12 +11,12 @@ import {
   type TagDto,
   type TreeDto,
 } from '@aimarkdown/shared';
-import { DEFAULT_SETTINGS } from '@aimarkdown/shared';
+import { DEFAULT_SETTINGS, FAVORITE_CATEGORY_PRESETS, FAVORITES_FOLDER_NAME, FAVORITES_INBOX_NAME } from '@aimarkdown/shared';
 import type { Logger } from '../utils/logger.js';
 import { newId } from '../utils/ids.js';
 import { toDateOr } from '../utils/dates.js';
 import { parseJsonb } from '../db/json.js';
-import { deleteFolder, deleteTag, writeFolder, writeSettings, writeTag, readFolders } from '../collab/docFactory.js';
+import { deleteFolder, deleteTag, writeFolder, writeSettings, writeTag, readFolders, readSettings } from '../collab/docFactory.js';
 import { docFromSnapshot, mutateDocument } from '../collab/direct.js';
 import { mirrorWorkspace } from '../collab/persistence.js';
 
@@ -167,6 +167,13 @@ export async function updateFolder(
   if (!row) throw new ApiError(ERROR_CODES.NOT_FOUND, '目录不存在');
 
   const nextParentId = input.parentId === undefined ? (row.parent_id == null ? null : String(row.parent_id)) : input.parentId;
+  const settings = await getSettings(deps, ownerId);
+  if (folderId === settings.favoritesFolderId && nextParentId !== null) {
+    throw new ApiError(ERROR_CODES.BAD_REQUEST, '收藏根目录不能移动到其他目录下');
+  }
+  if (folderId === settings.favoritesInboxFolderId && nextParentId !== settings.favoritesFolderId) {
+    throw new ApiError(ERROR_CODES.BAD_REQUEST, '待分类目录必须保留在收藏根目录下');
+  }
 
   if (nextParentId && nextParentId !== row.parent_id) {
     if (await isDescendant(deps.sql, ownerId, folderId, nextParentId)) {
@@ -209,15 +216,30 @@ export async function updateFolder(
 }
 
 export async function removeFolder(deps: WorkspaceDeps, ownerId: string, folderId: string): Promise<void> {
-  const existing = await deps.sql`select id from folders where id = ${folderId} and owner_id = ${ownerId}`;
+  const existing = await deps.sql`
+    select id, parent_id from folders where id = ${folderId} and owner_id = ${ownerId}
+  `;
   if (existing.length === 0) throw new ApiError(ERROR_CODES.NOT_FOUND, '目录不存在');
+  const settings = await getSettings(deps, ownerId);
+  if (folderId === settings.favoritesFolderId || folderId === settings.favoritesInboxFolderId) {
+    throw new ApiError(ERROR_CODES.BAD_REQUEST, '系统收藏目录不能删除');
+  }
+
+  const parentId = existing[0]?.parent_id == null ? null : String(existing[0].parent_id);
+  const fallbackId =
+    parentId === settings.favoritesFolderId && settings.favoritesInboxFolderId
+      ? settings.favoritesInboxFolderId
+      : null;
 
   await withWorkspace(deps, ownerId, (doc) => {
     deleteFolder(doc, folderId);
   });
 
-  // The mirror deletes the row; notes referencing it fall back to the root via FK SET NULL.
-  await deps.sql`update notes set folder_id = null where owner_id = ${ownerId} and folder_id = ${folderId}`;
+  // Favourites stay inside 收藏; ordinary folders keep the historic "move to root" behaviour.
+  await deps.sql`
+    update notes set folder_id = ${fallbackId}
+    where owner_id = ${ownerId} and folder_id = ${folderId}
+  `;
 }
 
 /* ---------------------------------- tags ---------------------------------- */
@@ -291,6 +313,10 @@ export async function getSettings(deps: WorkspaceDeps, ownerId: string): Promise
       typeof source.mainWindowHotkey === 'string'
         ? source.mainWindowHotkey
         : DEFAULT_SETTINGS.mainWindowHotkey,
+    favoriteHotkey:
+      typeof source.favoriteHotkey === 'string'
+        ? source.favoriteHotkey
+        : DEFAULT_SETTINGS.favoriteHotkey,
     theme: pickEnum(source.theme, ['light', 'dark', 'system'], DEFAULT_SETTINGS.theme),
     editorMode: pickEnum(source.editorMode, ['split', 'edit', 'preview'], DEFAULT_SETTINGS.editorMode),
     fontSize: typeof source.fontSize === 'number' ? source.fontSize : DEFAULT_SETTINGS.fontSize,
@@ -300,6 +326,10 @@ export async function getSettings(deps: WorkspaceDeps, ownerId: string): Promise
       typeof source.minimizeToTray === 'boolean' ? source.minimizeToTray : DEFAULT_SETTINGS.minimizeToTray,
     launchAtLogin:
       typeof source.launchAtLogin === 'boolean' ? source.launchAtLogin : DEFAULT_SETTINGS.launchAtLogin,
+    favoritesFolderId:
+      typeof source.favoritesFolderId === 'string' ? source.favoritesFolderId : null,
+    favoritesInboxFolderId:
+      typeof source.favoritesInboxFolderId === 'string' ? source.favoritesInboxFolderId : null,
   };
 }
 
@@ -320,8 +350,77 @@ export async function updateSettings(
 
 /* ---------------------------------- tree ---------------------------------- */
 
+/** Upgrade an already-authenticated workspace with the system favourites folders. */
+async function ensureFavoritesFolders(deps: WorkspaceDeps, ownerId: string): Promise<void> {
+  const settings = await getSettings(deps, ownerId);
+  const rows = await deps.sql`select id from folders where owner_id = ${ownerId}`;
+  const ids = new Set(rows.map((row) => String(row.id)));
+  const rootOk = Boolean(settings.favoritesFolderId && ids.has(settings.favoritesFolderId));
+  const inboxOk = Boolean(settings.favoritesInboxFolderId && ids.has(settings.favoritesInboxFolderId));
+  if (rootOk && inboxOk) return;
+  const nowIso = new Date().toISOString();
+  const rootId = rootOk ? settings.favoritesFolderId! : newId();
+  const inboxId = inboxOk ? settings.favoritesInboxFolderId! : newId();
+  await withWorkspace(deps, ownerId, (doc) => {
+    const current = readSettings(doc);
+    const folders = readFolders(doc);
+    const byId = new Set(folders.map((folder) => folder.id));
+    const actualRoot = current.favoritesFolderId && byId.has(current.favoritesFolderId)
+      ? current.favoritesFolderId
+      : rootId;
+    if (!byId.has(actualRoot)) {
+      writeFolder(doc, {
+        id: actualRoot,
+        name: FAVORITES_FOLDER_NAME,
+        parentId: null,
+        position: firstKey(),
+        createdAt: nowIso,
+      });
+    }
+    const inbox = current.favoritesInboxFolderId && byId.has(current.favoritesInboxFolderId)
+      ? current.favoritesInboxFolderId
+      : inboxId;
+    if (!byId.has(inbox)) {
+      writeFolder(doc, {
+        id: inbox,
+        name: FAVORITES_INBOX_NAME,
+        parentId: actualRoot,
+        position: firstKey(),
+        createdAt: nowIso,
+      });
+      byId.add(inbox);
+    }
+    writeSettings(doc, { favoritesFolderId: actualRoot, favoritesInboxFolderId: inbox });
+
+    const existingCategories = new Set(
+      readFolders(doc)
+        .filter((folder) => folder.parentId === actualRoot && folder.id !== inbox)
+        .map((folder) => folder.name.toLowerCase()),
+    );
+    const positions = readFolders(doc)
+      .filter((folder) => folder.parentId === actualRoot)
+      .map((folder) => folder.position)
+      .sort();
+    let last = positions[positions.length - 1] ?? null;
+    for (const name of FAVORITE_CATEGORY_PRESETS) {
+      if (existingCategories.has(name.toLowerCase())) continue;
+      const position = keyBetween(last, null);
+      writeFolder(doc, {
+        id: newId(),
+        name,
+        parentId: actualRoot,
+        position,
+        createdAt: nowIso,
+      });
+      existingCategories.add(name.toLowerCase());
+      last = position;
+    }
+  });
+}
+
 export async function getTree(deps: WorkspaceDeps, ownerId: string): Promise<TreeDto> {
-  const [folderRows, tagRows, countRows] = await Promise.all([
+  await ensureFavoritesFolders(deps, ownerId);
+  const [folderRows, tagRows, countRows, settings] = await Promise.all([
     deps.sql`
       select f.id, f.name, f.parent_id, f.position, f.created_at,
              (select count(*)::int from notes n
@@ -337,7 +436,34 @@ export async function getTree(deps: WorkspaceDeps, ownerId: string): Promise<Tre
         count(*) filter (where deleted_at is not null)::int as trashed
       from notes where owner_id = ${ownerId}
     `,
+    getSettings(deps, ownerId),
   ]);
+
+  let favoritesCount = 0;
+  let favoritesPending = 0;
+  if (settings.favoritesFolderId) {
+    const favoriteRows = await deps.sql`
+      with recursive subtree as (
+        select id from folders where owner_id = ${ownerId} and id = ${settings.favoritesFolderId}
+        union
+        select f.id from folders f join subtree s on f.parent_id = s.id
+        where f.owner_id = ${ownerId}
+      )
+      select count(*)::int as total
+      from notes n
+      where n.owner_id = ${ownerId} and n.deleted_at is null
+        and n.folder_id in (select id from subtree)
+    `;
+    favoritesCount = Number(favoriteRows[0]?.total ?? 0);
+  }
+  if (settings.favoritesInboxFolderId) {
+    const pendingRows = await deps.sql`
+      select count(*)::int as total from notes
+      where owner_id = ${ownerId} and deleted_at is null
+        and folder_id = ${settings.favoritesInboxFolderId}
+    `;
+    favoritesPending = Number(pendingRows[0]?.total ?? 0);
+  }
 
   const folders: FolderDto[] = folderRows.map((row) => ({
     id: String(row.id),
@@ -351,10 +477,12 @@ export async function getTree(deps: WorkspaceDeps, ownerId: string): Promise<Tre
   return {
     folders,
     tags: tagRows,
-    settings: await getSettings(deps, ownerId),
+    settings,
     counts: {
       notes: Number(countRows[0]?.notes ?? 0),
       trashed: Number(countRows[0]?.trashed ?? 0),
+      favorites: favoritesCount,
+      favoritesPending,
     },
   };
 }

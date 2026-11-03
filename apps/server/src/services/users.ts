@@ -4,7 +4,11 @@ import {
   DEFAULT_SETTINGS,
   ERROR_CODES,
   INBOX_NOTE_TITLE,
+  FAVORITES_FOLDER_NAME,
+  FAVORITES_INBOX_NAME,
+  FAVORITE_CATEGORY_PRESETS,
   firstKey,
+  keyBetween,
   workspaceDocName,
   type SettingsDto,
   type UserDto,
@@ -20,7 +24,8 @@ import {
 } from '../auth/tokens.js';
 import { encodeBytea } from '../db/bytea.js';
 import { toDateOr } from '../utils/dates.js';
-import { createNoteDoc, createWorkspaceDoc, writeSettings } from '../collab/docFactory.js';
+import { createNoteDoc, createWorkspaceDoc, decodeDoc, readFolders, readSettings, writeFolder, writeSettings } from '../collab/docFactory.js';
+import { mirrorWorkspace } from '../collab/persistence.js';
 import type { Logger } from '../utils/logger.js';
 import * as Y from 'yjs';
 
@@ -127,7 +132,40 @@ export async function seedWorkspace(
   now: Date = new Date(),
 ): Promise<{ inboxNoteId: string }> {
   const inboxNoteId = newId();
-  const workspaceDoc = createWorkspaceDoc({ ...DEFAULT_SETTINGS, inboxNoteId });
+  const favoritesFolderId = newId();
+  const favoritesInboxFolderId = newId();
+  const workspaceDoc = createWorkspaceDoc({
+    ...DEFAULT_SETTINGS,
+    inboxNoteId,
+    favoritesFolderId,
+    favoritesInboxFolderId,
+  });
+  const nowIso = now.toISOString();
+  writeFolder(workspaceDoc, {
+    id: favoritesFolderId,
+    name: FAVORITES_FOLDER_NAME,
+    parentId: null,
+    position: 'a0',
+    createdAt: nowIso,
+  });
+  writeFolder(workspaceDoc, {
+    id: favoritesInboxFolderId,
+    name: FAVORITES_INBOX_NAME,
+    parentId: favoritesFolderId,
+    position: 'a0',
+    createdAt: nowIso,
+  });
+  let position = keyBetween('a0', null);
+  for (const name of FAVORITE_CATEGORY_PRESETS) {
+    writeFolder(workspaceDoc, {
+      id: newId(),
+      name,
+      parentId: favoritesFolderId,
+      position,
+      createdAt: nowIso,
+    });
+    position = keyBetween(position, null);
+  }
   const inboxDoc = createNoteDoc({
     meta: {
       title: INBOX_NOTE_TITLE,
@@ -148,8 +186,14 @@ export async function seedWorkspace(
     values (${userId}, ${encodeBytea(Y.encodeStateAsUpdate(workspaceDoc))}::bytea, ${now})
     on conflict (user_id) do nothing
   `;
+  await mirrorWorkspace(tx, userId, workspaceDoc);
 
-  const settings: SettingsDto = { ...DEFAULT_SETTINGS, inboxNoteId };
+  const settings: SettingsDto = {
+    ...DEFAULT_SETTINGS,
+    inboxNoteId,
+    favoritesFolderId,
+    favoritesInboxFolderId,
+  };
   await tx`
     insert into user_settings (user_id, settings, updated_at)
     values (${userId}, ${JSON.stringify(settings)}::jsonb, ${now})
@@ -173,12 +217,58 @@ export async function seedWorkspace(
   return { inboxNoteId };
 }
 
-/** Make sure an existing user has a workspace doc and an inbox (idempotent upgrade path). */
+/** Make sure an existing user has a workspace doc, an inbox and the system favourites folders. */
 export async function ensureWorkspace(deps: UsersDeps, userId: string): Promise<void> {
-  const existing = await deps.sql`select user_id from workspace_documents where user_id = ${userId}`;
-  if (existing.length > 0) return;
-  await deps.sql.begin((tx) => seedWorkspace(tx, userId));
-  deps.log.info({ userId }, 'seeded missing workspace for existing user');
+  const existing = await deps.sql`select ydoc from workspace_documents where user_id = ${userId}`;
+  if (existing.length === 0) {
+    await deps.sql.begin((tx) => seedWorkspace(tx, userId));
+    deps.log.info({ userId }, 'seeded missing workspace for existing user');
+    return;
+  }
+
+  const raw = existing[0]?.ydoc;
+  const bytes = raw instanceof Uint8Array ? raw : Buffer.isBuffer(raw) ? new Uint8Array(raw) : new Uint8Array(0);
+  const doc = decodeDoc(bytes);
+  const settings = readSettings(doc);
+  const folders = readFolders(doc);
+  const byId = new Map(folders.map((folder) => [folder.id, folder]));
+  const rootOk = Boolean(settings.favoritesFolderId && byId.has(settings.favoritesFolderId));
+  const inboxOk = Boolean(settings.favoritesInboxFolderId && byId.has(settings.favoritesInboxFolderId));
+  if (rootOk && inboxOk) return;
+
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const favoritesFolderId = rootOk ? settings.favoritesFolderId! : newId();
+  if (!rootOk) {
+    writeFolder(doc, {
+      id: favoritesFolderId,
+      name: FAVORITES_FOLDER_NAME,
+      parentId: null,
+      position: 'a0',
+      createdAt: nowIso,
+    });
+  }
+  const favoritesInboxFolderId = inboxOk ? settings.favoritesInboxFolderId! : newId();
+  if (!inboxOk) {
+    writeFolder(doc, {
+      id: favoritesInboxFolderId,
+      name: FAVORITES_INBOX_NAME,
+      parentId: favoritesFolderId,
+      position: 'a0',
+      createdAt: nowIso,
+    });
+  }
+  writeSettings(doc, { favoritesFolderId, favoritesInboxFolderId });
+
+  await deps.sql.begin(async (tx) => {
+    await tx`
+      update workspace_documents
+      set ydoc = ${encodeBytea(Y.encodeStateAsUpdate(doc))}::bytea, updated_at = ${now}
+      where user_id = ${userId}
+    `;
+    await mirrorWorkspace(tx, userId, doc, deps.log);
+  });
+  deps.log.info({ userId }, 'added system favourites folders to existing workspace');
 }
 
 export async function loginUser(

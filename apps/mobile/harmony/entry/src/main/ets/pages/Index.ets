@@ -85,6 +85,11 @@ struct Index {
   private abilityContext: common.UIAbilityContext | null = null;
   private wwwDir: string = '';
   @State private pageUrl: string = '';
+  @StorageLink('aimdSharePayload') @Watch('onSharePayloadChange') private sharePayload: string = '';
+
+  onSharePayloadChange(): void {
+    this.flushShare();
+  }
 
   aboutToAppear(): void {
     const context = this.getUIContext().getHostContext();
@@ -124,6 +129,19 @@ struct Index {
     }
   }
 
+  private flushShare(): void {
+    if (this.sharePayload.length === 0) {
+      return;
+    }
+    const payload = this.sharePayload;
+    const script = `window.__aimdReceiveShare && window.__aimdReceiveShare(${payload})`;
+    this.controller.runJavaScript(script).catch((err: Error) => {
+      hilog.error(0x0000, TAG, 'share inject failed: %{public}s', err.message);
+    }).finally(() => {
+      this.sharePayload = '';
+    });
+  }
+
   private exitApp(): void {
     if (this.abilityContext === null) {
       return;
@@ -152,6 +170,9 @@ struct Index {
             const e = err as Error;
             hilog.error(0x0000, TAG, 'allow universal access failed: %{public}s', e.message);
           }
+        })
+        .onPageEnd(() => {
+          this.flushShare();
         })
         .javaScriptProxy({
           object: this.bridge,

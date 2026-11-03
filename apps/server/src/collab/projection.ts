@@ -1,7 +1,7 @@
 import type * as Y from 'yjs';
 import { countWords, deriveTitle, makeExcerpt } from '@aimarkdown/markdown';
-import type { AiResultDto, FolderEntry, NoteAiState, TagEntry, WorkspaceSettings } from '@aimarkdown/shared';
-import { readAiState, readAiTodos, readBody, readFolders, readNoteMeta, readSettings, readTagIds, readTags } from './docFactory.js';
+import type { AiResultDto, FolderEntry, NoteAiState, NoteMediaState, TagEntry, WorkspaceSettings } from '@aimarkdown/shared';
+import { readAiState, readAiTodos, readBody, readFolders, readMedia, readNoteMeta, readSettings, readSource, readTagIds, readTags } from './docFactory.js';
 
 /**
  * Project CRDT state into the flat shape Postgres stores.
@@ -31,6 +31,24 @@ export interface NoteProjection {
   aiSourceHash: string | null;
   aiError: string | null;
   aiAutoAttemptedAt: string | null;
+  source: NoteSourceProjection | null;
+  mediaStatus: NoteMediaState['status'];
+  aiCategoryFolderId: string | null;
+  aiCategoryName: string | null;
+  aiCategoryStatus: NoteAiState['categoryStatus'];
+  aiCategorySuggestion: string | null;
+  aiCategoryAt: Date | null;
+  aiCategoryError: string | null;
+}
+
+export interface NoteSourceProjection {
+  url: string | null;
+  platform: string | null;
+  author: string | null;
+  coverAttachmentId: string | null;
+  originalTitle: string | null;
+  collectedAt: Date | null;
+  captureStatus: string | null;
 }
 
 function toDate(value: string | null | undefined, fallback: Date): Date {
@@ -52,6 +70,9 @@ export function projectNote(doc: Y.Doc, now: Date = new Date()): NoteProjection 
   const title = titleIsAuto ? deriveTitle(bodyText, meta.title) : meta.title;
   const ai = readAiState(doc);
   const aiTodos = readAiTodos(doc);
+  const source = readSource(doc);
+  const media = readMedia(doc);
+  const hasSource = Boolean(source.url || source.platform || source.author || source.collectedAt);
   const aiResult: AiResultDto | null = ai.generatedAt
     ? {
         summary: ai.summary,
@@ -80,6 +101,24 @@ export function projectNote(doc: Y.Doc, now: Date = new Date()): NoteProjection 
     aiSourceHash: ai.sourceHash,
     aiError: ai.error,
     aiAutoAttemptedAt: ai.autoAttemptedAt,
+    source: hasSource
+      ? {
+          url: source.url,
+          platform: source.platform,
+          author: source.author,
+          coverAttachmentId: source.coverAttachmentId,
+          originalTitle: source.originalTitle,
+          collectedAt: toNullableDate(source.collectedAt),
+          captureStatus: source.captureStatus,
+        }
+      : null,
+    mediaStatus: media.status,
+    aiCategoryFolderId: ai.categoryFolderId,
+    aiCategoryName: ai.categoryName,
+    aiCategoryStatus: ai.categoryStatus,
+    aiCategorySuggestion: ai.categorySuggestion,
+    aiCategoryAt: toNullableDate(ai.categoryAt),
+    aiCategoryError: ai.categoryError,
   };
 }
 

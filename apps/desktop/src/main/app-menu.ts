@@ -21,6 +21,7 @@ import { APP_NAME } from './app-name.js';
 export type MenuCommand =
   | 'new-note'
   | 'quick-capture'
+  | 'open-favorite'
   | 'import'
   | 'export-note'
   | 'export-vault'
@@ -148,6 +149,10 @@ function quitApplication(): void {
   setQuitting(true);
   if (quitHandler) quitHandler();
   else app.quit();
+}
+
+export function dispatchMenuCommand(command: MenuCommand): void {
+  dispatch(command);
 }
 
 function dispatch(command: MenuCommand): void {
@@ -353,6 +358,7 @@ function buildTemplate(): MenuItemConstructorOptions[] {
     submenu: [
       commandItem('新建笔记', 'new-note', { accelerator: 'CmdOrCtrl+N' }),
       commandItem('速记…', 'quick-capture', { accelerator: 'CmdOrCtrl+Shift+Q' }),
+      commandItem('收藏链接…', 'open-favorite'),
       { type: 'separator' },
       commandItem('导入 Markdown / ZIP…', 'import', { accelerator: 'CmdOrCtrl+Shift+I' }),
       commandItem('导出当前笔记…', 'export-note', {

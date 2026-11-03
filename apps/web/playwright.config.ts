@@ -65,6 +65,7 @@ export default defineConfig({
       COLLAB_DEBOUNCE: '300',
       COLLAB_MAX_DEBOUNCE: '1500',
       AI_ALLOW_PRIVATE_BASE_URL: 'true',
+      LINK_FETCH_ALLOW_PRIVATE: 'true',
       AI_REQUEST_INTERVAL_MS: '0',
     },
   },

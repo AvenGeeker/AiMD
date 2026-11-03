@@ -6,11 +6,21 @@ import {
   NOTE_META_DEFAULTS,
   WORKSPACE_KEYS,
   NOTE_AI_DEFAULTS,
+  FAVORITE_CATEGORY_STATUSES,
+  MEDIA_STATUSES,
+  SOURCE_PLATFORMS,
+  CAPTURE_STATUSES,
   AI_STATUSES,
   type AiTodoEntry,
+  type CaptureStatus,
+  type FavoriteCategoryStatus,
   type FolderEntry,
+  type MediaStatus,
   type NoteAiState,
+  type NoteMediaState,
   type NoteMetaMap,
+  type NoteSourceState,
+  type SourcePlatform,
   type TagEntry,
   type WorkspaceSettings,
 } from '@aimarkdown/shared';
@@ -61,7 +71,19 @@ export function readAiState(doc: Y.Doc): NoteAiState {
     error: str('error', null),
     autoAttemptedAt: str('autoAttemptedAt', null),
     lastAttemptAt: str('lastAttemptAt', null),
+    categoryFolderId: str('categoryFolderId', null),
+    categoryName: str('categoryName', null),
+    categoryStatus: categoryStatusOf(map.get('categoryStatus')),
+    categorySuggestion: str('categorySuggestion', null),
+    categoryAt: str('categoryAt', null),
+    categoryError: str('categoryError', null),
   };
+}
+
+function categoryStatusOf(value: unknown): FavoriteCategoryStatus {
+  return typeof value === 'string' && (FAVORITE_CATEGORY_STATUSES as readonly string[]).includes(value)
+    ? (value as FavoriteCategoryStatus)
+    : 'idle';
 }
 
 /** Write scalar AI state. Key points are serialized so Y.Map values stay primitive. */
@@ -130,6 +152,61 @@ export function setAiTodoDone(doc: Y.Doc, todoId: string, done: boolean): void {
 
 export function readAiSummaryState(doc: Y.Doc): NoteAiState {
   return { ...NOTE_AI_DEFAULTS, ...readAiState(doc) };
+}
+
+/** Read provenance from a note doc. Unknown/invalid values fall back to null. */
+export function readSource(doc: Y.Doc): NoteSourceState {
+  const map = doc.getMap(NOTE_KEYS.source);
+  const str = (key: string): string | null => {
+    const value = map.get(key);
+    return typeof value === 'string' && value.length > 0 ? value : null;
+  };
+  const platform = str('platform');
+  const captureStatus = str('captureStatus');
+  return {
+    url: str('url'),
+    platform: platform && (SOURCE_PLATFORMS as readonly string[]).includes(platform)
+      ? (platform as SourcePlatform)
+      : null,
+    author: str('author'),
+    coverAttachmentId: str('coverAttachmentId'),
+    originalTitle: str('originalTitle'),
+    collectedAt: str('collectedAt'),
+    captureStatus: captureStatus && (CAPTURE_STATUSES as readonly string[]).includes(captureStatus)
+      ? (captureStatus as CaptureStatus)
+      : null,
+  };
+}
+
+export function writeSource(doc: Y.Doc, patch: Partial<NoteSourceState>): void {
+  const map = doc.getMap(NOTE_KEYS.source);
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    map.set(key, value as string | null);
+  }
+}
+
+export function readMedia(doc: Y.Doc): NoteMediaState {
+  const map = doc.getMap(NOTE_KEYS.media);
+  const statusValue = map.get('status');
+  const status = typeof statusValue === 'string' && (MEDIA_STATUSES as readonly string[]).includes(statusValue)
+    ? (statusValue as MediaStatus)
+    : 'idle';
+  const error = map.get('error');
+  const updatedAt = map.get('updatedAt');
+  return {
+    status,
+    error: typeof error === 'string' ? error : null,
+    updatedAt: typeof updatedAt === 'string' ? updatedAt : null,
+  };
+}
+
+export function writeMedia(doc: Y.Doc, patch: Partial<NoteMediaState>): void {
+  const map = doc.getMap(NOTE_KEYS.media);
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    map.set(key, value as string | null);
+  }
 }
 
 export function readBody(doc: Y.Doc): string {
@@ -221,6 +298,10 @@ export function readSettings(doc: Y.Doc): WorkspaceSettings {
   if (typeof mainWindowHotkey === 'string' && mainWindowHotkey.length > 0) {
     base.mainWindowHotkey = mainWindowHotkey;
   }
+  const favoriteHotkey = get('favoriteHotkey');
+  if (typeof favoriteHotkey === 'string' && favoriteHotkey.length > 0) {
+    base.favoriteHotkey = favoriteHotkey;
+  }
   const theme = get('theme');
   if (theme === 'light' || theme === 'dark' || theme === 'system') base.theme = theme;
   const editorMode = get('editorMode');
@@ -239,6 +320,14 @@ export function readSettings(doc: Y.Doc): WorkspaceSettings {
   if (typeof minimizeToTray === 'boolean') base.minimizeToTray = minimizeToTray;
   const launchAtLogin = get('launchAtLogin');
   if (typeof launchAtLogin === 'boolean') base.launchAtLogin = launchAtLogin;
+  const favoritesFolderId = get('favoritesFolderId');
+  if (favoritesFolderId === null || typeof favoritesFolderId === 'string') {
+    base.favoritesFolderId = favoritesFolderId;
+  }
+  const favoritesInboxFolderId = get('favoritesInboxFolderId');
+  if (favoritesInboxFolderId === null || typeof favoritesInboxFolderId === 'string') {
+    base.favoritesInboxFolderId = favoritesInboxFolderId;
+  }
 
   return base;
 }
@@ -261,6 +350,9 @@ export interface CreateNoteDocInput {
   meta?: Partial<NoteMetaMap>;
   tagIds?: string[];
   body?: string;
+  source?: Partial<NoteSourceState>;
+  media?: Partial<NoteMediaState>;
+  ai?: Partial<NoteAiState>;
 }
 
 /** Build a brand-new note document, ready to be encoded and stored. */
@@ -284,6 +376,9 @@ export function createNoteDoc(input: CreateNoteDocInput = {}): Y.Doc {
     if (input.body && input.body.length > 0) {
       doc.getText(NOTE_KEYS.body).insert(0, input.body);
     }
+    if (input.source) writeSource(doc, input.source);
+    if (input.media) writeMedia(doc, input.media);
+    if (input.ai) writeAiState(doc, input.ai);
   });
   return doc;
 }

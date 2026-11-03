@@ -2,6 +2,7 @@ import {
   CRDT_SCHEMA_VERSION,
   DEFAULT_HOTKEY,
   DEFAULT_MAIN_WINDOW_HOTKEY,
+  DEFAULT_FAVORITE_HOTKEY,
   THEMES,
   EDITOR_MODES,
   STAMP_FORMATS,
@@ -44,6 +45,10 @@ export const NOTE_KEYS = {
   ai: 'ai',
   /** `Y.Map<AiTodoEntry>` keyed by stable todo id so concurrent checkbox toggles merge. */
   aiTodos: 'aiTodos',
+  /** `Y.Map<string | null>` source metadata for link/media favourites. */
+  source: 'source',
+  /** `Y.Map<string | null>` OCR/ASR processing state for favourites. */
+  media: 'media',
 } as const;
 
 /** Y.Doc sub-document keys for a workspace document. */
@@ -122,6 +127,8 @@ export interface WorkspaceSettings {
   hotkey: string;
   /** Electron accelerator for bringing the main workspace window to the front. */
   mainWindowHotkey: string;
+  /** Electron accelerator for opening the quick-favourite dialog. */
+  favoriteHotkey: string;
   theme: (typeof THEMES)[number];
   editorMode: (typeof EDITOR_MODES)[number];
   fontSize: number;
@@ -133,12 +140,17 @@ export interface WorkspaceSettings {
   minimizeToTray: boolean;
   /** Launch the desktop app at login. */
   launchAtLogin: boolean;
+  /** System folder holding all favourites. Read-only through the settings API. */
+  favoritesFolderId: string | null;
+  /** System folder under 收藏 where unclassified favourites wait. */
+  favoritesInboxFolderId: string | null;
 }
 
 export const DEFAULT_SETTINGS: WorkspaceSettings = {
   inboxNoteId: null,
   hotkey: DEFAULT_HOTKEY.darwin,
   mainWindowHotkey: DEFAULT_MAIN_WINDOW_HOTKEY,
+  favoriteHotkey: DEFAULT_FAVORITE_HOTKEY,
   theme: 'system',
   editorMode: 'split',
   fontSize: 14,
@@ -146,8 +158,64 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
   hideOnBlur: true,
   minimizeToTray: true,
   launchAtLogin: false,
+  favoritesFolderId: null,
+  favoritesInboxFolderId: null,
 };
 
+
+/** Classification states for a favourite note. */
+export const FAVORITE_CATEGORY_STATUSES = [
+  'idle',
+  'queued',
+  'running',
+  'done',
+  'suggested',
+  'error',
+] as const;
+export type FavoriteCategoryStatus = (typeof FAVORITE_CATEGORY_STATUSES)[number];
+
+export const MEDIA_STATUSES = ['idle', 'queued', 'running', 'partial', 'done', 'error', 'unconfigured'] as const;
+export type MediaStatus = (typeof MEDIA_STATUSES)[number];
+
+export const SOURCE_PLATFORMS = ['xiaohongshu', 'douyin', 'wechat', 'web', 'manual'] as const;
+export type SourcePlatform = (typeof SOURCE_PLATFORMS)[number];
+
+export const CAPTURE_STATUSES = ['fetched', 'manual', 'media', 'partial'] as const;
+export type CaptureStatus = (typeof CAPTURE_STATUSES)[number];
+
+/** Optional provenance stored in a note doc's `source` map. */
+export interface NoteSourceState {
+  url: string | null;
+  platform: SourcePlatform | null;
+  author: string | null;
+  coverAttachmentId: string | null;
+  originalTitle: string | null;
+  collectedAt: string | null;
+  captureStatus: CaptureStatus | null;
+}
+
+export const NOTE_SOURCE_DEFAULTS: NoteSourceState = {
+  url: null,
+  platform: null,
+  author: null,
+  coverAttachmentId: null,
+  originalTitle: null,
+  collectedAt: null,
+  captureStatus: null,
+};
+
+/** OCR/ASR processing state stored in a note doc's `media` map. */
+export interface NoteMediaState {
+  status: MediaStatus;
+  error: string | null;
+  updatedAt: string | null;
+}
+
+export const NOTE_MEDIA_DEFAULTS: NoteMediaState = {
+  status: 'idle',
+  error: null,
+  updatedAt: null,
+};
 
 /** Final AI summary state stored inside a note document. */
 export interface NoteAiState {
@@ -160,6 +228,14 @@ export interface NoteAiState {
   error: string | null;
   autoAttemptedAt: string | null;
   lastAttemptAt: string | null;
+  /** Folder assigned by AI/manual classification (favourites only). */
+  categoryFolderId: string | null;
+  categoryName: string | null;
+  categoryStatus: FavoriteCategoryStatus;
+  /** A non-preset category proposed by AI and waiting for user confirmation. */
+  categorySuggestion: string | null;
+  categoryAt: string | null;
+  categoryError: string | null;
 }
 
 export interface AiTodoEntry {
@@ -179,6 +255,12 @@ export const NOTE_AI_DEFAULTS: NoteAiState = {
   error: null,
   autoAttemptedAt: null,
   lastAttemptAt: null,
+  categoryFolderId: null,
+  categoryName: null,
+  categoryStatus: 'idle',
+  categorySuggestion: null,
+  categoryAt: null,
+  categoryError: null,
 };
 
 /** Build the collaboration document name for a note. */

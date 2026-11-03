@@ -338,7 +338,10 @@ describeDb('REST API against a real Postgres', () => {
       await api(server, client, 'POST', '/api/notes', { body: 'in child', folderId: child.body.id });
 
       const tree = await api<TreeDto>(server, client, 'GET', '/api/tree');
-      expect(tree.body.folders).toHaveLength(2);
+      const userFolders = tree.body.folders.filter(
+        (folder) => folder.id === root.body.id || folder.id === child.body.id,
+      );
+      expect(userFolders).toHaveLength(2);
       expect(tree.body.folders.find((f) => f.id === child.body.id)?.noteCount).toBe(1);
       expect(tree.body.folders.find((f) => f.id === child.body.id)?.parentId).toBe(root.body.id);
     });

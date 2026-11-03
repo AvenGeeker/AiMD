@@ -26,16 +26,21 @@ COPY packages/markdown/package.json packages/markdown/
 ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
 RUN pnpm install --frozen-lockfile
 
-# ---------- 2. build shared packages, server and web bundle ----------
+# ---------- 2. build shared packages, web bundle and server ----------
 FROM deps AS build
 WORKDIR /repo
+# Keep these layers ordered from least to most frequently changed. Docker invalidates every
+# layer after a COPY, so putting apps/server *after* the web build means a server-only deploy
+# reuses the expensive Vite/mermaid/shiki build instead of rebuilding it from scratch.
 COPY packages ./packages
-COPY apps/server ./apps/server
-COPY apps/web ./apps/web
 RUN pnpm --filter @aimarkdown/shared build \
- && pnpm --filter @aimarkdown/markdown build \
- && pnpm --filter @aimarkdown/web build \
- && pnpm --filter @aimarkdown/server build
+ && pnpm --filter @aimarkdown/markdown build
+
+COPY apps/web ./apps/web
+RUN pnpm --filter @aimarkdown/web build
+
+COPY apps/server ./apps/server
+RUN pnpm --filter @aimarkdown/server build
 
 # ---------- 3. drop devDependencies (vite, electron, playwright, test tooling) ----------
 FROM build AS proddeps
@@ -49,7 +54,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 # curl backs the container healthcheck.
-RUN apk add --no-cache curl
+RUN apk add --no-cache curl ffmpeg
 
 # Dependency trees at their original relative paths, so pnpm's symlinks still resolve.
 COPY --from=proddeps /repo/node_modules ./node_modules

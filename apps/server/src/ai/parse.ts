@@ -6,6 +6,9 @@ export interface AiAnalysis {
   keyPoints: string[];
   todos: string[];
   tags: string[];
+  category: string | null;
+  suggestedCategory: string | null;
+  categoryConfidence: number;
 }
 
 export interface AiChunkAnalysis {
@@ -79,5 +82,16 @@ export function parseAiAnalysis(raw: string): AiAnalysis {
     keyPoints: stringList(object.keyPoints, AI_MAX_KEY_POINTS, 240),
     todos: stringList(object.todos, AI_MAX_TODOS, 300),
     tags: normalizeAiTags(object.tags),
+    category: typeof object.category === 'string' && object.category.trim()
+      ? object.category.trim().slice(0, 40)
+      : null,
+    suggestedCategory:
+      typeof object.suggestedCategory === 'string' && object.suggestedCategory.trim()
+        ? object.suggestedCategory.trim().slice(0, 40)
+        : null,
+    categoryConfidence:
+      typeof object.categoryConfidence === 'number' && Number.isFinite(object.categoryConfidence)
+        ? Math.max(0, Math.min(1, object.categoryConfidence))
+        : 0.6,
   };
 }

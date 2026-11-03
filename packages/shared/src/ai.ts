@@ -20,7 +20,7 @@ export const AI_STATUSES = ['idle', 'queued', 'running', 'done', 'error'] as con
 export const aiStatusSchema = z.enum(AI_STATUSES);
 export type AiStatus = (typeof AI_STATUSES)[number];
 
-export const AI_JOB_KINDS = ['note', 'backfill'] as const;
+export const AI_JOB_KINDS = ['note', 'backfill', 'favorite'] as const;
 export const aiJobKindSchema = z.enum(AI_JOB_KINDS);
 export type AiJobKind = (typeof AI_JOB_KINDS)[number];
 
@@ -52,11 +52,18 @@ export const aiResultDto = z.object({
 export type AiResultDto = z.infer<typeof aiResultDto>;
 
 /** Masked provider configuration returned to the browser. The API key never leaves the server. */
+export const AI_WEB_SEARCH_MODES = ['none', 'dashscope', 'openai_chat'] as const;
+export const aiWebSearchModeSchema = z.enum(AI_WEB_SEARCH_MODES);
+export type AiWebSearchMode = (typeof AI_WEB_SEARCH_MODES)[number];
+
 export const aiConfigDto = z.object({
   enabled: z.boolean(),
   preset: z.enum(AI_PRESETS),
   baseUrl: z.string(),
   model: z.string(),
+  visionModel: z.string().nullable(),
+  transcriptionModel: z.string().nullable(),
+  webSearchMode: aiWebSearchModeSchema,
   apiKeyConfigured: z.boolean(),
   apiKeyHint: z.string(),
   lastTest: z
@@ -74,6 +81,10 @@ export const aiConfigInput = z.object({
   preset: z.enum(AI_PRESETS),
   baseUrl: z.string().trim().min(1, '接口地址不能为空').max(500).url('接口地址格式不正确'),
   model: z.string().trim().min(1, '模型名不能为空').max(160),
+  /** Blank clears the optional media models. */
+  visionModel: z.string().trim().max(160).nullable().optional(),
+  transcriptionModel: z.string().trim().max(160).nullable().optional(),
+  webSearchMode: aiWebSearchModeSchema.default('none'),
   /** Blank/absent keeps the stored key so the settings form never has to resend it. */
   apiKey: z.string().trim().min(1).max(2048).optional(),
 });

@@ -22,7 +22,7 @@ import { setLaunchAtLogin } from './login-item.js';
 import { AppleNotesSyncEngine } from './apple-notes/sync.js';
 import { startAppleNotesScheduler, stopAppleNotesScheduler } from './apple-notes/scheduler.js';
 import { setAppleNotesStatus } from './tray.js';
-import { installApplicationMenu, setAppMenuQuitHandler } from './app-menu.js';
+import { dispatchMenuCommand, installApplicationMenu, setAppMenuQuitHandler } from './app-menu.js';
 import { ensureRegularActivation } from './activation.js';
 import { APP_NAME } from './app-name.js';
 import type { AppleNotesChangedEvent, AppleNotesStatus } from '@aimarkdown/shared';
@@ -84,9 +84,14 @@ if (!gotLock) {
     appleNotesEngineRef = appleNotesEngine;
 
     const applyHotkey = (target: HotkeyTarget, accelerator: string) =>
-      registerHotkey(target, accelerator, () =>
-        target === 'capture' ? toggleCaptureWindow() : showMainWindow(),
-      );
+      registerHotkey(target, accelerator, () => {
+        if (target === 'capture') {
+          toggleCaptureWindow();
+          return;
+        }
+        showMainWindow();
+        if (target === 'favorite') dispatchMenuCommand('open-favorite');
+      });
 
     registerIpc({
       onHotkeyChange: applyHotkey,
@@ -104,7 +109,8 @@ if (!gotLock) {
 
     const captureState = applyHotkey('capture', state.hotkey);
     const mainState = applyHotkey('main', state.mainWindowHotkey);
-    const failed = [captureState, mainState].filter((hotkey) => !hotkey.registered);
+    const favoriteState = applyHotkey('favorite', state.favoriteHotkey);
+    const failed = [captureState, mainState, favoriteState].filter((hotkey) => !hotkey.registered);
     // Create the tray after registration so its shortcut labels reflect the real state.
     createTray();
     installApplicationMenu();

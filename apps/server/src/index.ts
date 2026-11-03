@@ -9,6 +9,10 @@ import { createCollabServer, type CollabServer } from './collab/server.js';
 import { buildApp, bootstrapAdmin } from './app.js';
 import { createConsoleLogger } from './utils/logger.js';
 import { createAiService } from './ai/service.js';
+import { createMediaWorker } from './media/worker.js';
+import { createFolderQueryService } from './ai/folderQuery.js';
+import type { NotesDeps } from './services/notes.js';
+import type { WorkspaceDeps } from './services/workspace.js';
 
 /**
  * Process entrypoint.
@@ -44,6 +48,32 @@ async function main(): Promise<void> {
     log,
     getHocuspocus: () => collab?.hocuspocus ?? null,
   });
+  const notesDeps: NotesDeps = {
+    sql: dbHandle.sql,
+    log,
+    getHocuspocus: () => collab?.hocuspocus ?? null,
+    ai,
+  };
+  const workspaceDeps: WorkspaceDeps = {
+    sql: dbHandle.sql,
+    log,
+    getHocuspocus: () => collab?.hocuspocus ?? null,
+  };
+  const media = createMediaWorker({
+    sql: dbHandle.sql,
+    config,
+    log,
+    storage,
+    getHocuspocus: () => collab?.hocuspocus ?? null,
+    ai,
+  });
+  const folderQueries = createFolderQueryService({
+    sql: dbHandle.sql,
+    log,
+    notes: notesDeps,
+    workspace: workspaceDeps,
+    ai,
+  });
   collab = createCollabServer({
     config,
     sql: dbHandle.sql,
@@ -53,6 +83,8 @@ async function main(): Promise<void> {
   });
   const collabServer = collab;
   ctx.ai = ai;
+  ctx.media = media;
+  ctx.folderQueries = folderQueries;
 
   const app = await buildApp({ ctx, log, collab: () => collabServer });
 
@@ -60,6 +92,8 @@ async function main(): Promise<void> {
   // `buildApp` closes over `collab` lazily, so route handlers see the instance from here on.
   ctx.collab = collabServer.hocuspocus;
   await ai.start();
+  await media.start();
+  await folderQueries.start();
 
   await bootstrapAdmin(ctx, log);
 
@@ -83,6 +117,12 @@ async function main(): Promise<void> {
       log.error({ err: error }, 'error closing HTTP server');
     }
 
+    await ctx.media?.stop().catch((error) => {
+      log.error({ err: error }, 'error stopping media worker');
+    });
+    await ctx.folderQueries?.stop().catch((error) => {
+      log.error({ err: error }, 'error stopping folder AI worker');
+    });
     await ctx.ai?.stop().catch((error) => {
       log.error({ err: error }, 'error stopping AI worker');
     });

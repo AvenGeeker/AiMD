@@ -83,3 +83,13 @@ make mobile-hap        # copy-renderer → 同步 resfile → ohpm install → h
 
 拿到 SDK 后也可以直接在 DevEco Studio 打开 `apps/mobile/harmony`：File → Sync，然后 Build → HAP。
 
+
+## 分享到收藏
+
+- **Android**：`MainActivity` 接收 `ACTION_SEND` / `ACTION_SEND_MULTIPLE`，把文本和文件写入缓存后注入 `window.__aimdReceiveShare`。可用 `adb shell am start -a android.intent.action.SEND -t text/plain --es android.intent.extra.TEXT "https://..." com.aimarkdown.mobile` 冒烟。
+- **iOS**：`AiMDShare` Share Extension 把 URL/文本/图片/视频写入 App Group `group.com.aimarkdown.mobile`，再通过 `aimarkdown://share` 拉起宿主 App。模拟器构建已验证；真机需要开发者团队签名并为宿主与扩展同时启用 App Group。
+- **HarmonyOS**：`module.json5` 声明 `ohos.want.action.sendData`，`EntryAbility` 在冷/热启动时把分享内容写入 `AppStorage`，`Index.ets` 注入 WebView。ArkWeb 分享目录需要加入 `setPathAllowingUniversalAccess`。
+- 未登录时分享内容会暂存在本机，登录后自动打开收藏预览；不会在用户确认前写入服务端。
+
+
+桌面端「设置 → 速记与桌面」还可以录制「收藏链接」全局快捷键，默认 `CommandOrControl+Shift+F`；托盘菜单同样提供「收藏链接…」入口。

@@ -1261,7 +1261,7 @@ export class AppleNotesSyncEngine {
       if (usedApple.has(apple.meta.id)) continue;
       if (apple.readOnlyReason) {
         usedApple.add(apple.meta.id);
-        actions.push({ kind: 'link', app: { summary: { id: '', title: apple.title, folderId: null, tagIds: [], excerpt: '', pinned: false, archived: false, position: '', wordCount: 0, createdAt: '', contentUpdatedAt: '', updatedAt: '' }, body: apple.body, stateHash: '', bodyLoaded: false }, apple });
+        actions.push({ kind: 'link', app: { summary: { id: '', title: apple.title, folderId: null, tagIds: [], excerpt: '', pinned: false, archived: false, position: '', wordCount: 0, createdAt: '', contentUpdatedAt: '', updatedAt: '', source: null, mediaStatus: 'idle' as const, aiCategory: null }, body: apple.body, stateHash: '', bodyLoaded: false }, apple });
         continue;
       }
       usedApple.add(apple.meta.id);

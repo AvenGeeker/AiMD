@@ -8,6 +8,9 @@ import { TokenVerifier } from '../../src/auth/tokens.js';
 import { createMemoryStorage } from '../../src/services/storage.js';
 import { createCollabServer, type CollabServer } from '../../src/collab/server.js';
 import { createAiService, type AiService } from '../../src/ai/service.js';
+import { createFolderQueryService } from '../../src/ai/folderQuery.js';
+import type { NotesDeps } from '../../src/services/notes.js';
+import type { WorkspaceDeps } from '../../src/services/workspace.js';
 import type { AiClient } from '../../src/ai/client.js';
 import { createConsoleLogger, silentLogger } from '../../src/utils/logger.js';
 import type { ServerConfig } from '../../src/config.js';
@@ -98,13 +101,33 @@ export async function startTestServer(
     log,
     onNoteStored: (event) => ai.noteStored(event),
   });
+  const notesDeps: NotesDeps = {
+    sql: handle.sql,
+    log,
+    getHocuspocus: () => collab?.hocuspocus ?? null,
+    ai,
+  };
+  const workspaceDeps: WorkspaceDeps = {
+    sql: handle.sql,
+    log,
+    getHocuspocus: () => collab?.hocuspocus ?? null,
+  };
+  const folderQueries = createFolderQueryService({
+    sql: handle.sql,
+    log,
+    notes: notesDeps,
+    workspace: workspaceDeps,
+    ai,
+  });
   const collabServer = collab;
   ctx.ai = ai;
+  ctx.folderQueries = folderQueries;
   const app = await buildApp({ ctx, log, collab: () => collabServer });
 
   await collabServer.start();
   ctx.collab = collabServer.hocuspocus;
   await ai.start();
+  await folderQueries.start();
   await app.ready();
 
   return {
@@ -117,6 +140,7 @@ export async function startTestServer(
     collabPort: () => collabServer.server.address.port,
     async stop() {
       await app.close();
+      await folderQueries.stop();
       await ai.stop();
       await collabServer.stop();
       await handle.close();

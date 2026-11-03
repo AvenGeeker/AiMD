@@ -36,7 +36,9 @@ function isHotkeyTarget(value: unknown): value is HotkeyTarget {
 }
 
 function hotkeyPatch(target: HotkeyTarget, accelerator: string): Record<string, string> {
-  return target === 'capture' ? { hotkey: accelerator } : { mainWindowHotkey: accelerator };
+  if (target === 'capture') return { hotkey: accelerator };
+  if (target === 'favorite') return { favoriteHotkey: accelerator };
+  return { mainWindowHotkey: accelerator };
 }
 
 const APPLE_NOTES_SCHEDULES = new Set(['off', '15m', '30m', '1h', '6h', 'daily']);
@@ -154,6 +156,9 @@ export function registerIpc(deps: IpcDeps): void {
     if (typeof value.mainWindowHotkey === 'string' && value.mainWindowHotkey.trim().length > 0) {
       patch.mainWindowHotkey = value.mainWindowHotkey.trim();
     }
+    if (typeof value.favoriteHotkey === 'string' && value.favoriteHotkey.trim().length > 0) {
+      patch.favoriteHotkey = value.favoriteHotkey.trim();
+    }
     if (typeof value.inboxNoteId === 'string' || value.inboxNoteId === null) {
       patch.inboxNoteId = value.inboxNoteId;
     }
@@ -178,6 +183,12 @@ export function registerIpc(deps: IpcDeps): void {
       !getHotkeyState('main').registered
     ) {
       deps.onHotkeyChange('main', current.mainWindowHotkey);
+    }
+    if (
+      current.favoriteHotkey !== getHotkeyState('favorite').accelerator ||
+      !getHotkeyState('favorite').registered
+    ) {
+      deps.onHotkeyChange('favorite', current.favoriteHotkey);
     }
     refreshTrayMenu();
     // Surface a login-item failure and both registration results to the settings dialog.

@@ -1,4 +1,4 @@
-import { FileText, Pin, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { FileText, MessageSquareText, Pin, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import type { NoteSummaryDto } from '@aimarkdown/shared';
 
 /** Middle rail: the notes matching the current sidebar selection. */
@@ -13,6 +13,7 @@ interface NoteListProps {
   inTrash: boolean;
   loading: boolean;
   onCreateNote?(): void;
+  onAskAi?(): void;
 }
 
 function formatDate(iso: string): string {
@@ -33,6 +34,7 @@ export function NoteList({
   inTrash,
   loading,
   onCreateNote,
+  onAskAi,
 }: NoteListProps) {
   return (
     <div className="notes-panel flex h-full flex-col" data-testid="note-list">
@@ -41,18 +43,25 @@ export function NoteList({
           <span className="text-[12px] font-semibold text-foreground">{inTrash ? '回收站' : '笔记'}</span>
           <span className="text-[10.5px] tabular-nums text-muted">{notes.length}</span>
         </div>
-        {!inTrash && onCreateNote && (
-          <button
-            type="button"
-            className="icon-button !h-7 !w-7"
-            onClick={onCreateNote}
-            title="新建笔记"
-            aria-label="新建笔记"
-            data-testid="note-list-new-note"
-          >
-            <Plus size={15} />
-          </button>
-        )}
+        <div className="flex items-center gap-1">
+          {!inTrash && onAskAi && (
+            <button type="button" className="icon-button !h-7 !w-7" onClick={onAskAi} title="问 AI" aria-label="问 AI">
+              <MessageSquareText size={14} />
+            </button>
+          )}
+          {!inTrash && onCreateNote && (
+            <button
+              type="button"
+              className="icon-button !h-7 !w-7"
+              onClick={onCreateNote}
+              title="新建笔记"
+              aria-label="新建笔记"
+              data-testid="note-list-new-note"
+            >
+              <Plus size={15} />
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">

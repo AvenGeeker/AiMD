@@ -432,6 +432,7 @@ test.describe('desktop server settings', () => {
         hotkeys: {
           capture: { accelerator: 'Alt+Space', registered: true },
           main: { accelerator: 'CommandOrControl+Shift+M', registered: true },
+          favorite: { accelerator: 'CommandOrControl+Shift+F', registered: true },
         },
       };
       const changes: Array<[string, string]> = [];
@@ -452,7 +453,7 @@ test.describe('desktop server settings', () => {
           state.refreshToken = tokens.refreshToken;
         },
         getHotkeyStates: async () => state.hotkeys,
-        setHotkey: async (target: 'capture' | 'main', accelerator: string) => {
+        setHotkey: async (target: 'capture' | 'main' | 'favorite', accelerator: string) => {
           changes.push([target, accelerator]);
           state.hotkeys = {
             ...state.hotkeys,

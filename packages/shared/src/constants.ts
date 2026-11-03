@@ -15,6 +15,24 @@ export const DEFAULT_COLLAB_PORT = 1234;
 /** Title of the auto-created quick-capture target note. */
 export const INBOX_NOTE_TITLE = '收集箱';
 
+/** Top-level folder that hosts link/media favourites. */
+export const FAVORITES_FOLDER_NAME = '收藏';
+/** System folder under 收藏 where new or unclassified favourites wait. */
+export const FAVORITES_INBOX_NAME = '待分类';
+
+/** Categories AI may create automatically under 收藏. Anything else needs confirmation. */
+export const FAVORITE_CATEGORY_PRESETS = [
+  '学习',
+  'AI',
+  '大模型',
+  '旅游',
+  '购物',
+  '生活',
+  '职场',
+  '健康',
+  '其他',
+] as const;
+
 /** Access token lifetime (seconds) and refresh token lifetime (seconds). */
 export const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 export const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -46,7 +64,7 @@ export const DEFAULT_PAGE_SIZE = 50;
 export const MAX_PAGE_SIZE = 200;
 
 /** Current CRDT document schema version, written into every workspace doc. */
-export const CRDT_SCHEMA_VERSION = 1;
+export const CRDT_SCHEMA_VERSION = 2;
 
 /** Editor view modes. */
 export const EDITOR_MODES = ['split', 'edit', 'preview'] as const;
@@ -74,6 +92,9 @@ export const DEFAULT_HOTKEY: Record<'darwin' | 'win32' | 'linux', string> = {
  */
 export const DEFAULT_MAIN_WINDOW_HOTKEY = 'CommandOrControl+Shift+M';
 
+/** Global shortcut for the quick-favourite (paste URL) action. */
+export const DEFAULT_FAVORITE_HOTKEY = 'CommandOrControl+Shift+F';
+
 /** List sort orders accepted by `GET /api/notes`. */
-export const NOTE_SORTS = ['updated', 'created', 'title', 'position'] as const;
+export const NOTE_SORTS = ['updated', 'created', 'title', 'position', 'collected'] as const;
 export type NoteSort = (typeof NOTE_SORTS)[number];

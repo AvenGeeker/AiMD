@@ -59,6 +59,20 @@ export async function mirrorNote(
       ai_generated_at    = ${projection.aiGeneratedAt},
       ai_source_hash     = ${projection.aiSourceHash},
       ai_error           = ${projection.aiError},
+      source_url         = ${projection.source?.url ?? null},
+      source_platform    = ${projection.source?.platform ?? null},
+      source_author      = ${projection.source?.author ?? null},
+      source_cover_id    = ${projection.source?.coverAttachmentId ?? null},
+      source_original_title = ${projection.source?.originalTitle ?? null},
+      collected_at       = ${projection.source?.collectedAt ?? null},
+      capture_status     = ${projection.source?.captureStatus ?? null},
+      media_status       = ${projection.mediaStatus},
+      ai_category_folder_id = ${projection.aiCategoryFolderId},
+      ai_category_name   = ${projection.aiCategoryName},
+      ai_category_status = ${projection.aiCategoryStatus},
+      ai_category_suggestion = ${projection.aiCategorySuggestion},
+      ai_category_at     = ${projection.aiCategoryAt},
+      ai_category_error  = ${projection.aiCategoryError},
       content_updated_at = case
         when notes.body_text is distinct from ${projection.bodyText} then ${now}
         else notes.content_updated_at

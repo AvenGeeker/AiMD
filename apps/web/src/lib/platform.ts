@@ -14,7 +14,7 @@ import type {
  * the OS keychain, register a global hotkey, and drive the quick-capture window.
  */
 
-export type HotkeyTarget = 'capture' | 'main';
+export type HotkeyTarget = 'capture' | 'main' | 'favorite';
 
 export interface HotkeyState {
   accelerator: string;
@@ -28,6 +28,7 @@ export type HotkeyStates = Record<HotkeyTarget, HotkeyState>;
 export type MenuCommand =
   | 'new-note'
   | 'quick-capture'
+  | 'open-favorite'
   | 'import'
   | 'export-note'
   | 'export-vault'

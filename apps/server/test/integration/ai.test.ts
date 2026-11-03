@@ -45,6 +45,9 @@ class FakeAiClient implements AiClient {
         keyPoints: ['要点一', '要点二'],
         todos: ['补测试', '通知团队'],
         tags: ['发布', '计划', '会议', '多余'],
+        category: null,
+        suggestedCategory: null,
+        categoryConfidence: 0.5,
       },
       callCount: 1,
       inputTokens: 10,
@@ -55,6 +58,10 @@ class FakeAiClient implements AiClient {
     this.calls++;
     return { latencyMs: 3, message: '{"ok":true}' };
   }
+  async pickRelevantNotes() { return []; }
+  async answerFolder() { return { text: '回答', webSources: [], inputTokens: 1, outputTokens: 1 }; }
+  async ocrImage() { return ''; }
+  async transcribeAudio() { return ''; }
 }
 
 describeDb('AI summaries, tags and backfill', () => {

@@ -24,6 +24,9 @@ interface Draft {
   preset: AiProviderPreset;
   baseUrl: string;
   model: string;
+  visionModel: string;
+  transcriptionModel: string;
+  webSearchMode: 'none' | 'dashscope' | 'openai_chat';
   apiKey: string;
 }
 
@@ -32,6 +35,9 @@ const EMPTY_DRAFT: Draft = {
   preset: AI_PRESET_ALIBABA,
   baseUrl: ALIBABA_TOKEN_PLAN_BASE_URL,
   model: AI_DEFAULT_MODEL,
+  visionModel: '',
+  transcriptionModel: '',
+  webSearchMode: 'none',
   apiKey: '',
 };
 
@@ -54,10 +60,13 @@ export function AiSettingsSection() {
         preset: config.preset,
         baseUrl: config.baseUrl,
         model: config.model,
+        visionModel: config.visionModel ?? '',
+        transcriptionModel: config.transcriptionModel ?? '',
+        webSearchMode: config.webSearchMode,
         apiKey: '',
       });
     }
-  }, [config?.enabled, config?.preset, config?.baseUrl, config?.model]);
+  }, [config?.enabled, config?.preset, config?.baseUrl, config?.model, config?.visionModel, config?.transcriptionModel, config?.webSearchMode]);
 
   const activeBackfill =
     overview.data?.activeJob?.kind === 'backfill'
@@ -88,6 +97,9 @@ export function AiSettingsSection() {
         preset: draft.preset,
         baseUrl: draft.baseUrl.trim(),
         model: draft.model.trim(),
+        visionModel: draft.visionModel.trim() || null,
+        transcriptionModel: draft.transcriptionModel.trim() || null,
+        webSearchMode: draft.webSearchMode,
         ...(draft.apiKey.trim() ? { apiKey: draft.apiKey.trim() } : {}),
       };
       await save.mutateAsync(input);
@@ -198,6 +210,44 @@ export function AiSettingsSection() {
             className="input-base min-h-8 min-w-0 flex-1 text-[10.5px]"
             data-testid="ai-model"
           />
+        </label>
+
+        <label className="flex items-center justify-between gap-3">
+          <span className="shrink-0 text-[10.5px] text-muted">视觉模型</span>
+          <input
+            value={draft.visionModel}
+            onChange={(event) => setDraft((prev) => ({ ...prev, visionModel: event.target.value }))}
+            placeholder="图片 OCR，可选"
+            className="input-base min-h-8 min-w-0 flex-1 text-[10.5px]"
+            data-testid="ai-vision-model"
+          />
+        </label>
+
+        <label className="flex items-center justify-between gap-3">
+          <span className="shrink-0 text-[10.5px] text-muted">转写模型</span>
+          <input
+            value={draft.transcriptionModel}
+            onChange={(event) => setDraft((prev) => ({ ...prev, transcriptionModel: event.target.value }))}
+            placeholder="视频语音转写，可选"
+            className="input-base min-h-8 min-w-0 flex-1 text-[10.5px]"
+            data-testid="ai-transcription-model"
+          />
+        </label>
+
+        <label className="flex items-center justify-between gap-3">
+          <span className="shrink-0 text-[10.5px] text-muted">联网搜索</span>
+          <select
+            value={draft.webSearchMode}
+            onChange={(event) =>
+              setDraft((prev) => ({ ...prev, webSearchMode: event.target.value as Draft['webSearchMode'] }))
+            }
+            className="select-base min-h-8 min-w-0 flex-1 max-w-64 text-[10.5px]"
+            data-testid="ai-web-search"
+          >
+            <option value="none">关闭</option>
+            <option value="dashscope">阿里云 enable_search</option>
+            <option value="openai_chat">OpenAI web_search_options</option>
+          </select>
         </label>
 
         <label className="flex items-center justify-between gap-3">

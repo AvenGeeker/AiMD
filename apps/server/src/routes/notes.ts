@@ -43,6 +43,8 @@ export function registerNoteRoutes(app: FastifyInstance, deps: NotesDeps, ws: Wo
       folderId: query.folderId === undefined ? undefined : query.folderId,
       rootOnly: query.rootOnly,
       tagIds: parseIdList(query.tagIds),
+      recursive: query.recursive,
+      sourcePlatform: query.sourcePlatform ?? null,
       q: query.q ?? null,
       archived: query.archived,
       sort: query.sort as NoteSort,

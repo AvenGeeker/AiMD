@@ -5,6 +5,7 @@ import { getState, isPlaintextFallback } from './store.js';
 import { setQuitting } from './lifecycle.js';
 import { APP_NAME } from './app-name.js';
 import type { AppleNotesStatus } from '@aimarkdown/shared';
+import { dispatchMenuCommand } from './app-menu.js';
 
 /**
  * Menu-bar / notification-area tray.
@@ -63,7 +64,7 @@ function rebuildMenu(): void {
   if (!tray) return;
   const hotkeys = getHotkeyStates();
   const state = getState();
-  const failedHotkeys = [hotkeys.capture, hotkeys.main].filter((hotkey) => !hotkey.registered);
+  const failedHotkeys = [hotkeys.capture, hotkeys.main, hotkeys.favorite].filter((hotkey) => !hotkey.registered);
 
   const menu = Menu.buildFromTemplate([
     {
@@ -73,6 +74,13 @@ function rebuildMenu(): void {
     {
       label: '打开主窗口',
       click: () => showMainWindow(),
+    },
+    {
+      label: '收藏链接…',
+      click: () => {
+        showMainWindow();
+        dispatchMenuCommand('open-favorite');
+      },
     },
     { type: 'separator' },
     { label: syncLabel, enabled: false },
@@ -86,6 +94,12 @@ function rebuildMenu(): void {
       label: hotkeys.main.registered
         ? `主窗口快捷键：${hotkeys.main.accelerator}`
         : `主窗口快捷键未注册：${hotkeys.main.accelerator || '（未设置）'}`,
+      enabled: false,
+    },
+    {
+      label: hotkeys.favorite.registered
+        ? `收藏快捷键：${hotkeys.favorite.accelerator}`
+        : `收藏快捷键未注册：${hotkeys.favorite.accelerator || '（未设置）'}`,
       enabled: false,
     },
     ...failedHotkeys.map((hotkey) => ({

@@ -7,6 +7,7 @@ import {
   Download,
   Loader2,
   Menu,
+  MessageSquareText,
   Pencil,
   Pin,
   PinOff,
@@ -36,6 +37,7 @@ import type { QuickCaptureEntry } from '../lib/quickCaptures.js';
 import { useMobileLayout } from '../hooks/useMobileLayout.js';
 import { Sidebar, type SidebarSelection } from './Sidebar.js';
 import { NoteList } from './NoteList.js';
+import { FavoriteList } from './FavoriteList.js';
 import { CaptureList } from './CaptureList.js';
 import { MarkdownEditor, type EditorMode, type EditorReveal } from './MarkdownEditor.js';
 import { TagEditor } from './TagEditor.js';
@@ -79,6 +81,16 @@ export interface MobileShellProps {
   settingsOpen: boolean;
   /** True while a tag mutation is in flight (disables the tag editor input). */
   tagBusy: boolean;
+  favoritesFolderId: string | null;
+  favoritesInboxFolderId: string | null;
+  favoriteCount: number;
+  favoritesPending: number;
+  favoritePlatform: string;
+  onFavoritePlatformChange(value: string): void;
+  onOpenFavorites(): void;
+  onOpenFavoriteFolder(folderId: string): void;
+  onCreateFavorite(): void;
+  onAskFolderAi(): void;
 
   onSelect(next: SidebarSelection): void;
   onOpenNote(id: string): void;
@@ -177,6 +189,16 @@ export function MobileShell(props: MobileShellProps) {
     reveal,
     settingsOpen,
     tagBusy,
+    favoritesFolderId,
+    favoritesInboxFolderId,
+    favoriteCount,
+    favoritesPending,
+    favoritePlatform,
+    onFavoritePlatformChange,
+    onOpenFavorites,
+    onOpenFavoriteFolder,
+    onCreateFavorite,
+    onAskFolderAi,
     onSelect,
     onOpenNote,
     onOpenCaptures,
@@ -326,6 +348,24 @@ export function MobileShell(props: MobileShellProps) {
         setView('list');
         if (closeAfterSelect) closeDrawer();
       }}
+      favoritesFolderId={favoritesFolderId}
+      favoritesInboxFolderId={favoritesInboxFolderId}
+      favoriteCount={favoriteCount}
+      favoritesPending={favoritesPending}
+      onOpenFavorites={() => {
+        onOpenFavorites();
+        setView('list');
+        if (closeAfterSelect) closeDrawer();
+      }}
+      onOpenFavoriteFolder={(folderId) => {
+        onOpenFavoriteFolder(folderId);
+        setView('list');
+        if (closeAfterSelect) closeDrawer();
+      }}
+      onCreateFavorite={() => {
+        onCreateFavorite();
+        if (closeAfterSelect) closeDrawer();
+      }}
     />
   );
 
@@ -361,6 +401,11 @@ export function MobileShell(props: MobileShellProps) {
           </span>
         </div>
         <SyncBadge status={status} />
+        {selection.folderId ? (
+          <button type="button" className={headerButton} aria-label="问 AI" onClick={onAskFolderAi}>
+            <MessageSquareText size={19} />
+          </button>
+        ) : null}
         <button
           type="button"
           className={headerButton}
@@ -396,6 +441,17 @@ export function MobileShell(props: MobileShellProps) {
               setView('editor');
             }}
             onCapture={onCapture}
+          />
+        ) : selection.favorites ? (
+          <FavoriteList
+            notes={notes}
+            selectedId={selectedNoteId}
+            onOpen={openNote}
+            loading={loading}
+            platform={favoritePlatform}
+            onPlatformChange={onFavoritePlatformChange}
+            onCreateFavorite={onCreateFavorite}
+            onAskAi={onAskFolderAi}
           />
         ) : (
           <NoteList

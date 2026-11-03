@@ -202,6 +202,7 @@ if [[ "$NO_BUILD" == "1" ]]; then
   info "Using prebuilt image ${APP_IMAGE}"
 else
   info "Building application image (this can take a few minutes on a small VPS)"
+  info "Only dependency/Web changes rebuild the heavy mermaid/shiki bundle; server-only updates reuse that Docker layer."
 fi
 
 # A pull failure on a mainland-China network is almost always Docker Hub being unreachable.

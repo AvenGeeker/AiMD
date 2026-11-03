@@ -7,7 +7,14 @@ import {
   NOTE_SORTS,
   STAMP_FORMATS,
   THEMES,
+  FAVORITE_CATEGORY_PRESETS,
 } from './constants.js';
+import {
+  CAPTURE_STATUSES,
+  FAVORITE_CATEGORY_STATUSES,
+  MEDIA_STATUSES,
+  SOURCE_PLATFORMS,
+} from './crdt.js';
 
 /**
  * Wire contracts for the REST API. The server uses these for request validation and
@@ -77,6 +84,7 @@ export const settingsDto = z.object({
   inboxNoteId: idSchema.nullable(),
   hotkey: z.string().min(1).max(64),
   mainWindowHotkey: z.string().min(1).max(64),
+  favoriteHotkey: z.string().min(1).max(64),
   theme: z.enum(THEMES),
   editorMode: z.enum(EDITOR_MODES),
   fontSize: z.number().int().min(10).max(24),
@@ -84,10 +92,15 @@ export const settingsDto = z.object({
   hideOnBlur: z.boolean(),
   minimizeToTray: z.boolean(),
   launchAtLogin: z.boolean(),
+  favoritesFolderId: idSchema.nullable(),
+  favoritesInboxFolderId: idSchema.nullable(),
 });
 export type SettingsDto = z.infer<typeof settingsDto>;
 
-export const settingsPatchInput = settingsDto.partial();
+/** System folder ids are informational and must never be writable through the settings API. */
+export const settingsPatchInput = settingsDto
+  .omit({ favoritesFolderId: true, favoritesInboxFolderId: true })
+  .partial();
 export type SettingsPatchInput = z.infer<typeof settingsPatchInput>;
 
 /* --------------------------------- folder --------------------------------- */
@@ -140,6 +153,32 @@ export type UpsertTagInput = z.infer<typeof upsertTagInput>;
 
 /* ---------------------------------- note ---------------------------------- */
 
+export const sourcePlatformSchema = z.enum(SOURCE_PLATFORMS);
+export const captureStatusSchema = z.enum(CAPTURE_STATUSES);
+export const mediaStatusSchema = z.enum(MEDIA_STATUSES);
+export const favoriteCategoryStatusSchema = z.enum(FAVORITE_CATEGORY_STATUSES);
+
+export const noteSourceDto = z.object({
+  url: z.string().nullable(),
+  platform: sourcePlatformSchema.nullable(),
+  author: z.string().nullable(),
+  coverAttachmentId: idSchema.nullable(),
+  originalTitle: z.string().nullable(),
+  collectedAt: isoDateTime.nullable(),
+  captureStatus: captureStatusSchema.nullable(),
+});
+export type NoteSourceDto = z.infer<typeof noteSourceDto>;
+
+export const noteCategoryDto = z.object({
+  folderId: idSchema.nullable(),
+  name: z.string().nullable(),
+  status: favoriteCategoryStatusSchema,
+  suggestion: z.string().nullable(),
+  updatedAt: isoDateTime.nullable(),
+  error: z.string().nullable(),
+});
+export type NoteCategoryDto = z.infer<typeof noteCategoryDto>;
+
 export const noteSummaryDto = z.object({
   id: idSchema,
   title: z.string(),
@@ -154,6 +193,10 @@ export const noteSummaryDto = z.object({
   createdAt: isoDateTime,
   contentUpdatedAt: isoDateTime,
   updatedAt: isoDateTime,
+  /** Present for favourites; null for ordinary notes. */
+  source: noteSourceDto.nullable(),
+  mediaStatus: mediaStatusSchema,
+  aiCategory: noteCategoryDto.nullable(),
   /** Present only for search results. */
   matches: z.array(z.string()).optional(),
 });
@@ -244,6 +287,12 @@ export const listNotesQuery = z.object({
     .nullish()
     .transform((v) => v === 'true'),
   tagIds: z.string().nullish(),
+  /** Include notes in every descendant folder of `folderId`. */
+  recursive: z
+    .enum(['true', 'false'])
+    .nullish()
+    .transform((v) => v === 'true'),
+  sourcePlatform: sourcePlatformSchema.nullish(),
   q: z.string().trim().max(200).nullish(),
   archived: z
     .enum(['true', 'false', 'only', 'all'])
@@ -273,6 +322,8 @@ export const treeDto = z.object({
   counts: z.object({
     notes: z.number().int().nonnegative(),
     trashed: z.number().int().nonnegative(),
+    favorites: z.number().int().nonnegative(),
+    favoritesPending: z.number().int().nonnegative(),
   }),
 });
 export type TreeDto = z.infer<typeof treeDto>;
@@ -311,6 +362,117 @@ export const healthDto = z.object({
   collab: z.enum(['ok', 'error']),
 });
 export type HealthDto = z.infer<typeof healthDto>;
+
+/* ------------------------------- favourites ------------------------------- */
+
+export const favoritePreviewInput = z.object({
+  url: z.string().trim().min(1, '链接不能为空').max(2000),
+});
+export type FavoritePreviewInput = z.infer<typeof favoritePreviewInput>;
+
+export const favoritePreviewDto = z.object({
+  url: z.string(),
+  platform: sourcePlatformSchema,
+  title: z.string(),
+  author: z.string().nullable(),
+  coverUrl: z.string().nullable(),
+  body: z.string(),
+  excerpt: z.string(),
+  imageCount: z.number().int().nonnegative(),
+  videoDetected: z.boolean(),
+  blocked: z.boolean(),
+  blockReason: z.string().nullable(),
+  warnings: z.array(z.string()),
+  existingNoteId: idSchema.nullable(),
+});
+export type FavoritePreviewDto = z.infer<typeof favoritePreviewDto>;
+
+export const favoriteSaveInput = z.object({
+  url: z.string().trim().url('链接格式不正确').max(2000).nullable().optional(),
+  platform: sourcePlatformSchema.optional(),
+  /** Optional: the server derives a title from the page, URL, or body when omitted. */
+  title: z.string().trim().max(200).optional().default(''),
+  author: z.string().trim().max(120).nullable().optional(),
+  body: z.string().max(8_000_000).default(''),
+  coverUrl: z.string().trim().max(2000).nullable().optional(),
+  folderId: idSchema.nullable().optional(),
+  captureStatus: captureStatusSchema.default('manual'),
+  forceNew: z.boolean().default(false),
+  downloadImages: z.boolean().default(true),
+});
+export type FavoriteSaveInput = z.infer<typeof favoriteSaveInput>;
+
+export const favoriteSaveResultDto = z.object({
+  note: noteDto,
+  created: z.boolean(),
+  mediaJobQueued: z.boolean(),
+  warnings: z.array(z.string()),
+});
+export type FavoriteSaveResultDto = z.infer<typeof favoriteSaveResultDto>;
+
+export const favoriteCategoryInput = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('set'),
+    folderId: idSchema,
+    name: z.string().trim().min(1).max(120),
+  }),
+  z.object({ action: z.literal('dismiss') }),
+]);
+export type FavoriteCategoryInput = z.infer<typeof favoriteCategoryInput>;
+
+export const favoriteCategoryPresets = FAVORITE_CATEGORY_PRESETS;
+
+/* ------------------------------ folder AI query ---------------------------- */
+
+export const FOLDER_QUERY_MODES = ['qa', 'search', 'trip'] as const;
+export const folderQueryModeSchema = z.enum(FOLDER_QUERY_MODES);
+export type FolderQueryMode = (typeof FOLDER_QUERY_MODES)[number];
+
+export const FOLDER_QUERY_STATUSES = ['queued', 'running', 'done', 'error', 'cancelled'] as const;
+export const folderQueryStatusSchema = z.enum(FOLDER_QUERY_STATUSES);
+export type FolderQueryStatus = (typeof FOLDER_QUERY_STATUSES)[number];
+
+export const folderQueryInput = z.object({
+  mode: folderQueryModeSchema,
+  question: z.string().trim().min(1, '问题不能为空').max(4000),
+  allowWebSearch: z.boolean().default(false),
+  history: z
+    .array(
+      z.object({
+        role: z.enum(['user', 'assistant']),
+        content: z.string().max(4000),
+      }),
+    )
+    .max(12)
+    .default([]),
+});
+export type FolderQueryInput = z.infer<typeof folderQueryInput>;
+
+export const folderWebSourceDto = z.object({
+  title: z.string(),
+  url: z.string(),
+});
+export type FolderWebSourceDto = z.infer<typeof folderWebSourceDto>;
+
+export const folderQueryDto = z.object({
+  id: idSchema,
+  folderId: idSchema,
+  mode: folderQueryModeSchema,
+  status: folderQueryStatusSchema,
+  question: z.string(),
+  answer: z.string(),
+  citations: z.array(noteSummaryDto),
+  webSources: z.array(folderWebSourceDto),
+  webSearchUsed: z.boolean(),
+  truncated: z.boolean(),
+  error: z.string().nullable(),
+  createdAt: isoDateTime,
+  finishedAt: isoDateTime.nullable(),
+});
+export type FolderQueryDto = z.infer<typeof folderQueryDto>;
+
+export const folderQueryEnvelopeDto = z.object({ query: folderQueryDto });
+export type FolderQueryEnvelopeDto = z.infer<typeof folderQueryEnvelopeDto>;
 
 /* ------------------------------- quick capture ---------------------------- */
 

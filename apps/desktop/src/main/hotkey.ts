@@ -9,7 +9,7 @@ import { globalShortcut } from 'electron';
  * silent: each result is reported to the tray and the settings UI.
  */
 
-export const HOTKEY_TARGETS = ['capture', 'main'] as const;
+export const HOTKEY_TARGETS = ['capture', 'main', 'favorite'] as const;
 export type HotkeyTarget = (typeof HOTKEY_TARGETS)[number];
 
 export interface HotkeyState {
@@ -23,11 +23,13 @@ export type HotkeyStates = Record<HotkeyTarget, HotkeyState>;
 const TARGET_LABEL: Record<HotkeyTarget, string> = {
   capture: '打开数据窗口',
   main: '打开主窗口',
+  favorite: '收藏链接',
 };
 
 let states: HotkeyStates = {
   capture: { accelerator: '', registered: false },
   main: { accelerator: '', registered: false },
+  favorite: { accelerator: '', registered: false },
 };
 const handlers: Partial<Record<HotkeyTarget, () => void>> = {};
 
@@ -47,6 +49,7 @@ export function getHotkeyStates(): HotkeyStates {
   return {
     capture: { ...states.capture },
     main: { ...states.main },
+    favorite: { ...states.favorite },
   };
 }
 
@@ -91,13 +94,15 @@ export function registerHotkey(
     return { ...states[target] };
   }
 
-  const other: HotkeyTarget = target === 'capture' ? 'main' : 'capture';
-  if (states[other].accelerator && sameAccelerator(states[other].accelerator, next)) {
+  const conflict = HOTKEY_TARGETS.find(
+    (other) => other !== target && states[other].accelerator && sameAccelerator(states[other].accelerator, next),
+  );
+  if (conflict) {
     unregisterHotkey(target);
     states[target] = {
       accelerator: next,
       registered: false,
-      error: `该组合键已用于${TARGET_LABEL[other]}`,
+      error: `该组合键已用于${TARGET_LABEL[conflict]}`,
     };
     return { ...states[target] };
   }
@@ -139,5 +144,6 @@ export function unregisterAll(): void {
   states = {
     capture: { accelerator: states.capture.accelerator, registered: false },
     main: { accelerator: states.main.accelerator, registered: false },
+    favorite: { accelerator: states.favorite.accelerator, registered: false },
   };
 }

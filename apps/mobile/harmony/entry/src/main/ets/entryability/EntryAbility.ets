@@ -4,13 +4,59 @@ import { window } from '@kit.ArkUI';
 
 const TAG = 'AiMD';
 
-/**
- * Standard Stage-model entry ability. The whole app is one Web component (ArkWeb) hosting the
- * shared renderer bundle from resources/resfile/www; there is no native UI of its own.
- */
+/** Pull share text/URLs out of the common HarmonyOS sendData want parameters. */
+function shareText(want: Want): string {
+  const params = want.parameters ?? {};
+  const candidates = [
+    'ability.params.stream',
+    'ohos.extra.param.key.content',
+    'text',
+    'url',
+  ];
+  const parts: string[] = [];
+  for (const key of candidates) {
+    const value = (params as Record<string, Object>)[key] as string | string[] | undefined;
+    if (typeof value === 'string') {
+      parts.push(value);
+    } else if (value !== undefined) {
+      for (const item of value as string[]) {
+        if (typeof item === 'string') parts.push(item);
+      }
+    }
+  }
+  const unique: string[] = [];
+  for (const part of parts) {
+    if (unique.indexOf(part) < 0) unique.push(part);
+  }
+  return unique.join('\n');
+}
+
+function queueShare(want: Want): void {
+  try {
+    const text = shareText(want);
+    if (!text) return;
+    const payload = JSON.stringify({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      source: 'harmony',
+      receivedAt: new Date().toISOString(),
+      text,
+    });
+    AppStorage.setOrCreate('aimdSharePayload', payload);
+  } catch (err) {
+    const e = err as Error;
+    hilog.error(0x0000, TAG, 'share parse failed: %{public}s', e.message);
+  }
+}
+
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     hilog.info(0x0000, TAG, 'Ability onCreate %{public}s', JSON.stringify(want));
+    queueShare(want);
+  }
+
+  onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    hilog.info(0x0000, TAG, 'Ability onNewWant %{public}s', JSON.stringify(want));
+    queueShare(want);
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
