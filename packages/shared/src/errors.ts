@@ -25,6 +25,12 @@ export const ERROR_CODES = {
   AI_INVALID_RESPONSE: 'AI_INVALID_RESPONSE',
   AI_NOTE_TOO_LONG: 'AI_NOTE_TOO_LONG',
   AI_JOB_ALREADY_RUNNING: 'AI_JOB_ALREADY_RUNNING',
+  /**
+   * The peer answered, but not with the JSON API contract — typically an HTML page from a wrong
+   * server address, a router/captive-portal login page, or a reverse-proxy error page. Raised by
+   * clients; the server never sends it.
+   */
+  INVALID_SERVER_RESPONSE: 'INVALID_SERVER_RESPONSE',
   INTERNAL: 'INTERNAL',
 } as const;
 
@@ -61,6 +67,7 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   AI_INVALID_RESPONSE: 502,
   AI_NOTE_TOO_LONG: 413,
   AI_JOB_ALREADY_RUNNING: 409,
+  INVALID_SERVER_RESPONSE: 502,
   INTERNAL: 500,
 };
 

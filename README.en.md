@@ -112,6 +112,12 @@ Download a `.dmg` (macOS, x64 / arm64) or `.exe` (Windows x64) from
 [Releases](https://github.com/geekeraven/aimarkdown/releases), then enter your server address on
 first launch.
 
+> Enter the **root address of your deployment** — the one that opens the notebook in a browser —
+> such as `https://notes.example.com` or `http://203.0.113.10:8080`: no `/api` prefix, and not some
+> other site or router admin page. Saving probes `/api/health` first and tells you right there why
+> an address was rejected, instead of failing later at login with an unreadable error. A missing
+> `https://` is added automatically.
+
 **The artifacts are unsigned** (no Apple Developer ID, no Windows code-signing certificate), so the
 OS will object the first time:
 

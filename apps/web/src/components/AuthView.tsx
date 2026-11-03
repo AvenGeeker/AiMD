@@ -45,10 +45,11 @@ export function AuthView() {
     setLocalError(null);
     try {
       if (showServerUrlForm) {
-        const next = serverUrl.trim().replace(/\/+$/, '');
-        const changed = next !== baseUrl;
-        await setBaseUrl(next);
-        setServerUrlInput(next);
+        // `setBaseUrl` normalises (adds a missing https://, drops a stray path/query) and verifies
+        // the address answers as AiMD before storing it; show what was actually applied.
+        const changed = serverUrl.trim().replace(/\/+$/, '') !== baseUrl;
+        const applied = await setBaseUrl(serverUrl);
+        setServerUrlInput(applied);
         setEditingServerUrl(false);
         if (changed) {
           setMode('login');
@@ -175,7 +176,7 @@ export function AuthView() {
                 </label>
                 <p className="rounded-lg bg-panel px-3 py-2.5 text-[10.5px] leading-5 text-muted">
                   {needsServerUrl
-                    ? `填入你自己部署的 ${APP_NAME} 服务地址，保存后继续登录。`
+                    ? `填入你自己部署的 ${APP_NAME} 服务地址（形如 https://notes.example.com），保存时会先检查能否连通。`
                     : '更改服务器地址后需要重新登录。'}
                 </p>
               </>
@@ -247,7 +248,9 @@ export function AuthView() {
               data-testid="auth-submit"
             >
               {busy
-                ? '处理中…'
+                ? showServerUrlForm
+                  ? '正在连接服务器…'
+                  : '处理中…'
                 : showServerUrlForm
                   ? needsServerUrl
                     ? '保存服务器地址'

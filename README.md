@@ -100,6 +100,11 @@ cd AiMD
 从 [Releases](https://github.com/geekeraven/aimarkdown/releases) 下载 `.dmg`（macOS，x64 / arm64）或 `.exe`（Windows x64），
 首次启动时填写你的服务器地址。
 
+> 地址填**部署根地址**（浏览器里能打开笔记页面的那个），例如 `https://notes.example.com` 或
+> `http://203.0.113.10:8080`：不要带 `/api` 前缀，也不要填成别的网站或路由器管理页。
+> 保存时会先请求 `/api/health` 校验连通性，地址不对会当场说明原因，而不是等到登录时才报一个看不懂的错。
+> 少写 `https://` 会自动补全。
+
 **产物未签名**（没有 Apple Developer ID / Windows 代码签名证书），首次打开会被拦：
 
 - **macOS**：右键 → 打开，或在「系统设置 → 隐私与安全性」点「仍要打开」

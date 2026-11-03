@@ -3,6 +3,8 @@ import {
   createNote,
   loginThroughUi,
   registerThroughUi,
+  stubDesktopBridge,
+  stubServerHealth,
   typeInEditor,
   uniqueEmail,
 } from './helpers.js';
@@ -337,34 +339,9 @@ test.describe('desktop server settings', () => {
     expect(baseURL).toBeTruthy();
 
     // Simulate the Electron preload bridge so the web bundle takes its desktop code path.
-    await page.addInitScript((initialServerUrl) => {
-      const state: {
-        serverUrl: string;
-        accessToken: string | null;
-        refreshToken: string | null;
-      } = { serverUrl: initialServerUrl, accessToken: null, refreshToken: null };
-
-      (window as unknown as { aiMarkdown: unknown }).aiMarkdown = {
-        platform: 'darwin',
-        appVersion: 'test',
-        getServerUrl: async () => state.serverUrl,
-        setServerUrl: async (url: string) => {
-          state.serverUrl = url;
-        },
-        getTokens: async () => ({
-          accessToken: state.accessToken,
-          refreshToken: state.refreshToken,
-        }),
-        setTokens: async (tokens: { accessToken: string | null; refreshToken: string | null }) => {
-          state.accessToken = tokens.accessToken;
-          state.refreshToken = tokens.refreshToken;
-        },
-        setHotkey: async () => ({ ok: true }),
-        getHotkeyState: async () => ({ accelerator: 'Alt+Space', registered: true }),
-        showMainWindow: async () => {},
-        hideQuickCapture: async () => {},
-      };
-    }, baseURL!);
+    await stubDesktopBridge(page, baseURL!);
+    // Saving an address probes it; example.com is not reachable, so answer the probe locally.
+    await stubServerHealth(page, 'https://notes.example.com');
 
     await page.goto('/');
     await expect(page.getByTestId('auth-view')).toBeVisible({ timeout: 20_000 });
@@ -383,6 +360,62 @@ test.describe('desktop server settings', () => {
     await expect(page.getByText('当前服务器：https://notes.example.com')).toBeVisible();
     await expect(page.getByTestId('edit-server-url')).toBeVisible();
     await expect(page.getByTestId('auth-error')).toHaveCount(0);
+  });
+
+  test('normalises an address typed without a scheme', async ({ page, baseURL }) => {
+    expect(baseURL).toBeTruthy();
+    const origin = new URL(baseURL!).origin;
+    const host = new URL(baseURL!).host;
+
+    await stubDesktopBridge(page, origin);
+
+    await page.goto('/');
+    await expect(page.getByTestId('auth-view')).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId('edit-server-url').click();
+    // `apiBase()` concatenates, so a scheme-less value would have become a relative request path
+    // that never reaches a server. The loopback host is inferred as http:// and the probe then
+    // hits the real E2E server.
+    await page.getByTestId('server-url').fill(host);
+    await page.getByTestId('auth-submit').click();
+
+    await expect(page.getByTestId('auth-error')).toHaveCount(0);
+    await expect(page.getByText(`当前服务器：${origin}`)).toBeVisible();
+    // The field is normalised too, so a later edit starts from what is actually stored.
+    await page.getByTestId('edit-server-url').click();
+    await expect(page.getByTestId('server-url')).toHaveValue(origin);
+  });
+
+  test('refuses an address that answers with a web page instead of the API', async ({
+    page,
+    baseURL,
+  }) => {
+    expect(baseURL).toBeTruthy();
+
+    await stubDesktopBridge(page, baseURL!);
+    // The regression: a wrong address (a router, a static host, an intercepting proxy) answers
+    // `200 text/html`, which used to surface as `Unexpected token '<', "<!DOCTYPE "...`.
+    await stubServerHealth(page, 'https://router.example.com', {
+      status: 200,
+      contentType: 'text/html; charset=utf-8',
+      body: '<!doctype html><html><body>Router login</body></html>',
+    });
+
+    await page.goto('/');
+    await expect(page.getByTestId('auth-view')).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId('edit-server-url').click();
+    await page.getByTestId('server-url').fill('https://router.example.com');
+    await page.getByTestId('auth-submit').click();
+
+    const error = page.getByTestId('auth-error');
+    await expect(error).toBeVisible();
+    await expect(error).toContainText('网页');
+    await expect(error).not.toContainText('Unexpected token');
+    // The address is refused, so the form stays open with what the user typed and the previous
+    // server remains in effect.
+    await expect(page.getByTestId('server-url')).toHaveValue('https://router.example.com');
+    await expect(page.getByTestId('cancel-server-url')).toBeVisible();
+    await page.getByTestId('cancel-server-url').click();
+    await expect(page.getByText(`当前服务器：${baseURL!}`)).toBeVisible();
   });
 
   test('records separate main-window and data-window shortcuts from the keyboard', async ({

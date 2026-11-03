@@ -90,6 +90,80 @@ export function collabUrl(baseUrl: string): string {
   return `${proto}://${host}/collab`;
 }
 
+/** A scheme-qualified URL; anything the user typed without one gets a scheme inferred. */
+const HAS_SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//;
+
+export type NormalizedServerUrl =
+  | { ok: true; url: string; /** True when we picked the scheme, so the caller may try the other one. */ guessedScheme: boolean }
+  | { ok: false; message: string };
+
+/**
+ * Loopback, LAN and mDNS hosts are served over plain HTTP in practice.
+ *
+ * Both documented local setups are `http://127.0.0.1:3000` (dev) and `http://<LAN-IP>:8080`
+ * (an unregistered domain cannot get 80/443 through a mainland-China ISP), so guessing `https://`
+ * for them would send the user into a TLS error they cannot explain.
+ */
+function isLocalHost(host: string): boolean {
+  const value = host.replace(/^\[|\]$/g, '').toLowerCase();
+  if (value === 'localhost' || value === '::1') return true;
+  if (value.startsWith('127.') || value.startsWith('10.') || value.startsWith('192.168.')) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(value)) return true;
+  return value.endsWith('.local') || value.endsWith('.lan');
+}
+
+/**
+ * Turn whatever the user typed into a base URL the API client can concatenate against.
+ *
+ * `apiBase()` builds `${base}/api`, so a value that is not an absolute http(s) URL silently
+ * produces a *relative* request path. In the browser that quietly hits the current origin; in the
+ * Electron and mobile shells the document is `file://`, so the request cannot even be sent — and
+ * when something does answer (a router, a static site, an intercepting proxy) it answers HTML,
+ * which used to surface as `Unexpected token '<' … is not valid JSON`. Rejecting the value here
+ * keeps the mistake on the screen where the user can fix it.
+ */
+export function normalizeServerUrl(raw: string): NormalizedServerUrl {
+  const trimmed = raw.trim();
+  if (!trimmed) return { ok: false, message: '请填写服务器地址' };
+  if (/\s/.test(trimmed)) return { ok: false, message: '服务器地址不能包含空格' };
+
+  const explicitScheme = HAS_SCHEME_RE.test(trimmed);
+  const withoutScheme = trimmed.replace(/^\/+/, '');
+
+  let url: URL;
+  try {
+    if (explicitScheme) {
+      url = new URL(trimmed);
+    } else {
+      // Parse once to learn the host, then pick the scheme it is most likely served over.
+      const probe = new URL(`https://${withoutScheme}`);
+      url = new URL(`${isLocalHost(probe.hostname) ? 'http' : 'https'}://${withoutScheme}`);
+    }
+  } catch {
+    return { ok: false, message: `服务器地址格式不正确：${trimmed}（应形如 https://notes.example.com）` };
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    return { ok: false, message: '服务器地址必须以 https:// 或 http:// 开头' };
+  }
+  if (!url.hostname) {
+    return { ok: false, message: `服务器地址缺少主机名：${trimmed}` };
+  }
+
+  // Query and fragment would end up glued in front of `/api`, so drop them.
+  url.search = '';
+  url.hash = '';
+  return { ok: true, url: url.toString().replace(/\/+$/, ''), guessedScheme: !explicitScheme };
+}
+
+/** Human-readable origin for error messages; falls back to the raw value when unparseable. */
+export function serverOrigin(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).origin;
+  } catch {
+    return baseUrl;
+  }
+}
+
 export function apiBase(baseUrl: string): string {
   return baseUrl ? `${baseUrl.replace(/\/+$/, '')}/api` : '/api';
 }

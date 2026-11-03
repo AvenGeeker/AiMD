@@ -1,13 +1,23 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   BEARER_TRANSPORT,
+  ERROR_CODES,
   TOKEN_TRANSPORT_HEADER,
+  toApiErrorBody,
   type AuthSessionDto,
   type BearerSessionDto,
   type UserDto,
 } from '@aimarkdown/shared';
-import { apiBase } from './config.js';
-import { clearTokens, describeError, initApi, request, setTokens } from './api.js';
+import { apiBase, normalizeServerUrl } from './config.js';
+import {
+  clearTokens,
+  describeError,
+  initApi,
+  probeServerUrl,
+  readJsonResponse,
+  request,
+  setTokens,
+} from './api.js';
 import { getBridge, isDesktop, isMobile } from './platform.js';
 import { mobileSetServerUrl } from './mobile.js';
 import { syncManager } from './sync.js';
@@ -23,7 +33,14 @@ export interface AuthState {
   logout(): Promise<void>;
   /** Server URL the desktop shell is pointed at (empty string for same-origin browser use). */
   baseUrl: string;
-  setBaseUrl(url: string): Promise<void>;
+  /**
+   * Validate, persist and apply a new server address.
+   *
+   * Resolves with the normalised address that is now in effect, so the caller can show exactly
+   * what was stored (`myaimd.top` → `https://myaimd.top`). Rejects — without changing anything —
+   * when the address is malformed or does not answer as an AiMD server.
+   */
+  setBaseUrl(url: string): Promise<string>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -85,9 +102,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (cancelled) return;
           setUser(me.user);
           setStatus('authenticated');
-        } catch {
+        } catch (caught) {
           if (cancelled) return;
           await clearTokens();
+          // A signed-out user is the normal case and must not show an error. An address that is
+          // not an AiMD server at all is worth saying out loud: it is the one failure the user can
+          // fix from this screen, and the raw parse error used to be the only hint.
+          if (toApiErrorBody(caught).code === ERROR_CODES.INVALID_SERVER_RESPONSE) {
+            setError(describeError(caught));
+          }
           setStatus('anonymous');
         }
       } catch {
@@ -127,11 +150,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           headers: { 'content-type': 'application/json', ...transportHeaders() },
           body: JSON.stringify({ email, password }),
         });
-        if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as { message?: string } | null;
-          throw new Error(body?.message ?? '登录失败');
+        // `readJsonResponse` maps a non-JSON answer (an HTML page from a wrong address) onto the
+        // shared error contract instead of leaking V8's "Unexpected token '<'" into the UI.
+        const payload = await readJsonResponse<SessionPayload>(response, '登录失败');
+        if (!payload || typeof payload.accessToken !== 'string') {
+          throw new Error('登录失败：服务器没有返回登录凭证，请确认服务器地址指向 AiMD 服务');
         }
-        await applySession((await response.json()) as SessionPayload);
+        await applySession(payload);
       } catch (caught) {
         const message = describeError(caught);
         setError(message);
@@ -152,11 +177,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           headers: { 'content-type': 'application/json', ...transportHeaders() },
           body: JSON.stringify({ email, password, ...(displayName ? { displayName } : {}) }),
         });
-        if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as { message?: string } | null;
-          throw new Error(body?.message ?? '注册失败');
+        const payload = await readJsonResponse<SessionPayload>(response, '注册失败');
+        if (!payload || typeof payload.accessToken !== 'string') {
+          throw new Error('注册失败：服务器没有返回登录凭证，请确认服务器地址指向 AiMD 服务');
         }
-        await applySession((await response.json()) as SessionPayload);
+        await applySession(payload);
       } catch (caught) {
         const message = describeError(caught);
         setError(message);
@@ -179,7 +204,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setBaseUrlNext = useCallback(async (url: string) => {
-    const next = url.replace(/\/+$/, '');
+    // Empty means "same origin" and is only valid in a browser tab, where the API is served by the
+    // very host the page came from. Anything else has to be an absolute http(s) address.
+    const localShell = isDesktop() || isMobile();
+    let next = url.replace(/\/+$/, '');
+    if (localShell || next) {
+      const normalized = normalizeServerUrl(url);
+      if (!normalized.ok) {
+        setError(normalized.message);
+        throw new Error(normalized.message);
+      }
+      next = normalized.url;
+      if (localShell) {
+        // A shell has no same-origin API, so a wrong address cannot be detected later by the
+        // browser: it answers with somebody else's HTML. Verify it now, while the user is still
+        // looking at the address field, and refuse to persist an address that is not AiMD.
+        try {
+          next = await probeServerUrl(next, normalized.guessedScheme);
+        } catch (caught) {
+          const message = describeError(caught);
+          setError(message);
+          throw new Error(message);
+        }
+      }
+    }
     const changed = next !== baseUrl;
     const bridge = getBridge();
     if (bridge && isDesktop()) {
@@ -199,6 +247,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setBaseUrlState(next);
     syncManager.configure(next);
     setError(null);
+    return next;
   }, [baseUrl]);
 
   const value = useMemo<AuthState>(

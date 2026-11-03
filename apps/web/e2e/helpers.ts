@@ -101,3 +101,61 @@ export async function editorText(page: Page): Promise<string> {
 export async function expectSyncStatus(page: Page, status: 'connected' | 'disconnected' | 'connecting'): Promise<void> {
   await expect(page.getByTestId('sync-status')).toHaveAttribute('data-status', status);
 }
+
+/**
+ * Install a fake Electron preload bridge so the web bundle takes its desktop code path.
+ *
+ * Must be called before `page.goto()`: `addInitScript` only runs on subsequent navigations.
+ */
+export async function stubDesktopBridge(page: Page, initialServerUrl: string): Promise<void> {
+  await page.addInitScript((serverUrl) => {
+    const state = { serverUrl, accessToken: null as string | null, refreshToken: null as string | null };
+    (window as unknown as { aiMarkdown: unknown }).aiMarkdown = {
+      platform: 'darwin',
+      appVersion: 'test',
+      getServerUrl: async () => state.serverUrl,
+      setServerUrl: async (url: string) => {
+        state.serverUrl = url;
+      },
+      getTokens: async () => ({
+        accessToken: state.accessToken,
+        refreshToken: state.refreshToken,
+      }),
+      setTokens: async (tokens: { accessToken: string | null; refreshToken: string | null }) => {
+        state.accessToken = tokens.accessToken;
+        state.refreshToken = tokens.refreshToken;
+      },
+      setHotkey: async () => ({ ok: true }),
+      getHotkeyState: async () => ({ accelerator: 'Alt+Space', registered: true }),
+      showMainWindow: async () => {},
+      hideQuickCapture: async () => {},
+    };
+  }, initialServerUrl);
+}
+
+/**
+ * Answer `GET {origin}/api/health` without touching the network.
+ *
+ * Saving a server address probes it first, so tests that switch to an example.com host have to
+ * stub the probe or the change is (correctly) refused.
+ */
+export async function stubServerHealth(
+  page: Page,
+  origin: string,
+  response: { status?: number; body?: unknown; contentType?: string } = {},
+): Promise<void> {
+  const body = response.body ?? {
+    status: 'ok',
+    version: '0.1.0',
+    uptimeSeconds: 1,
+    db: 'ok',
+    collab: 'ok',
+  };
+  await page.route(`${origin.replace(/\/+$/, '')}/api/health`, (route) =>
+    route.fulfill({
+      status: response.status ?? 200,
+      contentType: response.contentType ?? 'application/json',
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    }),
+  );
+}

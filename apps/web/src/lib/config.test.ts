@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { apiBase, collabUrl } from './config.js';
+import { apiBase, collabUrl, normalizeServerUrl, serverOrigin } from './config.js';
 
 describe('apiBase', () => {
   it('is relative for same-origin browser use', () => {
@@ -100,5 +100,95 @@ describe('injected runtime config', () => {
     setLocation('http://127.0.0.1:3100/');
     window.__AIMARKDOWN_CONFIG__ = { collabUrl: 'ws://127.0.0.1:1310' };
     expect(collabUrl('https://remote.example.com')).toBe('wss://remote.example.com/collab');
+  });
+});
+
+describe('normalizeServerUrl', () => {
+  it('keeps a correct https address', () => {
+    expect(normalizeServerUrl('https://notes.example.com')).toEqual({
+      ok: true,
+      url: 'https://notes.example.com',
+      guessedScheme: false,
+    });
+  });
+
+  it('trims whitespace and trailing slashes', () => {
+    expect(normalizeServerUrl('  https://notes.example.com///  ')).toEqual({
+      ok: true,
+      url: 'https://notes.example.com',
+      guessedScheme: false,
+    });
+  });
+
+  it('adds https:// for a public host the user left bare', () => {
+    // Without a scheme, `apiBase()` produces a *relative* path and the request never reaches a server.
+    expect(normalizeServerUrl('myaimd.top')).toEqual({
+      ok: true,
+      url: 'https://myaimd.top',
+      guessedScheme: true,
+    });
+  });
+
+  it('adds http:// for loopback and LAN hosts, which are not served over TLS', () => {
+    for (const host of ['127.0.0.1:3000', 'localhost:3000', '192.168.1.20:8080', 'nas.local']) {
+      expect(normalizeServerUrl(host)).toEqual({
+        ok: true,
+        url: `http://${host}`,
+        guessedScheme: true,
+      });
+    }
+  });
+
+  it('keeps an explicit scheme and a path prefix', () => {
+    expect(normalizeServerUrl('http://127.0.0.1:3000')).toEqual({
+      ok: true,
+      url: 'http://127.0.0.1:3000',
+      guessedScheme: false,
+    });
+    expect(normalizeServerUrl('https://example.com/notes/')).toEqual({
+      ok: true,
+      url: 'https://example.com/notes',
+      guessedScheme: false,
+    });
+  });
+
+  it('drops a query and fragment that would corrupt the API path', () => {
+    expect(normalizeServerUrl('https://notes.example.com/?x=1#/app')).toEqual({
+      ok: true,
+      url: 'https://notes.example.com',
+      guessedScheme: false,
+    });
+  });
+
+  it('rejects an empty address', () => {
+    expect(normalizeServerUrl('   ')).toEqual({ ok: false, message: '请填写服务器地址' });
+  });
+
+  it('rejects a non-http scheme', () => {
+    const result = normalizeServerUrl('file:///tmp/index.html');
+    expect(result.ok).toBe(false);
+    expect((result as { message: string }).message).toContain('https://');
+  });
+
+  it('rejects an address with a space', () => {
+    const result = normalizeServerUrl('https://notes.example.com /api');
+    expect(result.ok).toBe(false);
+    expect((result as { message: string }).message).toContain('空格');
+  });
+
+  it('rejects something that is not a URL at all', () => {
+    const result = normalizeServerUrl('http://');
+    expect(result.ok).toBe(false);
+    expect((result as { message: string }).message).toContain('格式不正确');
+  });
+});
+
+describe('serverOrigin', () => {
+  it('reduces an address to its origin for error messages', () => {
+    expect(serverOrigin('https://notes.example.com/notes')).toBe('https://notes.example.com');
+  });
+
+  it('falls back to the raw value when unparseable', () => {
+    expect(serverOrigin('not a url')).toBe('not a url');
   });
 });

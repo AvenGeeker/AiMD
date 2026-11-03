@@ -59,11 +59,38 @@ async function request<T>(
     response = await doFetch();
   }
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { code?: string; message?: string } | null;
-    throw new DesktopApiError(response.status, body?.code ?? 'HTTP_ERROR', body?.message ?? `请求失败（${response.status}）`);
+    const body = (await readJson(response)) as { code?: string; message?: string } | null;
+    throw new DesktopApiError(
+      response.status,
+      body?.code ?? 'HTTP_ERROR',
+      body?.message ?? nonJsonHint(response),
+    );
   }
   if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+  const payload = await readJson(response);
+  if (payload === undefined) throw new DesktopApiError(response.status, 'INVALID_SERVER_RESPONSE', nonJsonHint(response));
+  return payload as T;
+}
+
+/**
+ * Parse a JSON body, returning `undefined` when the answer was not JSON at all.
+ *
+ * The main process talks to whatever address the user configured, and a wrong address answers with
+ * an HTML page. Letting `response.json()` throw would put V8's `Unexpected token '<'` into the sync
+ * error list, so the failure is reported as a readable Chinese hint instead.
+ */
+async function readJson(response: Response): Promise<unknown | undefined> {
+  const text = await response.text().catch(() => '');
+  if (!text) return undefined;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+function nonJsonHint(response: Response): string {
+  return `服务器没有返回 API 数据（HTTP ${response.status}，${response.url}）。请在主窗口确认服务器地址是否填成了 AiMD 的部署地址。`;
 }
 
 export async function getMe(signal?: AbortSignal): Promise<UserDto> {
