@@ -109,6 +109,7 @@ type NoteAction =
   | { kind: 'conflict'; app: AppNoteSnapshot; apple: AppleNoteSnapshot }
   | { kind: 'trashApp'; appId: string; appleId: string }
   | { kind: 'trashApple'; appId: string; appleId: string }
+  | { kind: 'moveApple'; app: AppNoteSnapshot; apple: AppleNoteSnapshot }
   | { kind: 'restoreApp'; appId: string; apple: AppleNoteSnapshot }
   | { kind: 'link'; app: AppNoteSnapshot; apple: AppleNoteSnapshot };
 
@@ -646,7 +647,7 @@ export class AppleNotesSyncEngine {
       createAppNotes: actions.filter((action) => action.kind === 'createApp').length,
       createAppleNotes: actions.filter((action) => action.kind === 'createApple').length,
       updateAppNotes: actions.filter((action) => action.kind === 'pullApple').length,
-      updateAppleNotes: actions.filter((action) => action.kind === 'pushApp').length,
+      updateAppleNotes: actions.filter((action) => action.kind === 'pushApp' || action.kind === 'moveApple').length,
       trashAppNotes: actions.filter((action) => action.kind === 'trashApp').length,
       trashAppleNotes: actions.filter((action) => action.kind === 'trashApple').length,
       createAppFolders: folderCounts.createAppFolders,
@@ -1211,7 +1212,14 @@ export class AppleNotesSyncEngine {
         }
         const appChanged = app.stateHash !== link.lastAppHash;
         const appleChanged = apple.stateHash !== link.lastAppleHash;
-        if (appChanged && appleChanged) {
+        const appFolderKey = app.summary.folderId ?? 'root';
+        const folderMismatch = apple.folderKey !== appFolderKey;
+        if (!appChanged && !appleChanged && folderMismatch) {
+          // The two sides agree on content but not on the folder. This is the repair path for
+          // notes written by older builds, whose folder.make() call silently used the default
+          // Notes folder instead of the requested one.
+          actions.push({ kind: 'moveApple', app, apple });
+        } else if (appChanged && appleChanged) {
           actions.push({ kind: 'conflict', app, apple });
         } else if (appChanged) {
           actions.push({ kind: 'pushApp', app, apple });
@@ -1290,7 +1298,7 @@ export class AppleNotesSyncEngine {
         samples.push({ direction: 'conflict', title: action.app.summary.title });
       } else if (action.kind === 'createApp') {
         samples.push({ direction: 'apple-to-app', title: action.apple.title, reason: action.apple.readOnlyReason ?? undefined });
-      } else if (action.kind === 'createApple' || action.kind === 'pushApp') {
+      } else if (action.kind === 'createApple' || action.kind === 'pushApp' || action.kind === 'moveApple') {
         samples.push({ direction: 'app-to-apple', title: action.app.summary.title });
       } else if (action.kind === 'link' && action.apple.readOnlyReason) {
         samples.push({ direction: 'read-only', title: action.apple.title, reason: action.apple.readOnlyReason });
@@ -1530,6 +1538,15 @@ export class AppleNotesSyncEngine {
             title: app.summary.title, html: prepared.html, attachments: prepared.attachments,
           });
         }
+      } else if (action.kind === 'moveApple') {
+        const folderId = this.appleFolderIdForAppFolder(action.app.summary.folderId, state);
+        if (!folderId) {
+          errors.push({ code: 'NO_FOLDER', message: `${action.app.summary.title}：找不到目标备忘录目录` });
+          continue;
+        }
+        const key = action.app.summary.id;
+        appleOpMeta.set(key, { action, app: action.app, apple: action.apple });
+        appleOps.push({ key, type: 'moveNote', id: action.apple.meta.id, folderId });
       } else if (action.kind === 'pullApple') {
         try {
           const pulled = await this.applyPullApple(action.app, action.apple, state, signal);

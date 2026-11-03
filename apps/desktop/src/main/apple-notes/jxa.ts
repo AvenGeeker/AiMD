@@ -33,8 +33,156 @@ function run(argv) {
     const wasRunning = notes.running();
     const writeResult = (value) => writeText(outputPath, JSON.stringify(value));
     const account = () => notes.defaultAccount();
-    const folderById = (id) => notes.folders.byId(id);
-    const noteById = (id) => notes.notes.byId(id);
+    let folderIndex = null;
+    let noteIndex = null;
+    const invalidateNoteIndex = () => { noteIndex = null; };
+    const invalidateIndexes = () => { folderIndex = null; noteIndex = null; };
+    const folderChildren = (folder) => {
+      try { return folder.folders; } catch (_) { return null; }
+    };
+    const indexFolders = (folder, out) => {
+      const children = folderChildren(folder);
+      if (!children) return;
+      let count = 0;
+      try { count = children.length; } catch (_) { count = 0; }
+      for (let index = 0; index < count; index++) {
+        let child;
+        try { child = children[index]; } catch (_) { continue; }
+        const id = (() => { try { return child.id(); } catch (_) { return ''; } })();
+        if (!id || out.has(id)) continue;
+        out.set(id, child);
+        indexFolders(child, out);
+      }
+    };
+    const buildFolderIndex = () => {
+      const out = new Map();
+      let topFolders = null;
+      try { topFolders = account().folders; } catch (_) { topFolders = null; }
+      let count = 0;
+      try { count = topFolders ? topFolders.length : 0; } catch (_) { count = 0; }
+      for (let index = 0; index < count; index++) {
+        let folder;
+        try { folder = topFolders[index]; } catch (_) { continue; }
+        const id = (() => { try { return folder.id(); } catch (_) { return ''; } })();
+        if (!id || out.has(id)) continue;
+        out.set(id, folder);
+        indexFolders(folder, out);
+      }
+      folderIndex = out;
+      return out;
+    };
+    // Notes.folders.byId() only resolves top-level folders; nested folders are not reachable
+    // from the application-level collection, so keep a per-call recursive index.
+    const folderById = (id) => {
+      if (!id) return null;
+      const index = folderIndex ?? buildFolderIndex();
+      return index.get(id) ?? null;
+    };
+    const indexNotes = (folder, out) => {
+      const specs = (() => { try { return folder.notes; } catch (_) { return null; } })();
+      if (specs) {
+        let ids = [];
+        try { const value = specs.id(); if (Array.isArray(value)) ids = value; } catch (_) { ids = []; }
+        const folderId = (() => { try { return folder.id(); } catch (_) { return null; } })();
+        for (let index = 0; index < ids.length; index++) {
+          const id = String(ids[index] || '');
+          if (id && !out.has(id)) out.set(id, { note: specs[index], folderId });
+        }
+      }
+      const children = folderChildren(folder);
+      if (!children) return;
+      let count = 0;
+      try { count = children.length; } catch (_) { count = 0; }
+      for (let index = 0; index < count; index++) {
+        let child;
+        try { child = children[index]; } catch (_) { continue; }
+        indexNotes(child, out);
+      }
+    };
+    const buildNoteIndex = () => {
+      const out = new Map();
+      let topFolders = null;
+      try { topFolders = account().folders; } catch (_) { topFolders = null; }
+      let count = 0;
+      try { count = topFolders ? topFolders.length : 0; } catch (_) { count = 0; }
+      for (let index = 0; index < count; index++) {
+        let folder;
+        try { folder = topFolders[index]; } catch (_) { continue; }
+        indexNotes(folder, out);
+      }
+      noteIndex = out;
+      return out;
+    };
+    const noteEntryById = (id) => {
+      // Fast path for top-level notes. A nested note makes byId() throw, and its container()
+      // is not scriptable either, so fall back to the recursive index built above.
+      try {
+        const top = notes.notes.byId(id);
+        if (top && top.id() === id) {
+          const container = (() => { try { return top.container(); } catch (_) { return null; } })();
+          const folderId = (() => { try { return container ? container.id() : null; } catch (_) { return null; } })();
+          return { note: top, folderId };
+        }
+      } catch (_) { /* nested note */ }
+      const index = noteIndex ?? buildNoteIndex();
+      return index.get(id) ?? null;
+    };
+    const noteById = (id) => {
+      const entry = noteEntryById(id);
+      return entry ? entry.note : null;
+    };
+    const createFolderIn = (parentId, name) => {
+      // folder.make() ignores its receiver on current macOS and always creates at the account
+      // root. Create there, then move it into the requested parent when one is given.
+      const created = account().make({ new: 'folder', withProperties: { name } });
+      const createdId = created.id();
+      invalidateIndexes();
+      if (parentId) {
+        const parent = folderById(parentId);
+        if (!parent) {
+          try { notes.delete(created); } catch (_) { /* best effort */ }
+          throw new Error('找不到父目录：' + parentId);
+        }
+        try {
+          notes.move(created, { to: parent });
+        } catch (error) {
+          try { notes.delete(created); } catch (_) { /* best effort */ }
+          throw error;
+        }
+        invalidateIndexes();
+      }
+      return createdId;
+    };
+    const createNoteIn = (folderId, properties) => {
+      const folder = folderById(folderId);
+      if (!folder) throw new Error('找不到目标目录：' + folderId);
+      // folder.make() puts a new note in the account's default folder, not the receiver.
+      // Create it at the application level and move it to the target folder explicitly.
+      const created = notes.make({ new: 'note', withProperties: properties });
+      const createdId = created.id();
+      invalidateNoteIndex();
+      const defaultId = (() => {
+        try {
+          const defaultFolder = account().defaultFolder();
+          return defaultFolder ? defaultFolder.id() : null;
+        } catch (_) { return null; }
+      })();
+      if (!defaultId || folderId !== defaultId) {
+        const target = folderById(folderId);
+        if (!target) {
+          try { notes.delete(noteById(createdId)); } catch (_) { /* best effort */ }
+          throw new Error('找不到目标目录：' + folderId);
+        }
+        try {
+          notes.move(noteById(createdId), { to: target });
+        } catch (error) {
+          try { notes.delete(noteById(createdId)); } catch (_) { /* best effort */ }
+          throw error;
+        }
+        invalidateNoteIndex();
+      }
+      return createdId;
+    };
     const iso = (value) => {
       try { return value ? new Date(value).toISOString() : null; } catch (_) { return null; }
     };
@@ -116,9 +264,14 @@ function run(argv) {
       const name = folder.name();
       const shared = (() => { try { return folder.shared(); } catch (_) { return false; } })();
       folders.push({ id, name, parentId, shared });
-      let children = [];
-      try { children = folder.folders(); } catch (_) { children = []; }
-      for (const child of children) walk(child, id, folders, notesOut, attachmentDir, includeBodies);
+      // folder.folders is a live specifier, not a JS array: iterating it with for...of throws
+      // on macOS. Indexed access is the only reliable way to walk nested folders. Do not swallow
+      // failures here: an incomplete folder scan must abort the sync before any destructive pass.
+      const children = folder.folders;
+      const childCount = children.length;
+      for (let index = 0; index < childCount; index++) {
+        walk(children[index], id, folders, notesOut, attachmentDir, includeBodies);
+      }
 
       // Bulk property retrieval: one Apple Event per property for the whole folder instead of
       // five events per note. This is the difference between a few seconds and minutes on a
@@ -233,15 +386,16 @@ function run(argv) {
       const entries = [];
       for (const id of (payload.ids || [])) {
         try {
-          const note = noteById(id);
-          const folder = note.container();
+          const entry = noteEntryById(id);
+          if (!entry) throw new Error('找不到备忘录：' + id);
+          const note = entry.note;
           let body = '';
           let bodyError = null;
           try { body = note.body(); } catch (error) { bodyError = String(error); }
           entries.push({
             id,
             name: note.name(),
-            folderId: folder ? folder.id() : null,
+            folderId: entry.folderId,
             createdAt: iso(note.creationDate()),
             modifiedAt: iso(note.modificationDate()),
             passwordProtected: (() => { try { return note.passwordProtected(); } catch (_) { return false; } })(),
@@ -261,41 +415,60 @@ function run(argv) {
       for (const op of (payload.ops || [])) {
         try {
           if (op.type === 'createFolder') {
-            const parent = op.parentId ? folderById(op.parentId) : account();
-            const created = parent.make({ new: 'folder', withProperties: { name: op.name } });
-            outcomes.push({ key: op.key, ok: true, id: created.id() });
+            const createdId = createFolderIn(op.parentId || null, op.name);
+            outcomes.push({ key: op.key, ok: true, id: createdId });
           } else if (op.type === 'updateFolder') {
             const folder = folderById(op.id);
+            if (!folder) throw new Error('找不到目录：' + op.id);
             if (op.name) folder.name = op.name;
             if (op.parentId !== undefined) {
               const parent = op.parentId ? folderById(op.parentId) : account();
+              if (!parent) throw new Error('找不到父目录：' + op.parentId);
               notes.move(folder, { to: parent });
+              invalidateIndexes();
             }
             outcomes.push({ key: op.key, ok: true, id: op.id });
           } else if (op.type === 'deleteFolder') {
-            notes.delete(folderById(op.id));
+            const folder = folderById(op.id);
+            if (!folder) throw new Error('找不到目录：' + op.id);
+            notes.delete(folder);
+            invalidateIndexes();
             outcomes.push({ key: op.key, ok: true, id: op.id });
           } else if (op.type === 'moveNote') {
-            notes.move(noteById(op.id), { to: folderById(op.folderId) });
+            const note = noteById(op.id);
+            const folder = folderById(op.folderId);
+            if (!note) throw new Error('找不到备忘录：' + op.id);
+            if (!folder) throw new Error('找不到目标目录：' + op.folderId);
+            notes.move(note, { to: folder });
+            invalidateNoteIndex();
             outcomes.push({ key: op.key, ok: true, id: op.id });
           } else if (op.type === 'createNote') {
-            const folder = folderById(op.folderId);
-            const created = folder.make({
-              new: 'note',
-              withProperties: { name: op.title || '无标题', body: op.html || '' },
+            const createdId = createNoteIn(op.folderId, {
+              name: op.title || '无标题',
+              body: op.html || '',
             });
-            const createdId = created.id();
+            const created = noteById(createdId);
             const attachmentIds = makeAttachments(created, op);
             outcomes.push({ key: op.key, ok: true, id: createdId, attachmentIds });
           } else if (op.type === 'updateNote') {
             const note = noteById(op.id);
+            if (!note) throw new Error('找不到备忘录：' + op.id);
             if (op.html !== undefined) note.body = op.html;
             if (op.title) note.name = op.title;
-            if (op.folderId) notes.move(note, { to: folderById(op.folderId) });
-            const attachmentIds = makeAttachments(note, op);
+            if (op.folderId) {
+              const folder = folderById(op.folderId);
+              if (!folder) throw new Error('找不到目标目录：' + op.folderId);
+              notes.move(note, { to: folder });
+              invalidateNoteIndex();
+            }
+            const updated = noteById(op.id);
+            const attachmentIds = makeAttachments(updated, op);
             outcomes.push({ key: op.key, ok: true, id: op.id, attachmentIds });
           } else if (op.type === 'deleteNote') {
-            notes.delete(noteById(op.id));
+            const note = noteById(op.id);
+            if (!note) throw new Error('找不到备忘录：' + op.id);
+            notes.delete(note);
+            invalidateNoteIndex();
             outcomes.push({ key: op.key, ok: true, id: op.id });
           } else if (op.type === 'quit') {
             notes.quit();
