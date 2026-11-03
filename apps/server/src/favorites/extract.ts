@@ -30,7 +30,9 @@ export function detectPlatform(rawUrl: string): SourcePlatform {
   } catch {
     return 'web';
   }
-  if (host.includes('xiaohongshu.com') || host.includes('xhslink.com')) return 'xiaohongshu';
+  if (host.includes('xiaohongshu.com') || host.includes('xhslink.com') || host.includes('xhslink.cn')) {
+    return 'xiaohongshu';
+  }
   if (host.includes('douyin.com') || host.includes('iesdouyin.com')) return 'douyin';
   if (host === 'mp.weixin.qq.com' || host.endsWith('.weixin.qq.com')) return 'wechat';
   return 'web';

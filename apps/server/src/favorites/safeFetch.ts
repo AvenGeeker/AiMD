@@ -8,6 +8,14 @@ const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/124.0 Safari/537.36 AiMD/0.1';
 
+/**
+ * A real Chrome page navigation Accept header. Some sites (notably Xiaohongshu) answer a
+ * stripped-down curl-like Accept with a login redirect even though the shared note is public.
+ */
+export const PAGE_ACCEPT =
+  'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,' +
+  'image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7';
+
 export interface SafeFetchResult {
   buffer: Buffer;
   contentType: string;
@@ -106,7 +114,7 @@ function once(url: URL, addresses: Array<{ address: string; family: number }>, o
         timeout: options.timeoutMs,
         headers: {
           'user-agent': USER_AGENT,
-          accept: options.accept ?? 'text/html,application/xhtml+xml,image/*,video/mp4,*/*;q=0.8',
+          accept: options.accept ?? PAGE_ACCEPT,
           'accept-language': 'zh-CN,zh;q=0.9,en;q=0.6',
           ...(options.referer ? { referer: options.referer } : {}),
         },

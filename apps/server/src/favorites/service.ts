@@ -11,7 +11,7 @@ import {
 import type { ServerConfig } from '../config.js';
 import type { Logger } from '../utils/logger.js';
 import { newId } from '../utils/ids.js';
-import { safeFetch } from './safeFetch.js';
+import { PAGE_ACCEPT, safeFetch } from './safeFetch.js';
 import { detectPlatform, extractPage } from './extract.js';
 import type { AttachmentStorage } from '../services/storage.js';
 import { createNote, getNote, loadStoredDoc, patchNoteMeta, toSummary, type NotesDeps } from '../services/notes.js';
@@ -210,7 +210,7 @@ export async function previewFavorite(
   const fetched = await safeFetch(url, {
     maxBytes: deps.config.LINK_FETCH_MAX_BYTES,
     timeoutMs: deps.config.LINK_FETCH_TIMEOUT_MS,
-    accept: 'text/html,application/xhtml+xml,*/*;q=0.5',
+    accept: PAGE_ACCEPT,
     allowPrivate: deps.config.LINK_FETCH_ALLOW_PRIVATE,
   });
   if (!fetched.contentType.includes('html')) {
@@ -245,7 +245,7 @@ export async function saveFavorite(
   input: FavoriteSaveInput,
 ): Promise<FavoriteSaveResultDto> {
   const settings = await getSettings(deps.workspace, ownerId);
-  const platform = input.platform ?? (input.url ? detectPlatform(input.url) : 'manual');
+  let platform = input.platform ?? (input.url ? detectPlatform(input.url) : 'manual');
   let title = input.title.trim();
   let body = input.body.trim();
   let author = input.author?.trim() || null;
@@ -258,11 +258,12 @@ export async function saveFavorite(
       const fetched = await safeFetch(input.url, {
         maxBytes: deps.config.LINK_FETCH_MAX_BYTES,
         timeoutMs: deps.config.LINK_FETCH_TIMEOUT_MS,
-        accept: 'text/html,application/xhtml+xml,*/*;q=0.5',
+        accept: PAGE_ACCEPT,
         allowPrivate: deps.config.LINK_FETCH_ALLOW_PRIVATE,
       });
       if (fetched.contentType.includes('html')) {
         const extracted = extractPage(fetched.finalUrl, fetched.buffer.toString('utf8'));
+        if (!input.platform) platform = extracted.platform;
         if (extracted.title && extracted.title !== '无标题') title = extracted.title;
         body = extracted.body.trim().length >= 20 ? extracted.body : '';
         author = author ?? extracted.author;
