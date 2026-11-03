@@ -1,0 +1,43 @@
+MIT License
+
+Copyright (c) 2026 AiMD contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Third-party components
+----------------------
+
+AiMD builds on open-source projects under their own licenses, including
+(see `pnpm-lock.yaml` for the full, authoritative list):
+
+  Fastify, Hocuspocus, Yjs, y-indexeddb, postgres.js, React, Vite, CodeMirror 6,
+  Tailwind CSS, markdown-it, KaTeX, Mermaid, DOMPurify, fflate, zod,
+  @node-rs/argon2, Electron, electron-builder, Capacitor, Playwright, Vitest
+      -> MIT / Apache-2.0 / BSD / ISC (permissive)
+  Caddy (shipped as a container image in `deploy/docker-compose.yml`)
+      -> Apache-2.0
+  Postgres 18 with pg_trgm (shipped as a container image)
+      -> PostgreSQL License
+
+Bundled artwork (`apps/*/resources`, icon and splash assets) is original work
+released under the same MIT license as the code.
+
+No component of this project is distributed under GPL / AGPL / LGPL terms.
