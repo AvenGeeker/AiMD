@@ -6,7 +6,8 @@ COMPOSE_PROD := docker compose -f deploy/docker-compose.yml --env-file deploy/.e
 .DEFAULT_GOAL := help
 .PHONY: help install build typecheck test test-unit test-integration test-e2e lint \
         dev db-up db-down db-logs migrate deploy deploy-rebuild backup logs ps down clean \
-        mobile-build mobile-apk mobile-ipa mobile-hap mobile-sync
+        mobile-build mobile-apk mobile-ipa mobile-hap mobile-sync \
+        secrets secrets-all hooks preopen-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -40,6 +41,27 @@ test-e2e: ## Playwright end-to-end tests (starts its own stack)
 
 lint: ## Lint and format check
 	pnpm lint
+
+secrets: ## Scan tracked files for credentials (run before pushing anywhere public)
+	bash scripts/check-secrets.sh
+
+secrets-all: ## Also scan untracked, non-ignored files
+	bash scripts/check-secrets.sh --all
+
+hooks: ## Install the pre-commit secret-scan hook
+	@mkdir -p .git/hooks
+	@printf '%s\n' '#!/usr/bin/env bash' \
+	  '# Auto-installed by `make hooks`. Blocks commits that would leak a credential.' \
+	  'exec bash "$$(git rev-parse --show-toplevel)/scripts/check-secrets.sh" --staged' \
+	  > .git/hooks/pre-commit
+	@chmod +x .git/hooks/pre-commit
+	@echo "installed .git/hooks/pre-commit"
+
+preopen-check: secrets ## Everything to verify before making this repo public
+	@bash scripts/check-secrets.sh --all
+	@git ls-files -v | awk '$$1 == "S" { print "  skip-worktree (local-only, not pushed): " substr($$0, 3) }'
+	@echo "  history scan: pushed by CI (.github/workflows/ci.yml -> Secret scan)"
+	@echo "OK: working tree clean of credentials."
 
 dev: ## Postgres + API + Vite (desktop: pnpm --filter @aimarkdown/desktop dev)
 	bash scripts/dev.sh

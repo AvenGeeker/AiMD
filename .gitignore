@@ -42,3 +42,33 @@ apps/mobile/ios/.idea/
 
 # Server deployment state (release metadata + env snapshots; may contain secrets)
 .deploy/
+
+# --- Open-source hygiene: never commit signing material, local identity or tool scratch ---
+# Code-signing / provisioning material (Apple, Android, HarmonyOS, generic)
+*.p12
+*.pfx
+*.cer
+*.crt
+*.p7b
+*.mobileprovision
+*.keystore
+*.jks
+.ohos/
+apps/mobile/harmony/build-profile.local.json5
+
+# Signing-bearing project files are developer-local. If you must commit a change to them,
+# run `git update-index --no-skip-worktree <path>` first and scrub the secrets by hand.
+# (skip-worktree is set per clone; see README "Before you push" / scripts/check-secrets.sh)
+
+# IDE / agent tool scratch
+.github/modernize/
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.code-workspace
+
+# Local env variants
+.env.*
+!.env.example
+deploy/.env.*
+!deploy/.env.example

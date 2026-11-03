@@ -68,6 +68,24 @@ open -a /Applications/AiMD.app
 
 ---
 
+## 开源仓库约束（推送到 GitHub 前必读）
+
+本仓库是公开开源项目，**任何凭据一旦推上去就等于泄漏**（force-push 不会把它从 packfile 里去掉）。
+
+- 提交前跑 `make secrets`（扫描 git 跟踪的文件）或 `make preopen-check`（含未跟踪文件）。
+  `make hooks` 会装 pre-commit 钩子，CI 里也有 `Secret scan` 作业，会扫**全部历史**。
+- **不要提交签名材料**：DevEco Studio 会把 HarmonyOS 的 `keyPassword` / `storePassword` / `~/.ohos`
+  路径写进 `apps/mobile/harmony/build-profile.json5`，Xcode 会把 `DEVELOPMENT_TEAM` 写进
+  `apps/mobile/ios/App/App.xcodeproj/project.pbxproj`。这两个文件已用
+  `git update-index --skip-worktree` 标记为开发者本地文件——本地构建照常可用，但改动不会进 index。
+  真要提交它们的改动时，先 `--no-skip-worktree`，并把签名块清成 `signingConfigs: []`。
+- 真凭据只放 `deploy/.env` / `apps/server/.env*`（都已 gitignore），文档与示例里用
+  `change-me-...`、`<your-secret>`、RFC 5737 文档 IP（`203.0.113.10`）这类占位符。
+- 面向开源用户的文档是**中英双份**，改了中文必须同步改英文：
+  `README.md`（中文）/ `README.en.md`（英文）、`docs/design-notes.zh.md` / `docs/design-notes.en.md`。
+  `LICENSE` / `SECURITY.md` / `CONTRIBUTING.md` 是英文为主、必要处附中文。
+- 不要把维护者本机的公网 IP、Apple Team ID、云账号 ID、真实域名写进仓库。
+
 ## 不可违背的架构约束
 
 **Y.Doc 是唯一真相，Postgres 里的同名列只是投影。**

@@ -5,7 +5,7 @@
 #   域名模式（自动 HTTPS）:  CADDY_SITE_ADDR=https://notes.example.com
 #       Caddy 绑定容器内 80（跳转）+ 443（TLS），自动申请并续期 Let's Encrypt 证书。
 #
-#   IP 直连 / 无域名（纯 HTTP）:  CADDY_SITE_ADDR=http://47.97.12.34
+#   IP 直连 / 无域名（纯 HTTP）:  CADDY_SITE_ADDR=http://203.0.113.10
 #       必须显式带 http:// scheme —— 不带 scheme 的 IP 站点会让 Caddy 尝试对它启用
 #       自动 HTTPS（给 IP 发内部自签证书并做 80->443 跳转），浏览器直接证书报错。
 #       此模式 Caddy 只在容器内绑定 80，宿主机的 80/443 由 HTTP_PORT / HTTPS_PORT 映射。

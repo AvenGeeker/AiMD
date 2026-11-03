@@ -10,6 +10,43 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Scan every revision that would become public, not just the tip.
+          fetch-depth: 0
+
+      - name: Scan tracked files
+        run: ./scripts/check-secrets.sh
+
+      - name: Scan full history
+        run: |
+          set -uo pipefail
+          fail=0
+          # A credential stays in the packfiles even after a force-push, so the whole reachable
+          # history has to be clean before this repository goes public. Patterns are anchored to
+          # the exact shapes vendors issue, and generated trees are excluded: minified bundles and
+          # source maps are identifier soup that a naive "sk-..." regex matches by accident.
+          # (apps/desktop/renderer/ was committed early on and later removed; it is build output.)
+          pattern='\b(AKIA|ASIA)[0-9A-Z]{16,}|\bLTAI[0-9A-Za-z]{12,24}\b|\bgh[pousr]_[0-9A-Za-z]{36,}\b|\bgithub_pat_[0-9A-Za-z_]{30,}\b|\bglpat-[0-9A-Za-z_-]{20,}|\bxox[baprs]-[0-9A-Za-z-]{15,}\b|\bsk-ant-[0-9A-Za-z_-]{40,}\b|\bsk-proj-[0-9A-Za-z_-]{40,}\b|\bsk-[A-Za-z0-9]{40,}\b|\bAIza[0-9A-Za-z_-]{35,}|-----BEGIN (RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY'
+          while read -r rev; do
+            out=$(git grep -lIE "$pattern" "$rev" -- ':!*.map' ':!*.min.js' ':!pnpm-lock.yaml' ':!apps/desktop/renderer' ':!apps/web/dist' ':!apps/mobile/www' ':!apps/mobile/harmony/entry/src/main/resources/resfile' 2>/dev/null)
+            [ -n "$out" ] || continue
+            echo "::error::credential-shaped content committed in $rev"
+            printf '%s\n' "$out" | head -10
+            fail=1
+          done < <(git rev-list --all)
+          if [ "$fail" -ne 0 ]; then
+            echo "Rotate anything real, then scrub history with git filter-repo or BFG." >&2
+          else
+            echo "history scan: clean ($(git rev-list --all --count) commits)"
+          fi
+          exit "$fail"
+
   verify:
     name: Lint, typecheck and test
     runs-on: ubuntu-latest

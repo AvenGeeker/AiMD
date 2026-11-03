@@ -96,7 +96,7 @@ normalize_public_url() {
 }
 # Caddy site address: scheme + host, never a port (Caddy binds the standard container port).
 #   https://notes.example.com -> https://notes.example.com  (auto HTTPS on 443, redirect from 80)
-#   http://47.97.12.34:8080    -> http://47.97.12.34          (plain HTTP on container :80)
+#   http://203.0.113.10:8080    -> http://203.0.113.10          (plain HTTP on container :80)
 derive_caddy_site() { echo "$(url_scheme "$1")://$(url_host "$1")"; }
 
 if [[ ! -f "$ENV_FILE" ]]; then
