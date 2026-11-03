@@ -15,7 +15,9 @@ export function FavoriteNoteBar({ note, tree }: { note: NoteSummaryDto; tree: Tr
   const createFolder = useCreateFolder();
   if (!note.source) return null;
   const rootId = tree?.settings.favoritesFolderId;
-  const categories = (tree?.folders ?? []).filter((folder) => folder.parentId === rootId);
+  const categories = (tree?.folders ?? []).filter(
+    (folder) => folder.parentId === rootId && folder.id !== tree?.settings.favoritesInboxFolderId,
+  );
   const category = note.aiCategory;
   const busy = classify.isPending || retryMedia.isPending || setCategory.isPending || createFolder.isPending;
 
@@ -43,7 +45,7 @@ export function FavoriteNoteBar({ note, tree }: { note: NoteSummaryDto; tree: Tr
           <Sparkles size={10} /> AI 建议归入「{category.suggestion}」
           <button type="button" className="text-accent hover:underline" onClick={() => void acceptSuggestion()} disabled={busy}>新建并归类</button>
           <button type="button" className="inline-flex items-center gap-0.5 text-muted hover:text-foreground" onClick={() => void setCategory.mutateAsync({ noteId: note.id, action: 'dismiss' })}>
-            <X size={9} /> 留在待分类
+            <X size={9} /> 忽略建议
           </button>
         </span>
       ) : null}

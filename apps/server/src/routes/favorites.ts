@@ -7,7 +7,7 @@ import {
   favoritePreviewInput,
   favoriteSaveInput,
   favoriteSaveResultDto,
-  type SourcePlatform,
+  sourcePlatformSchema,
 } from '@aimarkdown/shared';
 import { requireAuth, currentUser } from '../plugins/auth.js';
 import { parse } from '../utils/validate.js';
@@ -56,11 +56,12 @@ export function registerFavoriteRoutes(app: FastifyInstance, deps: FavoriteRoute
     }
     if (files.length === 0) throw new ApiError(ERROR_CODES.BAD_REQUEST, '未收到图片或视频');
     const title = (fields.title || files[0]?.filename || '收藏媒体').slice(0, 200);
+    const parsedPlatform = sourcePlatformSchema.safeParse(fields.platform);
     const result = await importMediaFavorite(deps, ownerId, {
       title,
       body: fields.body ?? '',
       sourceUrl: fields.url || null,
-      platform: (fields.platform as SourcePlatform | undefined) ?? 'manual',
+      platform: parsedPlatform.success ? parsedPlatform.data : undefined,
       folderId: fields.folderId || undefined,
       forceNew: fields.forceNew === 'true',
       files,

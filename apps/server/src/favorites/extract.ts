@@ -163,8 +163,20 @@ function makeMarkdown(html: string, baseUrl: string): { body: string; imageUrls:
   return { body: turndown.turndown(clean).trim(), imageUrls };
 }
 
+/** Recover the platform when a short-link redirect lands on a generic URL. */
+function detectPlatformFromHtml(html: string): SourcePlatform | null {
+  const sample = html.slice(0, 500_000).toLowerCase();
+  if (sample.includes('__initial_state__') && sample.includes('xiaohongshu.com')) return 'xiaohongshu';
+  if ((sample.includes('_router_data') || sample.includes('render_data')) && sample.includes('douyin.com')) {
+    return 'douyin';
+  }
+  if (sample.includes('js_content') && sample.includes('mp.weixin.qq.com')) return 'wechat';
+  return null;
+}
+
 export function extractPage(rawUrl: string, html: string): ExtractedPage {
-  const platform = detectPlatform(rawUrl);
+  const detected = detectPlatform(rawUrl);
+  const platform = detected === 'web' ? detectPlatformFromHtml(html) ?? detected : detected;
   const { document } = parseHTML(html);
   const warnings: string[] = [];
   let title = metaOf(document, ['og:title', 'twitter:title']) ?? textOf(document, 'title') ?? '无标题';

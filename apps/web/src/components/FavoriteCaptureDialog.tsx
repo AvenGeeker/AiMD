@@ -9,7 +9,7 @@ interface Props {
   open: boolean;
   initial?: SharedCapture | null;
   onClose(): void;
-  onSaved(noteId: string): void;
+  onSaved(noteId: string, folderId: string | null): void;
 }
 
 function manualTitle(text: string): string {
@@ -24,8 +24,8 @@ export function FavoriteCaptureDialog({ open, initial, onClose, onSaved }: Props
   const inputRef = useRef<HTMLInputElement>(null);
   const autoKey = useRef('');
 
-  const finish = (noteId: string) => {
-    onSaved(noteId);
+  const finish = (noteId: string, folderId: string | null) => {
+    onSaved(noteId, folderId);
     onClose();
   };
 
@@ -47,7 +47,7 @@ export function FavoriteCaptureDialog({ open, initial, onClose, onSaved }: Props
         forceNew: false,
         downloadImages: true,
       });
-      finish(result.note.id);
+      finish(result.note.id, result.note.folderId);
     } catch (caught) {
       setError(describeError(caught));
     } finally {
@@ -70,7 +70,7 @@ export function FavoriteCaptureDialog({ open, initial, onClose, onSaved }: Props
         forceNew: false,
         downloadImages: false,
       });
-      finish(result.note.id);
+      finish(result.note.id, result.note.folderId);
     } catch (caught) {
       setError(describeError(caught));
     } finally {
@@ -87,9 +87,8 @@ export function FavoriteCaptureDialog({ open, initial, onClose, onSaved }: Props
         title: files[0]?.name.replace(/\.[^.]+$/, '') || '收藏媒体',
         body: text.replace(firstFavoriteUrl(text), '').trim(),
         url: firstFavoriteUrl(text) || null,
-        platform: 'manual',
       });
-      finish(result.note.id);
+      finish(result.note.id, result.note.folderId);
     } catch (caught) {
       setError(describeError(caught));
     } finally {
@@ -168,7 +167,7 @@ export function FavoriteCaptureDialog({ open, initial, onClose, onSaved }: Props
             ) : null}
           </div>
           <div className="mt-2 text-[10.5px] leading-5 text-muted">
-            {busy ? '正在解析并收藏…解析不到正文时会自动只保存网址。' : '支持小红书、抖音、公众号和任意网页。粘贴后自动保存，不再需要填写表单。'}
+            {busy ? '正在解析并收藏…解析不到正文时会自动只保存网址。' : '支持小红书、抖音、公众号和任意网页。粘贴后自动保存并选择默认分类。'}
           </div>
           {error ? (
             <div className="mt-3 rounded-lg border border-danger/35 bg-danger-soft px-3 py-2 text-[10.5px] text-danger">

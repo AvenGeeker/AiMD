@@ -745,17 +745,21 @@ function Workspace() {
         setFavoriteDialogOpen(false);
         setSharedCapture(null);
       }}
-      onSaved={(noteId) => {
+      onSaved={(noteId, folderId) => {
         setFavoriteDialogOpen(false);
         setSharedCapture(null);
+        // Open the category the note actually landed in. Jumping to 待分类 made a successfully
+        // classified favourite look like it had fallen into the wrong place.
         setSelection({
           ...EMPTY_SELECTION,
-          folderId: settings.favoritesInboxFolderId,
+          folderId: folderId ?? settings.favoritesFolderId,
           favorites: true,
           recursive: true,
         });
         setSelectedNoteId(noteId);
-        flash('已保存收藏，AI 将自动分类');
+        setFavoritePlatform('');
+        invalidateStructure(queryClient);
+        flash(folderId ? '已保存收藏，已自动选择分类' : '已保存收藏');
       }}
     />
   );

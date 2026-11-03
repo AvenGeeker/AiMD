@@ -14,6 +14,7 @@ import {
   type NoteSourceState,
   type MediaStatus,
   type FavoriteCategoryStatus,
+  type NoteAiState,
   type SourcePlatform,
   type CaptureStatus,
 } from '@aimarkdown/shared';
@@ -24,6 +25,7 @@ import { decodeBytea, encodeBytea } from '../db/bytea.js';
 import { createNoteDoc, appendToBody, readBody, replaceBody, writeNoteMeta, writeSource, setTagIds } from '../collab/docFactory.js';
 import { mirrorNote } from '../collab/persistence.js';
 import { projectNote } from '../collab/projection.js';
+import { detectPlatform } from '../favorites/extract.js';
 import { noteStateHash } from '../utils/hash.js';
 import { docFromSnapshot, mutateDocument } from '../collab/direct.js';
 import type { Hocuspocus } from '@hocuspocus/server';
@@ -86,6 +88,8 @@ export interface CreateNoteInput {
   position?: string;
   source?: Partial<NoteSourceState>;
   media?: { status?: MediaStatus };
+  /** Initial AI/category state, used by favourite capture to avoid a transient 待分类 state. */
+  ai?: Partial<NoteAiState>;
 }
 
 /** Build the initial document + row for a note and insert both atomically. */
@@ -130,6 +134,7 @@ export async function createNote(
     body,
     source: input.source,
     media: input.media,
+    ai: input.ai,
   });
 
   await sql.begin(async (tx) => {
@@ -427,6 +432,20 @@ function folderClause(
 
 function sourcePlatformClause(sql: Sql, platform: string | null) {
   if (!platform) return sql`true`;
+  // Older captures shared from the mobile sheet were stored as `manual` even when the payload
+  // carried a Xiaohongshu/Douyin/WeChat URL. Match those rows by URL so the platform chips work
+  // before the note is saved again and its source is repaired.
+  if (platform === 'xiaohongshu') {
+    return sql`(n.source_platform = ${platform} or n.source_url ilike '%xiaohongshu.com%'
+      or n.source_url ilike '%xhslink.com%' or n.source_url ilike '%xhslink.cn%')`;
+  }
+  if (platform === 'douyin') {
+    return sql`(n.source_platform = ${platform} or n.source_url ilike '%douyin.com%'
+      or n.source_url ilike '%iesdouyin.com%')`;
+  }
+  if (platform === 'wechat') {
+    return sql`(n.source_platform = ${platform} or n.source_url ilike '%mp.weixin.qq.com%')`;
+  }
   return sql`n.source_platform = ${platform}`;
 }
 
@@ -449,6 +468,20 @@ function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }
 
+/**
+ * Old favourites may carry `manual`/`web` (or null) even though their URL identifies the source.
+ * Prefer a specific URL-derived platform so badges and filters agree with what the user saved.
+ */
+function derivedSourcePlatform(
+  stored: SourcePlatform | null,
+  url: string | null,
+): SourcePlatform | null {
+  const fromUrl = url ? detectPlatform(url) : null;
+  if (fromUrl && fromUrl !== 'web') return fromUrl;
+  if (stored && stored !== 'manual') return stored;
+  return fromUrl ?? stored;
+}
+
 /** Note list rows never carry the full body — only a short excerpt and optional match context. */
 export function toSummary(record: NoteRecord, query = ''): NoteSummaryDto {
   const summary: NoteSummaryDto = {
@@ -467,7 +500,7 @@ export function toSummary(record: NoteRecord, query = ''): NoteSummaryDto {
     source: record.source
       ? {
           url: record.source.url,
-          platform: record.source.platform,
+          platform: derivedSourcePlatform(record.source.platform, record.source.url),
           author: record.source.author,
           coverAttachmentId: record.source.coverAttachmentId,
           originalTitle: record.source.originalTitle,

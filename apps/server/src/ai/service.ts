@@ -340,9 +340,17 @@ export function createAiService(deps: AiServiceDeps): AiService {
     const inboxId = typeof settings.favoritesInboxFolderId === 'string' ? settings.favoritesInboxFolderId : null;
     if (!rootId) return { rootId, inboxId, names: [] };
     const folderRows = await sql`
-      select name from folders where owner_id = ${ownerId} and parent_id = ${rootId} order by name
+      select id, name from folders where owner_id = ${ownerId} and parent_id = ${rootId} order by name
     `;
-    return { rootId, inboxId, names: folderRows.map((row) => String(row.name)) };
+    // The system inbox is not a real category. Letting the model choose it would immediately
+    // undo the default category assigned during capture and send the note back to 待分类.
+    return {
+      rootId,
+      inboxId,
+      names: folderRows
+        .filter((row) => !inboxId || String(row.id) !== inboxId)
+        .map((row) => String(row.name)),
+    };
   }
 
   async function ensureFavoriteFolder(ownerId: string, rootId: string, name: string): Promise<string> {
@@ -512,6 +520,7 @@ export function createAiService(deps: AiServiceDeps): AiService {
       let categorySuggestion: string | null = existingAi.categorySuggestion;
       const categoryError: string | null = null;
       if (isFavorite && categories?.rootId) {
+        const hasAssignedCategory = Boolean(categoryFolderId && categoryFolderId !== categories.inboxId);
         const known = categories.names.some((name) => name.toLowerCase() === (analysis.category ?? '').toLowerCase());
         const preset = (FAVORITE_CATEGORY_PRESETS as readonly string[]).some(
           (name) => name.toLowerCase() === (analysis.category ?? '').toLowerCase(),
@@ -522,11 +531,14 @@ export function createAiService(deps: AiServiceDeps): AiService {
           categoryStatus = 'done';
           categorySuggestion = null;
         } else if (analysis.suggestedCategory) {
-          categoryFolderId = categories.inboxId;
-          categoryName = null;
+          // Keep the capture-time default category; the suggestion is only an optional action.
+          if (!hasAssignedCategory) {
+            categoryFolderId = categories.inboxId;
+            categoryName = null;
+          }
           categoryStatus = 'suggested';
           categorySuggestion = analysis.suggestedCategory;
-        } else {
+        } else if (!hasAssignedCategory) {
           categoryFolderId = categories.inboxId;
           categoryName = null;
           categoryStatus = 'done';

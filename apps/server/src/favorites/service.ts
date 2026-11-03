@@ -15,12 +15,13 @@ import { PAGE_ACCEPT, safeFetch } from './safeFetch.js';
 import { detectPlatform, extractPage } from './extract.js';
 import type { AttachmentStorage } from '../services/storage.js';
 import { createNote, getNote, loadStoredDoc, patchNoteMeta, toSummary, type NotesDeps } from '../services/notes.js';
-import { getSettings, type WorkspaceDeps } from '../services/workspace.js';
+import { createFolder, getSettings, type WorkspaceDeps } from '../services/workspace.js';
 import type { AiService } from '../ai/service.js';
 import { noteDocName } from '@aimarkdown/shared';
 import { writeAiState, writeNoteMeta } from '../collab/docFactory.js';
 import { docFromSnapshot, mutateDocument } from '../collab/direct.js';
 import { mirrorNote } from '../collab/persistence.js';
+import { pickDefaultFavoriteCategory } from './defaultCategory.js';
 import * as Y from 'yjs';
 
 export interface FavoriteDeps {
@@ -55,6 +56,59 @@ function extensionFor(mime: string): string {
     'image/avif': 'avif',
   };
   return values[mime.split(';', 1)[0]!.trim().toLowerCase()] ?? 'bin';
+}
+
+/** Keep a specific platform detected from the original short link when a redirect lands on a generic page. */
+function preferPlatform(primary: SourcePlatform, secondary: SourcePlatform): SourcePlatform {
+  if (primary !== 'web') return primary;
+  return secondary !== 'web' ? secondary : primary;
+}
+
+interface InitialCategory {
+  folderId: string;
+  name: string;
+}
+
+/**
+ * Pick a real category before the note is inserted. This prevents every new favourite from
+ * flashing through the system 待分类 folder while AI/media jobs are still running.
+ */
+async function resolveDefaultCategory(
+  deps: FavoriteDeps,
+  ownerId: string,
+  input: { platform: SourcePlatform; title: string; body: string },
+): Promise<InitialCategory | null> {
+  const settings = await getSettings(deps.workspace, ownerId);
+  const rootId = settings.favoritesFolderId;
+  if (!rootId) return null;
+  const rows = await deps.sql`
+    select id, name from folders
+    where owner_id = ${ownerId} and parent_id = ${rootId}
+  `;
+  const choice = pickDefaultFavoriteCategory({
+    platform: input.platform,
+    title: input.title,
+    body: input.body,
+    folders: rows.map((row) => ({ id: String(row.id), name: String(row.name) })),
+    inboxFolderId: settings.favoritesInboxFolderId,
+  });
+  if (choice.folderId) return { folderId: choice.folderId, name: choice.name };
+  const created = await createFolder(deps.workspace, ownerId, {
+    name: choice.name,
+    parentId: rootId,
+  });
+  return { folderId: created.id, name: created.name };
+}
+
+function initialCategoryAiState(category: InitialCategory) {
+  return {
+    categoryFolderId: category.folderId,
+    categoryName: category.name,
+    categoryStatus: 'done' as const,
+    categorySuggestion: null,
+    categoryAt: new Date().toISOString(),
+    categoryError: null,
+  };
 }
 
 function sourceBlock(platform: SourcePlatform, url: string | null, author: string | null): string {
@@ -263,7 +317,7 @@ export async function saveFavorite(
       });
       if (fetched.contentType.includes('html')) {
         const extracted = extractPage(fetched.finalUrl, fetched.buffer.toString('utf8'));
-        if (!input.platform) platform = extracted.platform;
+        if (!input.platform) platform = preferPlatform(platform, extracted.platform);
         if (extracted.title && extracted.title !== '无标题') title = extracted.title;
         body = extracted.body.trim().length >= 20 ? extracted.body : '';
         author = author ?? extracted.author;
@@ -331,16 +385,34 @@ export async function saveFavorite(
   let created = false;
   if (existing[0] && !input.forceNew) {
     noteId = String(existing[0].id);
-    await patchNoteMeta(deps.notes, ownerId, noteId, { title, body: composed, source });
+    const updated = await patchNoteMeta(deps.notes, ownerId, noteId, { title, body: composed, source });
     await insertAttachments(deps.sql, ownerId, noteId, localized.attachments);
+    // Repair older duplicates that still sit in the system inbox without a category.
+    if (input.folderId === undefined && (!updated.category?.folderId
+      || updated.category.folderId === settings.favoritesInboxFolderId)) {
+      const category = await resolveDefaultCategory(deps, ownerId, { platform, title, body: composed });
+      if (category) {
+        await setFavoriteCategory(deps, ownerId, noteId, {
+          action: 'set',
+          folderId: category.folderId,
+          name: category.name,
+        });
+      }
+    }
   } else {
-    const folderId = input.folderId === undefined ? settings.favoritesInboxFolderId : input.folderId;
+    const category = input.folderId === undefined
+      ? await resolveDefaultCategory(deps, ownerId, { platform, title, body: composed })
+      : null;
+    const folderId = input.folderId === undefined
+      ? category?.folderId ?? settings.favoritesInboxFolderId
+      : input.folderId;
     const record = await createNote(deps.notes, ownerId, {
       title,
       folderId,
       body: composed,
       source,
       media: { status: localized.attachments.length > 0 ? 'queued' : 'idle' },
+      ai: category ? initialCategoryAiState(category) : undefined,
     });
     noteId = record.id;
     created = true;
@@ -370,13 +442,14 @@ export async function importMediaFavorite(
     title: string;
     body: string;
     sourceUrl: string | null;
-    platform: SourcePlatform;
+    platform?: SourcePlatform;
     folderId?: string | null;
     forceNew?: boolean;
     files: Array<{ filename: string; mime: string; data: Uint8Array }>;
   },
 ): Promise<FavoriteSaveResultDto> {
   const settings = await getSettings(deps.workspace, ownerId);
+  const platform = input.platform ?? (input.sourceUrl ? detectPlatform(input.sourceUrl) : 'manual');
   const attachments: PendingAttachment[] = [];
   const markdown: string[] = [];
   let videoId: string | null = null;
@@ -402,23 +475,29 @@ export async function importMediaFavorite(
       markdown.push(`[${item.filename}](${attachmentUrl(deps.config.PUBLIC_URL, id)})`);
     }
   }
-  const composed = `${sourceBlock(input.platform, input.sourceUrl, null)}\n\n${input.body}\n\n${markdown.join('\n\n')}`.trim();
+  const composed = `${sourceBlock(platform, input.sourceUrl, null)}\n\n${input.body}\n\n${markdown.join('\n\n')}`.trim();
   const source: Partial<NoteSourceState> = {
     url: input.sourceUrl,
-    platform: input.platform,
+    platform,
     author: null,
     coverAttachmentId: attachments.find((item) => item.mime.startsWith('image/'))?.id ?? null,
     originalTitle: input.title,
     collectedAt: new Date().toISOString(),
     captureStatus: 'media',
   };
-  const folderId = input.folderId === undefined ? settings.favoritesInboxFolderId : input.folderId;
+  const category = input.folderId === undefined
+    ? await resolveDefaultCategory(deps, ownerId, { platform, title: input.title, body: composed })
+    : null;
+  const folderId = input.folderId === undefined
+    ? category?.folderId ?? settings.favoritesInboxFolderId
+    : input.folderId;
   const record = await createNote(deps.notes, ownerId, {
     title: input.title,
     folderId,
     body: composed,
     source,
     media: { status: attachments.length > 0 ? 'queued' : 'idle' },
+    ai: category ? initialCategoryAiState(category) : undefined,
   });
   await insertAttachments(deps.sql, ownerId, record.id, attachments);
   const imageIds = attachments.filter((item) => item.mime.startsWith('image/')).map((item) => item.id);
