@@ -44,8 +44,10 @@ import {
   type HtmlAttachmentTarget,
 } from './convert.js';
 import { appleStateHash, noteStateHash, sha256Hex } from './hash.js';
+import { conflictCopyKey, effectivelyEmptyBody, normalizeForMatch, normalizeTitle } from './conflicts.js';
 import {
   emptyState,
+  appleIdsForAppIds,
   readSyncState,
   saveSyncState,
   type AppleNotesState,
@@ -159,17 +161,6 @@ function mappingIssueMessage(
     return `本地同步映射文件已损坏${issue.backupPath ? '，原文件已自动备份' : ''}。请先预览并确认；确认后会重新建立映射。`;
   }
   return '本地同步映射不存在。请先预览并确认；确认后会建立新的映射。';
-}
-
-function normalizeTitle(value: string): string {
-  return value.trim().replace(/\s+/g, ' ').toLowerCase();
-}
-
-function normalizeForMatch(body: string): string {
-  return canonicalMarkdown(body)
-    .replace(/\/api\/attachments\/[A-Za-z0-9_-]+/g, '__attachment__')
-    .replace(/__AIMD_ATT_[a-f0-9]+__/g, '__attachment__')
-    .replace(/__attachment__/g, '__attachment__');
 }
 
 function matchKey(title: string, body: string): string {
@@ -460,6 +451,8 @@ export class AppleNotesSyncEngine {
       result.createdFolders = applied.createdFolders;
       result.updatedFolders = applied.updatedFolders;
       result.deletedFolders = applied.deletedFolders;
+      result.dedupedConflicts = applied.dedupedConflicts;
+      result.prunedEmptyNotes = applied.prunedEmptyNotes;
       result.uploadedAttachments = applied.uploadedAttachments;
       result.downloadedAttachments = applied.downloadedAttachments;
       result.uploadedBytes = applied.uploadedBytes;
@@ -1201,6 +1194,13 @@ export class AppleNotesSyncEngine {
         if (link) usedApple.add(link.appleId);
         continue;
       }
+      // Empty notes have no content worth mirroring, and Apple Notes keeps renaming them
+      // (新备忘录 / 无标题). Excluding them prevents a fresh duplicate every sync.
+      if (app.bodyLoaded && effectivelyEmptyBody(app.summary.title, app.body)) {
+        usedApp.add(app.summary.id);
+        if (link) usedApple.add(link.appleId);
+        continue;
+      }
       usedApp.add(app.summary.id);
       const apple = link ? appleNotes.get(link.appleId) : undefined;
       if (link && apple) {
@@ -1220,7 +1220,17 @@ export class AppleNotesSyncEngine {
           // Notes folder instead of the requested one.
           actions.push({ kind: 'moveApple', app, apple });
         } else if (appChanged && appleChanged) {
-          actions.push({ kind: 'conflict', app, apple });
+          // Empty notes have no user content to preserve. Apple Notes also keeps renaming them
+          // (for example to 新备忘录), so a conflict copy here would be generated forever.
+          const appEmpty = effectivelyEmptyBody(app.summary.title, app.body);
+          const appleEmpty = effectivelyEmptyBody(apple.title, apple.body);
+          if (appEmpty || appleEmpty) {
+            actions.push(appEmpty && !appleEmpty
+              ? { kind: 'pullApple', app, apple }
+              : { kind: 'pushApp', app, apple });
+          } else {
+            actions.push({ kind: 'conflict', app, apple });
+          }
         } else if (appChanged) {
           actions.push({ kind: 'pushApp', app, apple });
         } else if (appleChanged) {
@@ -1265,6 +1275,7 @@ export class AppleNotesSyncEngine {
         continue;
       }
       usedApple.add(apple.meta.id);
+      if (effectivelyEmptyBody(apple.title, apple.body)) continue;
       const key = matchKey(apple.title, apple.body);
       const candidates = [...appNotes.values()].filter((app) =>
         !usedApp.has(app.summary.id) && app.summary.folderId === (apple.folderKey === 'root' ? null : apple.folderKey) &&
@@ -1334,7 +1345,9 @@ export class AppleNotesSyncEngine {
     }, signal);
     const link = this.linkFor(state, app.summary.id, apple.meta.id);
     link.appleFolderId = apple.meta.folderId;
-    link.lastAppHash = noteStateHash(pulled.title, pulled.folderId, pulled.body);
+    // The server may normalise the title (for example an empty Apple title becomes 无标题/derived
+    // from the body), so hash the stored summary rather than the pre-save payload.
+    link.lastAppHash = noteStateHash(updated.title, updated.folderId, pulled.body);
     link.lastAppUpdatedAt = updated.updatedAt;
     link.lastAppleHash = apple.stateHash;
     link.lastAppleModifiedAt = apple.meta.modifiedAt;
@@ -1390,6 +1403,8 @@ export class AppleNotesSyncEngine {
     downloadedAttachments: number;
     uploadedBytes: number;
     downloadedBytes: number;
+    dedupedConflicts: number;
+    prunedEmptyNotes: number;
     errors: AppleNotesError[];
   }> {
     const signal = this.controller?.signal;
@@ -1398,6 +1413,8 @@ export class AppleNotesSyncEngine {
     const createdFolders = outcome.folderCounts.createAppFolders + outcome.folderCounts.createAppleFolders;
     const updatedFolders = outcome.folderCounts.moveAppFolders + outcome.folderCounts.moveAppleFolders;
     let deletedFolders = outcome.folderCounts.deleteAppFolders + outcome.folderCounts.deleteAppleFolders;
+    let dedupedConflicts = 0;
+    let prunedEmptyNotes = 0;
     let uploadedAttachments = 0;
     let downloadedAttachments = 0;
     let uploadedBytes = 0;
@@ -1448,7 +1465,10 @@ export class AppleNotesSyncEngine {
             errors.push({ code: 'CREATE_NOTE', message: item.error?.message ?? '创建笔记失败' });
             continue;
           }
-          this.linkCreatedApp(state, entry.action.apple, item.note.id, entry.title, entry.body, item.note.folderId);
+          // Use the server's projected title: an Apple note without a title may be stored as
+          // 无标题 or derived from its body, and hashing the pre-save title would make the app
+          // look edited again on the very next sync.
+          this.linkCreatedApp(state, entry.action.apple, item.note.id, item.note.title, entry.body, item.note.folderId);
           result.createdAppNotes++;
         }
       } catch (error) {
@@ -1663,7 +1683,10 @@ export class AppleNotesSyncEngine {
 
     // Refresh Apple hashes/ids after writes. A created note's Apple body is normalised by Notes,
     // so using the app hash as the Apple baseline would create a false change on the next run.
-    const affectedAppleIds = [...appleOpMeta.values()].map((entry) => state.notes[entry.app.summary.id]?.appleId).filter(Boolean) as string[];
+    const affectedAppleIds = appleIdsForAppIds(
+      state,
+      [...appleOpMeta.values()].map((entry) => entry.app.summary.id),
+    );
     if (affectedAppleIds.length > 0) {
       try {
         const refreshed = await readAppleNotes(affectedAppleIds, { signal });
@@ -1710,6 +1733,28 @@ export class AppleNotesSyncEngine {
       errors.push({ code: 'FOLDER_CLEANUP', message: error instanceof Error ? error.message : String(error) });
     }
 
+    // The old hash-refresh bug could leave several byte-identical conflict copies behind. Keep
+    // the oldest of each exact (folder, base title, canonical body) group and soft-delete the
+    // rest. This only touches notes carrying the sync conflict tag, so user notes are never
+    // candidates.
+    try {
+      dedupedConflicts = await this.dedupeConflictCopies(signal);
+    } catch (error) {
+      errors.push({
+        code: 'DEDUPE_CONFLICTS',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    try {
+      prunedEmptyNotes = await this.pruneEmptyFavoriteNotes(signal);
+    } catch (error) {
+      errors.push({
+        code: 'PRUNE_EMPTY_NOTES',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     saveSyncState({ ...state, namespace });
     return {
       state,
@@ -1722,8 +1767,135 @@ export class AppleNotesSyncEngine {
       downloadedAttachments,
       uploadedBytes,
       downloadedBytes,
+      dedupedConflicts,
+      prunedEmptyNotes,
       errors,
     };
+  }
+
+  /**
+   * Remove empty junk notes that older sync runs created inside the system favourites folder.
+   *
+   * Only notes with no source metadata and no real body are candidates. Default titles
+   * (新备忘录/无标题) are always junk; a non-default title is removed only when another note in
+   * the same folder has the same title and real favourites metadata. Soft-deleted, so recoverable.
+   */
+  private async pruneEmptyFavoriteNotes(signal?: AbortSignal): Promise<number> {
+    const tree = await api.getTree(signal);
+    const root = tree.settings.favoritesFolderId;
+    if (!root) return 0;
+    const byParent = new Map<string | null, string[]>();
+    for (const folder of tree.folders) {
+      const key = folder.parentId ?? null;
+      const list = byParent.get(key);
+      if (list) list.push(folder.id);
+      else byParent.set(key, [folder.id]);
+    }
+    const subtree = new Set<string>();
+    const stack = [root];
+    while (stack.length > 0) {
+      const id = stack.pop()!;
+      if (subtree.has(id)) continue;
+      subtree.add(id);
+      stack.push(...(byParent.get(id) ?? []));
+    }
+
+    const list = await api.listNotes('all', signal);
+    const candidates = list.items.filter((note) => note.folderId && subtree.has(note.folderId) && !note.source);
+    if (candidates.length === 0) return 0;
+    const bodies = new Map<string, string>();
+    for (let i = 0; i < candidates.length; i += 50) {
+      const batch = candidates.slice(i, i + 50);
+      try {
+        const result = await api.readBodies(batch.map((note) => note.id), signal);
+        for (const item of result.items) bodies.set(item.id, item.body);
+      } catch (error) {
+        if (!(error instanceof api.DesktopApiError) || error.status !== 413) throw error;
+        for (const note of batch) {
+          try {
+            const result = await api.readBodies([note.id], signal);
+            const item = result.items[0];
+            if (item) bodies.set(item.id, item.body);
+          } catch {
+            // Ignore an unreadable note; it will be retried on the next sync.
+          }
+        }
+      }
+    }
+
+    const titlesWithSource = new Set(
+      list.items
+        .filter((note) => Boolean(note.source))
+        .map((note) => `${note.folderId ?? ''}\u0000${normalizeTitle(note.title)}`),
+    );
+    const defaultTitle = /^(新备忘录|无标题|新建备忘录|untitled)$/i;
+    let trashed = 0;
+    for (const note of candidates) {
+      const body = bodies.get(note.id);
+      if (body === undefined || !effectivelyEmptyBody(note.title, body)) continue;
+      const titleKey = `${note.folderId ?? ''}\u0000${normalizeTitle(note.title)}`;
+      if (!defaultTitle.test(note.title.trim()) && !titlesWithSource.has(titleKey)) continue;
+      await api.trashNote(note.id, signal);
+      trashed++;
+    }
+    return trashed;
+  }
+
+  /**
+   * Remove exact duplicate conflict copies.
+   *
+   * Conflict copies are machine-generated and tagged, so comparing folder + base title +
+   * canonical body is enough to identify copies of the same preserved version. Keeping the
+   * oldest copy preserves history while stopping the favourites folder from growing forever.
+   */
+  private async dedupeConflictCopies(signal?: AbortSignal): Promise<number> {
+    if (!this.conflictTagId) return 0;
+    const tagId = this.conflictTagId;
+    const list = await api.listNotes('all', signal);
+    const tagged = list.items.filter((note) => note.tagIds.includes(tagId));
+    if (tagged.length < 2) return 0;
+
+    const bodies = new Map<string, string>();
+    for (let i = 0; i < tagged.length; i += 50) {
+      const batch = tagged.slice(i, i + 50);
+      try {
+        const result = await api.readBodies(batch.map((note) => note.id), signal);
+        for (const item of result.items) bodies.set(item.id, item.body);
+      } catch (error) {
+        if (!(error instanceof api.DesktopApiError) || error.status !== 413) throw error;
+        for (const note of batch) {
+          try {
+            const result = await api.readBodies([note.id], signal);
+            const item = result.items[0];
+            if (item) bodies.set(item.id, item.body);
+          } catch {
+            // A single unreadable conflict copy must not block the rest of the cleanup.
+          }
+        }
+      }
+    }
+
+    const groups = new Map<string, NoteSummaryDto[]>();
+    for (const note of tagged) {
+      const body = bodies.get(note.id);
+      if (body === undefined) continue;
+      const key = conflictCopyKey(note.folderId, note.title, body);
+      const group = groups.get(key);
+      if (group) group.push(note);
+      else groups.set(key, [note]);
+    }
+
+    let trashed = 0;
+    for (const group of groups.values()) {
+      if (group.length < 2) continue;
+      // Keep the earliest copy, which is the one that originally preserved the version.
+      group.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+      for (const note of group.slice(1)) {
+        await api.trashNote(note.id, signal);
+        trashed++;
+      }
+    }
+    return trashed;
   }
 
   private conflictWinner(app: AppNoteSnapshot, apple: AppleNoteSnapshot): 'app' | 'apple' {
@@ -1866,8 +2038,10 @@ export class AppleNotesSyncEngine {
     signal?: AbortSignal,
   ): Promise<void> {
     const stamp = new Date().toLocaleString('zh-CN', { hour12: false });
+    const suffix = `（冲突 ${stamp}）`;
     const created = await api.createNote({
-      title: `${title}（冲突 ${stamp}）`.slice(0, 200),
+      // Truncate the base title, never the timestamp suffix: dedupe relies on recognising it.
+      title: `${title.slice(0, Math.max(0, 200 - suffix.length))}${suffix}`,
       body,
       folderId,
       tagIds: this.conflictTagId ? [this.conflictTagId] : [],

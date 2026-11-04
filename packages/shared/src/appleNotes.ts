@@ -104,6 +104,10 @@ export interface AppleNotesSyncResult {
   downloadedBytes: number;
   conflicts: number;
   readOnly: number;
+  /** Duplicate conflict copies removed by exact content match (older results omit this). */
+  dedupedConflicts?: number;
+  /** Empty machine-imported notes removed from the favourites folder (older results omit this). */
+  prunedEmptyNotes?: number;
   errors: AppleNotesError[];
   aborted?: 'permission' | 'auth' | 'canceled' | 'mass-deletion' | 'scan-incomplete' | 'mapping' | 'server' | 'notes';
 }

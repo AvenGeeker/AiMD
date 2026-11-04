@@ -134,6 +134,25 @@ function storedNamespace(file: string): { namespace: SyncNamespace | null; valid
   }
 }
 
+/**
+ * Resolve the Apple note ids linked to a set of app note ids.
+ *
+ * `state.notes` is keyed by Apple id; looking it up directly with an app id silently returns
+ * undefined. That broke the post-write hash refresh and made every synced note look changed on
+ * the next run, which turned into a new conflict copy on every sync.
+ */
+export function appleIdsForAppIds(
+  state: AppleNotesState,
+  appIds: Iterable<string>,
+): string[] {
+  const wanted = new Set(appIds);
+  const out = new Set<string>();
+  for (const link of Object.values(state.notes)) {
+    if (wanted.has(link.appId)) out.add(link.appleId);
+  }
+  return [...out];
+}
+
 export function saveSyncState(state: AppleNotesState): void {
   const file = path();
   mkdirSync(dirname(file), { recursive: true });

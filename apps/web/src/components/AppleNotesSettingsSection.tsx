@@ -191,6 +191,8 @@ export function AppleNotesSettingsSection({ controller }: { controller: AppleNot
         <div className="rounded-lg border border-border-subtle bg-panel px-3 py-2 text-[10.5px] leading-5 text-muted" data-testid="apple-notes-last-result">
           上次同步：新增 app {status.lastResult.createdAppNotes}，写回备忘录 {status.lastResult.createdAppleNotes + status.lastResult.updatedAppleNotes}，
           删除 {status.lastResult.trashedAppNotes + status.lastResult.trashedAppleNotes}，冲突 {status.lastResult.conflicts}，只读 {status.lastResult.readOnly}
+          {(status.lastResult.dedupedConflicts ?? 0) > 0 ? `，清理重复冲突 ${status.lastResult.dedupedConflicts}` : ''}
+          {(status.lastResult.prunedEmptyNotes ?? 0) > 0 ? `，清理空笔记 ${status.lastResult.prunedEmptyNotes}` : ''}
           {status.lastResult.errors.length > 0 ? `，错误 ${status.lastResult.errors.length}` : ''}
         </div>
       )}

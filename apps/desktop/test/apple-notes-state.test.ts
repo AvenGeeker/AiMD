@@ -10,6 +10,7 @@ vi.mock('electron', () => ({
 }));
 
 import {
+  appleIdsForAppIds,
   emptyState,
   readSyncState,
   saveSyncState,
@@ -55,6 +56,28 @@ describe('apple notes sync state', () => {
       expect(result.namespace.serverUrl).toBe('http://127.0.0.1:8080');
     }
     expect(existsSync(stateFile())).toBe(true);
+  });
+
+  it('resolves app ids to Apple ids instead of indexing the Apple-keyed map by app id', () => {
+    const state = emptyState(namespace);
+    state.notes.apple1 = {
+      appleId: 'apple1',
+      appId: 'app1',
+      appleFolderId: null,
+      lastAppleHash: 'a',
+      lastAppHash: 'b',
+      lastAppleModifiedAt: null,
+      lastAppleMetaHash: null,
+      lastAppUpdatedAt: '2026-01-01T00:00:00.000Z',
+      tombstone: null,
+      readOnlyReason: null,
+    };
+    state.notes.apple2 = {
+      ...state.notes.apple1,
+      appleId: 'apple2',
+      appId: 'app2',
+    };
+    expect(appleIdsForAppIds(state, ['app2', 'missing'])).toEqual(['apple2']);
   });
 
   it('backs up damaged JSON before reporting corruption', () => {
