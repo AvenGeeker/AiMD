@@ -127,3 +127,62 @@ export function useQuickCaptures(doc: Y.Doc | null): QuickCaptureEntry[] {
     // `version` is the observation signal that forces a recompute when the Y.Text changes.
   }, [doc, version]);
 }
+
+/** One day bucket of captures, newest entry first. */
+export interface CaptureDayGroup {
+  /** `YYYY-MM-DD`, or `undated` for leading stamp-less captures. */
+  key: string;
+  label: string;
+  entries: QuickCaptureEntry[];
+}
+
+const DAY_STAMP = /^(\d{4})-(\d{2})-(\d{2})/;
+
+function dayLabel(year: number, month: number, day: number, now: Date): string {
+  const date = new Date(year, month - 1, day);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diff = Math.round((today.getTime() - date.getTime()) / 86_400_000);
+  if (diff === 0) return '今天';
+  if (diff === 1) return '昨天';
+  if (date.getFullYear() === today.getFullYear()) return `${month}月${day}日`;
+  return `${year}年${month}月${day}日`;
+}
+
+/**
+ * Bucket captures into calendar days for scannable day headers.
+ *
+ * The inbox body is chronological, so a bullet-stamped entry (`hh:mm` only) inherits the day of
+ * the nearest dated capture above it; entries before any dated capture land in a trailing
+ * 「未标注日期」 group. Groups come back newest-first, entries newest-first inside each group.
+ */
+export function groupCapturesByDay(
+  entries: QuickCaptureEntry[],
+  now: Date = new Date(),
+): CaptureDayGroup[] {
+  const order: CaptureDayGroup[] = [];
+  const byKey = new Map<string, CaptureDayGroup>();
+  let currentDay: string | null = null;
+
+  // Walk oldest → newest so bullet stamps can inherit the preceding dated day.
+  for (const entry of [...entries].reverse()) {
+    const match = entry.stampLabel ? DAY_STAMP.exec(entry.stampLabel) : null;
+    if (match) currentDay = `${match[1]}-${match[2]}-${match[3]}`;
+    const key = currentDay ?? 'undated';
+    let group = byKey.get(key);
+    if (!group) {
+      group = match
+        ? {
+            key,
+            label: dayLabel(Number(match[1]), Number(match[2]), Number(match[3]), now),
+            entries: [],
+          }
+        : { key: 'undated', label: '未标注日期', entries: [] };
+      byKey.set(key, group);
+      order.push(group);
+    }
+    group.entries.push(entry);
+  }
+
+  // Newest day first; newest entry first inside each day.
+  return order.reverse().map((group) => ({ ...group, entries: group.entries.reverse() }));
+}

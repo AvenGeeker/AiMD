@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseQuickCaptures } from './quickCaptures.js';
+import { groupCapturesByDay, parseQuickCaptures, type QuickCaptureEntry } from './quickCaptures.js';
 
 const inbox = (body: string) => `# 收集箱\n\n全局快捷键唤出速记窗口，内容会自动追加到这里。\n\n${body}`;
 
@@ -85,5 +85,41 @@ describe('parseQuickCaptures', () => {
     expect(parseQuickCaptures(body)).toEqual([
       expect.objectContaining({ stampLabel: '2026-10-31 10:00', body: '有内容的速记' }),
     ]);
+  });
+});
+
+describe('groupCapturesByDay', () => {
+  const entry = (line: number, stampLabel: string | null): QuickCaptureEntry => ({
+    id: `capture-${line}`,
+    line,
+    stampLabel,
+    body: `body ${line}`,
+  });
+  const now = new Date(2026, 10, 4, 9, 0);
+
+  it('buckets dated stamps and keeps newest-first order', () => {
+    const groups = groupCapturesByDay(
+      [entry(4, '2026-11-04 08:00'), entry(2, '2026-11-03 20:00'), entry(0, '2026-11-03 09:00')],
+      now,
+    );
+    expect(groups.map((group) => group.key)).toEqual(['2026-11-04', '2026-11-03']);
+    expect(groups[0].label).toBe('今天');
+    expect(groups[1].label).toBe('昨天');
+    expect(groups[1].entries.map((item) => item.line)).toEqual([2, 0]);
+  });
+
+  it('lets bullet-only stamps inherit the preceding dated day', () => {
+    const groups = groupCapturesByDay(
+      [entry(3, '14:05'), entry(1, '2026-11-02 10:00'), entry(0, '09:10')],
+      now,
+    );
+    expect(groups.map((group) => group.key)).toEqual(['2026-11-02', 'undated']);
+    expect(groups[0].entries.map((item) => item.line)).toEqual([3, 1]);
+    expect(groups[1].label).toBe('未标注日期');
+    expect(groups[1].entries.map((item) => item.line)).toEqual([0]);
+  });
+
+  it('returns no groups for an empty inbox', () => {
+    expect(groupCapturesByDay([], now)).toEqual([]);
   });
 });

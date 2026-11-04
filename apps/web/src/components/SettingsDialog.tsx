@@ -5,6 +5,7 @@ import {
   NotebookPen,
   Palette,
   PenLine,
+  Search,
   Settings2,
   Sparkles,
   X,
@@ -57,13 +58,44 @@ const EDITOR_MODE_OPTIONS = EDITOR_MODES.map((value) => ({
   label: value === 'split' ? '分栏' : value === 'edit' ? '编辑' : '预览',
 }));
 
+/** Flat index powering the settings search: group id → owning tab + match keywords. */
+const SETTINGS_INDEX: Array<{ tab: SettingsTab; groupId: string; title: string; keywords: string }> = [
+  { tab: 'appearance', groupId: 'theme', title: '主题', keywords: 'theme light dark 浅色 深色 跟随系统 外观' },
+  { tab: 'editor', groupId: 'editor-mode', title: '编辑器视图', keywords: '分栏 编辑 预览 mode split preview' },
+  { tab: 'editor', groupId: 'font-size', title: '正文字号', keywords: '字号 字体 font size' },
+  { tab: 'capture', groupId: 'stamp', title: '速记时间戳', keywords: '时间戳 格式 stamp format' },
+  { tab: 'capture', groupId: 'hotkeys', title: '桌面快捷键', keywords: '快捷键 键盘 hotkey keyboard 速记窗口 主窗口 收藏' },
+  { tab: 'capture', groupId: 'window', title: '窗口行为', keywords: '托盘 登录启动 失焦 隐藏 tray login blur' },
+  { tab: 'ai', groupId: 'ai', title: 'AI 助手', keywords: 'ai 总结 标签 回填 模型 api key' },
+  { tab: 'apple', groupId: 'apple', title: 'macOS 备忘录', keywords: 'apple notes 备忘录 镜像 同步' },
+];
+
 export function SettingsDialog({ settings, onSave, onClose, appleNotes, initialTab = 'appearance' }: SettingsDialogProps) {
   const [draft, setDraft] = useState<SettingsDto>(settings);
   const [hotkeyStates, setHotkeyStates] = useState<HotkeyStates | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<SettingsTab>(initialTab);
+  const [search, setSearch] = useState('');
+  const [scrollToGroup, setScrollToGroup] = useState<string | null>(null);
   const desktop = isDesktop();
+
+  const searchQuery = search.trim().toLowerCase();
+  const searchMatches = searchQuery
+    ? SETTINGS_INDEX.filter(
+        (item) =>
+          item.title.toLowerCase().includes(searchQuery) || item.keywords.toLowerCase().includes(searchQuery),
+      )
+    : [];
+
+  useEffect(() => {
+    if (!scrollToGroup) return;
+    const timer = window.setTimeout(() => {
+      document.getElementById(`group-${scrollToGroup}`)?.scrollIntoView({ block: 'start' });
+      setScrollToGroup(null);
+    }, 40);
+    return () => window.clearTimeout(timer);
+  }, [scrollToGroup, tab]);
 
   useEffect(() => setDraft(settings), [settings]);
 
@@ -187,8 +219,21 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes, initialT
         </div>
 
         <div className="flex min-h-0 flex-1">
-          <nav className="hidden w-48 shrink-0 border-r border-border-subtle bg-panel/55 p-2.5 md:block" aria-label="设置分类">
-            {navItems.map((item) => {
+          <nav className="hidden w-[200px] shrink-0 border-r border-border-subtle bg-panel/55 p-2.5 md:block" aria-label="设置分类">
+            <div className="sidebar-search mb-2 flex items-center gap-2 px-2.5">
+              <Search size={13} className="shrink-0 text-muted" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="搜索设置"
+                aria-label="搜索设置"
+                className="h-7 min-w-0 flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted/65"
+                data-testid="settings-search"
+              />
+            </div>
+            {navItems
+              .filter((item) => !searchQuery || item.label.toLowerCase().includes(searchQuery))
+              .map((item) => {
               const Icon = item.icon;
               return (
                 <button
@@ -224,6 +269,35 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes, initialT
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7">
+              <div className="settings-content">
+              {searchQuery && (
+                <div className="space-y-1.5">
+                  <div className="section-label !px-0 pb-1">搜索「{search.trim()}」</div>
+                  {searchMatches.length === 0 && (
+                    <div className="rounded-lg bg-panel/60 px-3 py-6 text-center text-[11px] text-muted">
+                      没有匹配的设置项
+                    </div>
+                  )}
+                  {searchMatches.map((item) => (
+                    <button
+                      key={`${item.tab}:${item.groupId}`}
+                      type="button"
+                      className="nav-item"
+                      onClick={() => {
+                        setTab(item.tab);
+                        setScrollToGroup(item.groupId);
+                      }}
+                    >
+                      <span className="min-w-0 flex-1 truncate text-left">{item.title}</span>
+                      <span className="shrink-0 text-[10px] text-muted/70">
+                        {navItems.find((nav) => nav.value === item.tab)?.label ?? ''}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {!searchQuery && (
+                <>
               {error && (
                 <div className="mb-4 rounded-lg border border-danger/35 bg-danger-soft px-3 py-2.5 text-[11px] text-danger">
                   {error}
@@ -231,9 +305,8 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes, initialT
               )}
 
               {tab === 'appearance' && (
-                <div className="space-y-6">
-                  <SectionHeading title="外观" description="界面会立即更新，并跟随账号同步。" />
-                  <SettingGroup title="主题">
+                <div className="space-y-4">
+                  <SettingGroup id="theme" title="主题">
                     <SegmentedControl
                       value={draft.theme}
                       options={THEME_OPTIONS}
@@ -262,9 +335,8 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes, initialT
               )}
 
               {tab === 'editor' && (
-                <div className="space-y-6">
-                  <SectionHeading title="编辑" description="选择默认视图和正文显示大小。" />
-                  <SettingGroup title="编辑器视图">
+                <div className="space-y-4">
+                  <SettingGroup id="editor-mode" title="编辑器视图">
                     <SegmentedControl
                       value={draft.editorMode}
                       options={EDITOR_MODE_OPTIONS}
@@ -273,7 +345,7 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes, initialT
                       testIdPrefix="settings-editor-mode"
                     />
                   </SettingGroup>
-                  <SettingGroup title="正文字号" description={`当前 ${draft.fontSize}px`}>
+                  <SettingGroup id="font-size" title="正文字号" description={`当前 ${draft.fontSize}px`}>
                     <div className="flex items-center gap-3">
                       <span className="text-[10.5px] text-muted">小</span>
                       <input
@@ -297,9 +369,8 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes, initialT
               )}
 
               {tab === 'capture' && (
-                <div className="space-y-6">
-                  <SectionHeading title="速记与桌面" description="控制速记格式、窗口行为和全局快捷键。" />
-                  <SettingGroup title="速记时间戳">
+                <div className="space-y-4">
+                  <SettingGroup id="stamp" title="速记时间戳">
                     <select
                       value={draft.stampFormat}
                       onChange={(event) =>
@@ -315,7 +386,7 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes, initialT
                     </select>
                   </SettingGroup>
 
-                  <SettingGroup title="桌面快捷键" description="点击快捷键框后直接按下组合键；Esc 取消录制。">
+                  <SettingGroup id="hotkeys" title="桌面快捷键" description="点击快捷键框后直接按下组合键；Esc 取消录制。">
                     <div className="space-y-3">
                       <Row label="打开主窗口">
                         <div className="flex items-center gap-2">
@@ -384,7 +455,7 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes, initialT
                       )}
                   </SettingGroup>
 
-                  <SettingGroup title="窗口行为">
+                  <SettingGroup id="window" title="窗口行为">
                     <div className="space-y-3.5">
                       <ToggleSwitch
                         label="失焦时自动隐藏速记窗口"
@@ -410,22 +481,23 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes, initialT
               )}
 
               {tab === 'ai' && (
-                <div className="space-y-5">
-                  <SectionHeading title="AI 助手" description="总结、自动标签与批量回填。" />
-                  <div className="settings-embedded">
+                <div className="space-y-4">
+                  <div className="settings-embedded" id="group-ai">
                     <AiSettingsSection />
                   </div>
                 </div>
               )}
 
               {tab === 'apple' && appleNotes && (
-                <div className="space-y-5">
-                  <SectionHeading title="macOS 备忘录" description="把当前账号的笔记库与 Apple 备忘录双向镜像。" />
-                  <div className="settings-embedded">
+                <div className="space-y-4">
+                  <div className="settings-embedded" id="group-apple">
                     <AppleNotesSettingsSection controller={appleNotes} />
                   </div>
                 </div>
               )}
+                </>
+              )}
+              </div>
             </div>
           </div>
         </div>
@@ -446,26 +518,19 @@ export function SettingsDialog({ settings, onSave, onClose, appleNotes, initialT
   );
 }
 
-function SectionHeading({ title, description }: { title: string; description: string }) {
-  return (
-    <div>
-      <h3 className="text-[16px] font-semibold tracking-[-0.02em]">{title}</h3>
-      <p className="mt-1.5 text-[11px] leading-5 text-muted">{description}</p>
-    </div>
-  );
-}
-
 function SettingGroup({
+  id,
   title,
   description,
   children,
 }: {
+  id?: string;
   title: string;
   description?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-border-subtle bg-panel/45 p-4">
+    <section id={id ? `group-${id}` : undefined} className="settings-group rounded-xl border border-border-subtle bg-panel/45 p-3.5">
       <div className="mb-3">
         <h4 className="text-[11.5px] font-semibold">{title}</h4>
         {description && <p className="mt-1 text-[10px] leading-4 text-muted">{description}</p>}

@@ -197,6 +197,11 @@ export const noteSummaryDto = z.object({
   source: noteSourceDto.nullable(),
   mediaStatus: mediaStatusSchema,
   aiCategory: noteCategoryDto.nullable(),
+  /**
+   * One-paragraph AI summary when the note has been analysed; null otherwise. List cards prefer
+   * this over `excerpt` so favourites never show raw markdown scaffolding.
+   */
+  aiSummary: z.string().nullable(),
   /** Present only for search results. */
   matches: z.array(z.string()).optional(),
 });

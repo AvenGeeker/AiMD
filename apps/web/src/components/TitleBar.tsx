@@ -7,6 +7,7 @@ import {
   Loader2,
   NotebookPen,
   RefreshCw,
+  Search,
   ShieldAlert,
 } from 'lucide-react';
 import type { SyncStatus } from '../lib/sync.js';
@@ -34,6 +35,7 @@ export interface TitleBarProps {
   pendingCount: number;
   mode: EditorMode;
   onModeChange(mode: EditorMode): void;
+  onOpenPalette(): void;
   sidebarVisible: boolean;
   onToggleSidebar(): void;
   outlineVisible: boolean;
@@ -119,14 +121,31 @@ export function TitleBar(props: TitleBarProps) {
           <span className="brand-mark" aria-hidden>
             M
           </span>
-          <div className="hidden min-w-0 sm:block">
-            <div className="titlebar-wordmark">{APP_NAME}</div>
-            <div className="titlebar-context">Markdown workspace</div>
-          </div>
+          <div className="titlebar-wordmark hidden min-w-0 sm:block">{APP_NAME}</div>
         </div>
       </div>
 
-      <div className="flex-1" />
+      <div className="flex min-w-0 flex-1 justify-center px-3">
+        <button
+          type="button"
+          className="titlebar-palette-trigger titlebar-no-drag w-full max-w-[420px]"
+          onClick={props.onOpenPalette}
+          title="搜索笔记或输入命令（⌘K）"
+          aria-label="打开命令面板"
+          data-testid="open-palette"
+        >
+          <Search size={13} className="shrink-0" />
+          <span className="min-w-0 flex-1 truncate text-left min-[900px]:hidden" aria-hidden>
+            搜索
+          </span>
+          <span className="hidden min-w-0 flex-1 truncate text-left min-[900px]:inline">
+            搜索笔记或输入命令
+          </span>
+          <kbd className="hidden shrink-0 rounded border border-border bg-background px-1.5 py-0.5 text-[9px] min-[900px]:inline">
+            ⌘K
+          </kbd>
+        </button>
+      </div>
 
       <div className="titlebar-no-drag flex items-center gap-1.5">
         {props.appleNotesAvailable && (

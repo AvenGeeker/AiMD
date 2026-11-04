@@ -97,6 +97,24 @@ export function buildTree(folders: FolderDto[]): TreeNode[] {
   return [...roots, ...unreachable];
 }
 
+/** Per-device collapse state for the three collapsible rail sections. */
+const SECTIONS_KEY = 'aimarkdown.sidebar-sections';
+type SectionId = 'favorites' | 'folders' | 'tags';
+
+function readSections(): Record<SectionId, boolean> {
+  // `true` means collapsed; everything starts expanded.
+  const fallback: Record<SectionId, boolean> = { favorites: false, folders: false, tags: false };
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = window.localStorage.getItem(SECTIONS_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<Record<SectionId, boolean>>;
+    return { ...fallback, ...parsed };
+  } catch {
+    return fallback;
+  }
+}
+
 export function Sidebar(props: SidebarProps) {
   const {
     variant = 'rail',
@@ -126,6 +144,19 @@ export function Sidebar(props: SidebarProps) {
   const [dragOverFolder, setDragOverFolder] = useState<string | null | undefined>(undefined);
   const [editingFolder, setEditingFolder] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [collapsed, setCollapsed] = useState<Record<SectionId, boolean>>(readSections);
+
+  const toggleSection = (id: SectionId) => {
+    setCollapsed((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      try {
+        window.localStorage.setItem(SECTIONS_KEY, JSON.stringify(next));
+      } catch {
+        // A blocked storage partition only loses the preference.
+      }
+      return next;
+    });
+  };
 
   const favoriteSubtrees = useMemo(() => {
     const ids = new Set<string>();
@@ -182,84 +213,89 @@ export function Sidebar(props: SidebarProps) {
     onSelect({ ...selection, tagIds: next });
   };
 
-  const renderNodes = (nodes: TreeNode[], depth: number) =>
-    nodes.map((node) => {
-      const isOpen = expanded.has(node.folder.id);
-      const isActive = selection.folderId === node.folder.id && !selection.rootOnly;
-      const hasChildren = node.children.length > 0;
-      return (
-        <div key={node.folder.id}>
-          <div
-            className={`folder-row group ${isActive ? 'is-active' : ''} ${
-              dragOverFolder === node.folder.id ? 'ring-1 ring-accent' : ''
-            }`}
-            style={{ paddingLeft: `${depth * 13 + 4}px` }}
-            onDragOver={(event) => {
-              event.preventDefault();
-              setDragOverFolder(node.folder.id);
-            }}
-            onDragLeave={() => setDragOverFolder(undefined)}
-            onDrop={(event) => {
-              event.preventDefault();
-              const noteId = event.dataTransfer.getData('text/aimarkdown-note');
-              setDragOverFolder(undefined);
-              if (noteId) onDropNote(noteId, node.folder.id);
-            }}
-          >
-            <button
-              type="button"
-              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted ${
-                hasChildren ? 'hover:bg-hover hover:text-foreground' : 'pointer-events-none opacity-0'
+  const renderNodes = (nodes: TreeNode[], depth: number) => (
+    <div className={depth > 0 ? 'tree-children' : undefined}>
+      {nodes.map((node) => {
+        const isOpen = expanded.has(node.folder.id);
+        const isActive = selection.folderId === node.folder.id && !selection.rootOnly;
+        const hasChildren = node.children.length > 0;
+        return (
+          <div key={node.folder.id}>
+            <div
+              className={`folder-row group ${isActive ? 'is-active' : ''} ${
+                dragOverFolder === node.folder.id ? 'ring-1 ring-accent' : ''
               }`}
-              onClick={() => toggleExpanded(node.folder.id)}
-              aria-label={isOpen ? '折叠目录' : '展开目录'}
+              style={{ paddingLeft: `${depth * 4 + 4}px` }}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setDragOverFolder(node.folder.id);
+              }}
+              onDragLeave={() => setDragOverFolder(undefined)}
+              onDrop={(event) => {
+                event.preventDefault();
+                const noteId = event.dataTransfer.getData('text/aimarkdown-note');
+                setDragOverFolder(undefined);
+                if (noteId) onDropNote(noteId, node.folder.id);
+              }}
             >
-              <ChevronRight
-                size={13}
-                className={`transition-transform duration-150 ${isOpen ? 'rotate-90' : ''}`}
-              />
-            </button>
-            <FolderIcon size={14} className={`shrink-0 ${isActive ? 'text-accent' : 'text-muted'}`} />
-            {editingFolder === node.folder.id ? (
-              <input
-                autoFocus
-                defaultValue={node.folder.name}
-                className="input-base h-6 min-h-0 flex-1 px-1.5 py-0 text-xs"
-                onBlur={(event) => {
-                  const value = event.target.value.trim();
-                  if (value && value !== node.folder.name) onRenameFolder(node.folder.id, value);
-                  setEditingFolder(null);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') (event.target as HTMLInputElement).blur();
-                  if (event.key === 'Escape') setEditingFolder(null);
-                }}
-              />
-            ) : (
               <button
                 type="button"
-                className="min-w-0 flex-1 truncate text-left"
-                onClick={() => selectFolder(node.folder.id)}
-                onDoubleClick={() => setEditingFolder(node.folder.id)}
-                title="双击重命名"
+                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted ${
+                  hasChildren ? 'hover:bg-hover hover:text-foreground' : 'pointer-events-none opacity-0'
+                }`}
+                onClick={() => toggleExpanded(node.folder.id)}
+                aria-label={isOpen ? '折叠目录' : '展开目录'}
               >
-                {node.folder.name}
+                <ChevronRight
+                  size={13}
+                  className={`transition-transform duration-150 ${isOpen ? 'rotate-90' : ''}`}
+                />
               </button>
-            )}
-            <span className="shrink-0 text-[10.5px] tabular-nums text-muted/70">{node.folder.noteCount}</span>
-            <button
-              type="button"
-              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted opacity-0 transition-opacity hover:bg-danger-soft hover:text-danger group-hover:opacity-100"
-              onClick={() => onDeleteFolder(node.folder.id)}
-              aria-label="删除目录"
-            >
-              <Trash2 size={12} />
-            </button>
+              <FolderIcon size={14} className={`shrink-0 ${isActive ? 'text-accent' : 'text-muted'}`} />
+              {editingFolder === node.folder.id ? (
+                <input
+                  autoFocus
+                  defaultValue={node.folder.name}
+                  className="input-base h-6 min-h-0 flex-1 px-1.5 py-0 text-xs"
+                  onBlur={(event) => {
+                    const value = event.target.value.trim();
+                    if (value && value !== node.folder.name) onRenameFolder(node.folder.id, value);
+                    setEditingFolder(null);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') (event.target as HTMLInputElement).blur();
+                    if (event.key === 'Escape') setEditingFolder(null);
+                  }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 truncate text-left"
+                  onClick={() => selectFolder(node.folder.id)}
+                  onDoubleClick={() => setEditingFolder(node.folder.id)}
+                  title="双击重命名"
+                >
+                  {node.folder.name}
+                </button>
+              )}
+              {node.folder.noteCount > 0 && (
+                <span className="shrink-0 text-[10.5px] tabular-nums text-muted/70">{node.folder.noteCount}</span>
+              )}
+              <button
+                type="button"
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted opacity-0 transition-opacity hover:bg-danger-soft hover:text-danger group-hover:opacity-100"
+                onClick={() => onDeleteFolder(node.folder.id)}
+                aria-label="删除目录"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+            {isOpen && renderNodes(node.children, depth + 1)}
           </div>
-          {isOpen && renderNodes(node.children, depth + 1)}
-        </div>
-      );
-    });
+        );
+      })}
+    </div>
+  );
 
   return (
     <aside
@@ -267,76 +303,101 @@ export function Sidebar(props: SidebarProps) {
       data-testid="sidebar"
     >
       {favoritesFolderId ? (
-        <div className="px-3 pb-2 pt-3" data-testid="favorites-nav">
-          <div className="mb-2 flex items-center justify-between px-1">
+        <div className="px-3 pb-1 pt-3" data-testid="favorites-nav">
+          <div className="section-head mb-1">
             <button
               type="button"
-              className={`flex items-center gap-1.5 text-[11px] font-semibold tracking-wide ${selection.favorites ? 'text-accent' : 'text-muted'}`}
-              onClick={onOpenFavorites}
+              className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold tracking-wide text-muted"
+              onClick={() => toggleSection('favorites')}
+              aria-expanded={!collapsed.favorites}
             >
-              <Bookmark size={13} /> 收藏
-              <span className="text-[10px] font-normal tabular-nums text-muted/70">{favoriteCount}</span>
+              <ChevronRight
+                size={12}
+                className={`section-chevron-icon transition-transform duration-150 ${
+                  collapsed.favorites ? '' : 'rotate-90'
+                }`}
+              />
+              <span className={selection.favorites ? 'text-accent' : ''}>收藏</span>
+              <span className="nav-count-chip">{favoriteCount}</span>
             </button>
-            <div className="flex items-center gap-0.5">
+            <div className="section-head-actions">
               <button
                 type="button"
-                className="icon-button !h-7 !w-7"
+                className="icon-button !h-6 !w-6"
                 onClick={() => onCreateFolder(favoritesFolderId)}
                 title="新建收藏类别"
                 aria-label="新建收藏类别"
               >
-                <FolderPlus size={14} />
+                <FolderPlus size={13} />
               </button>
-              <button type="button" className="icon-button !h-7 !w-7" onClick={onCreateFavorite} title="收藏链接" aria-label="收藏链接">
-                <BookmarkPlus size={15} />
+              <button
+                type="button"
+                className="icon-button !h-6 !w-6"
+                onClick={onCreateFavorite}
+                title="收藏链接"
+                aria-label="收藏链接"
+              >
+                <BookmarkPlus size={14} />
               </button>
             </div>
           </div>
-          <button type="button" className={`folder-row w-full ${selection.favorites && selection.folderId === favoritesFolderId ? 'is-active' : ''}`} onClick={onOpenFavorites}>
-            <Bookmark size={13} className="shrink-0 text-muted" />
-            <span className="min-w-0 flex-1 truncate text-left">全部收藏</span>
-            <span className="text-[10.5px] tabular-nums text-muted/70">{favoriteCount}</span>
-          </button>
-          {favoriteCategories.map((folder) => (
-            <button
-              key={folder.id}
-              type="button"
-              className={`folder-row w-full pl-6 ${selection.favorites && selection.folderId === folder.id ? 'is-active' : ''}`}
-              onClick={() => onOpenFavoriteFolder(folder.id)}
-            >
-              <FolderIcon size={12} className="shrink-0 text-muted" />
-              <span className="min-w-0 flex-1 truncate text-left">{folder.name}</span>
-              <span className="text-[10.5px] tabular-nums text-muted/70">
-                {folder.id === favoritesInboxFolderId ? favoritesPending : folder.noteCount}
-              </span>
-            </button>
-          ))}
+          {!collapsed.favorites && (
+            <div className="space-y-0.5">
+              <button
+                type="button"
+                className={`folder-row w-full ${
+                  selection.favorites && selection.folderId === favoritesFolderId ? 'is-active' : ''
+                }`}
+                onClick={onOpenFavorites}
+              >
+                <Bookmark size={13} className="shrink-0 text-muted" />
+                <span className="min-w-0 flex-1 truncate text-left">全部收藏</span>
+                <span className="text-[10.5px] tabular-nums text-muted/70">{favoriteCount}</span>
+              </button>
+              {favoriteCategories.map((folder) => (
+                <button
+                  key={folder.id}
+                  type="button"
+                  className={`folder-row w-full pl-6 ${
+                    selection.favorites && selection.folderId === folder.id ? 'is-active' : ''
+                  }`}
+                  onClick={() => onOpenFavoriteFolder(folder.id)}
+                >
+                  <FolderIcon size={12} className="shrink-0 text-muted" />
+                  <span className="min-w-0 flex-1 truncate text-left">{folder.name}</span>
+                  <span className="text-[10.5px] tabular-nums text-muted/70">
+                    {folder.id === favoritesInboxFolderId ? favoritesPending : folder.noteCount}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       ) : null}
 
       <div className="px-3 pb-2 pt-3">
-        <div className="mb-2 flex items-center justify-between px-1">
-          <span className="text-[11px] font-semibold tracking-wide text-muted">笔记库</span>
-          <div className="flex items-center gap-0.5">
+        <div className="section-head mb-2">
+          <span className="section-label !px-0">笔记库</span>
+          <div className="section-head-actions !opacity-100">
             <button
               type="button"
-              className="icon-button !h-7 !w-7"
+              className="icon-button !h-6 !w-6"
               onClick={onCreateNote}
               title="新建笔记"
               aria-label="新建笔记"
               data-testid="new-note"
             >
-              <FilePlus2 size={15} />
+              <FilePlus2 size={14} />
             </button>
             <button
               type="button"
-              className="icon-button !h-7 !w-7"
+              className="icon-button !h-6 !w-6"
               onClick={() => onCreateFolder(null)}
               title="新建目录"
               aria-label="新建目录"
               data-testid="new-folder"
             >
-              <FolderPlus size={15} />
+              <FolderPlus size={14} />
             </button>
           </div>
         </div>
@@ -434,62 +495,90 @@ export function Sidebar(props: SidebarProps) {
           )}
         </div>
 
-        <div className="mb-1.5 mt-5 flex items-center justify-between">
-          <span className="section-label">目录</span>
+        <div className="section-head mb-1 mt-5">
           <button
             type="button"
-            className="flex h-5 w-5 items-center justify-center rounded text-muted hover:bg-hover hover:text-foreground"
-            onClick={() => onCreateFolder(null)}
-            aria-label="新建目录"
-            title="新建目录"
+            className="flex min-w-0 items-center gap-1.5"
+            onClick={() => toggleSection('folders')}
+            aria-expanded={!collapsed.folders}
           >
-            <FolderPlus size={12} />
+            <ChevronRight
+              size={12}
+              className={`text-muted transition-transform duration-150 ${collapsed.folders ? '' : 'rotate-90'}`}
+            />
+            <span className="section-label !px-0">目录</span>
+          </button>
+          <div className="section-head-actions">
+            <button
+              type="button"
+              className="icon-button !h-6 !w-6"
+              onClick={() => onCreateFolder(null)}
+              aria-label="新建目录"
+              title="新建目录"
+            >
+              <FolderPlus size={12} />
+            </button>
+          </div>
+        </div>
+        {!collapsed.folders && (
+          <div
+            className={`rounded-lg py-0.5 ${dragOverFolder === null ? 'ring-1 ring-accent' : ''}`}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setDragOverFolder(null);
+            }}
+            onDragLeave={() => setDragOverFolder(undefined)}
+            onDrop={(event) => {
+              event.preventDefault();
+              const noteId = event.dataTransfer.getData('text/aimarkdown-note');
+              setDragOverFolder(undefined);
+              if (noteId) onDropNote(noteId, null);
+            }}
+          >
+            {folders.length === 0 ? (
+              <div className="px-2 py-1.5 text-[11px] text-muted/65">还没有目录</div>
+            ) : (
+              renderNodes(folders, 0)
+            )}
+          </div>
+        )}
+
+        <div className="section-head mb-2 mt-5">
+          <button
+            type="button"
+            className="flex min-w-0 items-center gap-1.5"
+            onClick={() => toggleSection('tags')}
+            aria-expanded={!collapsed.tags}
+          >
+            <ChevronRight
+              size={12}
+              className={`text-muted transition-transform duration-150 ${collapsed.tags ? '' : 'rotate-90'}`}
+            />
+            <span className="section-label !px-0">标签</span>
+            <span className="text-[10px] tabular-nums text-muted/60">{tags.length}</span>
           </button>
         </div>
-        <div
-          className={`rounded-lg py-0.5 ${dragOverFolder === null ? 'ring-1 ring-accent' : ''}`}
-          onDragOver={(event) => {
-            event.preventDefault();
-            setDragOverFolder(null);
-          }}
-          onDragLeave={() => setDragOverFolder(undefined)}
-          onDrop={(event) => {
-            event.preventDefault();
-            const noteId = event.dataTransfer.getData('text/aimarkdown-note');
-            setDragOverFolder(undefined);
-            if (noteId) onDropNote(noteId, null);
-          }}
-        >
-          {folders.length === 0 ? (
-            <div className="px-2 py-1.5 text-[11px] text-muted/65">还没有目录</div>
-          ) : (
-            renderNodes(folders, 0)
-          )}
-        </div>
-
-        <div className="mb-2 mt-5 flex items-center justify-between">
-          <span className="section-label">标签</span>
-          <span className="pr-1 text-[10px] tabular-nums text-muted/60">{tags.length}</span>
-        </div>
-        <div className="flex flex-wrap gap-1.5 px-0.5">
-          {tags.length === 0 && <span className="px-1.5 text-[11px] text-muted/65">还没有标签</span>}
-          {tags.map((tag: TagDto) => {
-            const active = selection.tagIds.includes(tag.id);
-            return (
-              <button
-                key={tag.id}
-                type="button"
-                onClick={() => toggleTag(tag.id)}
-                className={`chip ${active ? 'is-active' : ''}`}
-                data-testid={`tag-${tag.name}`}
-              >
-                <span className="h-1.5 w-1.5 rounded-full" style={{ background: tag.color }} />
-                <span>{tag.name}</span>
-                <span className="tabular-nums opacity-55">{tag.noteCount}</span>
-              </button>
-            );
-          })}
-        </div>
+        {!collapsed.tags && (
+          <div className="flex flex-wrap gap-1.5 px-0.5">
+            {tags.length === 0 && <span className="px-1.5 text-[11px] text-muted/65">还没有标签</span>}
+            {tags.map((tag: TagDto) => {
+              const active = selection.tagIds.includes(tag.id);
+              return (
+                <button
+                  key={tag.id}
+                  type="button"
+                  onClick={() => toggleTag(tag.id)}
+                  className={`chip ${active ? 'is-active' : ''}`}
+                  data-testid={`tag-${tag.name}`}
+                >
+                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: tag.color }} />
+                  <span>{tag.name}</span>
+                  <span className="tabular-nums opacity-55">{tag.noteCount}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <div className="mt-5 border-t border-border-subtle pt-2">
           <button

@@ -84,9 +84,10 @@ test.describe('workspace basics', () => {
     const noteId = await createNote(page);
     await typeInEditor(page, '# 归档笔记\n');
 
-    // Create a folder through the sidebar prompt.
-    page.once('dialog', (dialog) => void dialog.accept('工作'));
+    // Create a folder through the in-app prompt dialog.
     await page.getByTestId('new-folder').click();
+    await page.getByTestId('prompt-dialog-input').fill('工作');
+    await page.getByTestId('prompt-dialog-submit').click();
     await expect(page.getByText('工作').first()).toBeVisible();
 
     // Drag the note onto the folder row.

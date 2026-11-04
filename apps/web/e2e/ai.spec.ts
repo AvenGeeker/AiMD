@@ -95,8 +95,8 @@ test('AI panel summarizes, tags, syncs todo state and backfills', async ({ page 
   await page.getByTestId('open-settings').click();
   await page.getByTestId('settings-tab-ai').click();
   await expect(page.getByTestId('ai-settings')).toBeVisible();
-  page.once('dialog', (dialog) => void dialog.accept());
   await page.getByTestId('ai-backfill').click();
+  await page.getByTestId('confirm-dialog-confirm').click();
 
   await expect
     .poll(

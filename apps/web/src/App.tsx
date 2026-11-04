@@ -1,5 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FileText } from 'lucide-react';
+import {
+  Bookmark,
+  BookmarkPlus,
+  Columns2,
+  Download,
+  Eye,
+  FilePlus2,
+  FileText,
+  Import,
+  NotebookPen,
+  PanelLeft,
+  PanelRight,
+  PencilLine,
+  Settings2,
+  Trash2,
+} from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { deriveTitle } from '@aimarkdown/markdown';
 import type { NoteListDto, NoteSummaryDto, SettingsDto } from '@aimarkdown/shared';
@@ -63,6 +78,9 @@ import { FavoriteCaptureDialog } from './components/FavoriteCaptureDialog.js';
 import type { SharedCapture } from './lib/shareInbox.js';
 import { FolderAiPanel } from './components/FolderAiPanel.js';
 import { FavoriteNoteBar } from './components/FavoriteNoteBar.js';
+import { CommandPalette, type PaletteCommand } from './components/CommandPalette.js';
+import { ConfirmDialog } from './components/ui/ConfirmDialog.js';
+import { PromptDialog } from './components/ui/PromptDialog.js';
 
 /** Per-device UI preferences for the two desktop rails. */
 const SIDEBAR_VISIBLE_KEY = 'aimarkdown.sidebar-visible';
@@ -128,6 +146,14 @@ function Workspace() {
   const [sharedCapture, setSharedCapture] = useState<SharedCapture | null>(null);
   const [folderAiOpen, setFolderAiOpen] = useState(false);
   const [favoritePlatform, setFavoritePlatform] = useState('');
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [composerSignal, setComposerSignal] = useState(0);
+  const [folderPrompt, setFolderPrompt] = useState<{ open: boolean; parentId: string | null }>({
+    open: false,
+    parentId: null,
+  });
+  const [folderConfirm, setFolderConfirm] = useState<string | null>(null);
+  const [noteConfirm, setNoteConfirm] = useState<string | null>(null);
   const firstFilterEffect = useRef(true);
   const creatingNoteRef = useRef(false);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -421,23 +447,27 @@ function Workspace() {
     [createNote, flash, handleOpenNote, selection.folderId],
   );
 
-  const handleCreateFolder = useCallback(
-    async (parentId: string | null) => {
-      const name = window.prompt('目录名称');
-      if (!name?.trim()) return;
-      await createFolder.mutateAsync({ name: name.trim(), parentId });
+  const handleCreateFolder = useCallback((parentId: string | null) => {
+    setFolderPrompt({ open: true, parentId });
+  }, []);
+
+  const handleCreateFolderSubmit = useCallback(
+    async (name: string) => {
+      await createFolder.mutateAsync({ name, parentId: folderPrompt.parentId });
+      setFolderPrompt({ open: false, parentId: null });
     },
-    [createFolder],
+    [createFolder, folderPrompt.parentId],
   );
 
-  const handleDeleteFolder = useCallback(
-    async (id: string) => {
-      if (!window.confirm('删除该目录？目录内的笔记会回到根层级（不会被删除）。')) return;
-      await deleteFolder.mutateAsync(id);
-      if (selection.folderId === id) setSelection({ ...EMPTY_SELECTION });
-    },
-    [deleteFolder, selection.folderId],
-  );
+  const handleDeleteFolder = useCallback((id: string) => setFolderConfirm(id), []);
+
+  const confirmDeleteFolder = useCallback(async () => {
+    const id = folderConfirm;
+    setFolderConfirm(null);
+    if (!id) return;
+    await deleteFolder.mutateAsync(id);
+    if (selection.folderId === id) setSelection({ ...EMPTY_SELECTION });
+  }, [deleteFolder, folderConfirm, selection.folderId]);
 
   const handleRenameFolder = useCallback(
     async (id: string, name: string) => {
@@ -542,22 +572,175 @@ function Workspace() {
     }
   }, []);
 
-  const handleQuickCapture = useCallback(async () => {
+  // Quick capture no longer uses `window.prompt`: summoning it opens the capture view with the
+  // inline composer expanded and focused, so typing starts immediately.
+  const handleQuickCapture = useCallback(() => {
     const inboxId = settings.inboxNoteId;
     if (!inboxId) {
       flash('还没有收集箱笔记');
       return;
     }
-    const text = window.prompt('速记内容');
-    if (!text?.trim()) return;
-    await quickCapture.mutateAsync({ noteId: inboxId, text: text.trim() });
-    flash('已记录，可在左侧「速记」查看');
-  }, [flash, quickCapture, settings.inboxNoteId]);
+    setCaptureView(true);
+    setCaptureReveal(null);
+    setSelectedNoteId(inboxId);
+    setComposerSignal((value) => value + 1);
+  }, [flash, settings.inboxNoteId]);
+
+  const handleSubmitCapture = useCallback(
+    async (text: string) => {
+      const inboxId = settings.inboxNoteId;
+      if (!inboxId) throw new Error('还没有收集箱笔记');
+      await quickCapture.mutateAsync({ noteId: inboxId, text });
+    },
+    [quickCapture, settings.inboxNoteId],
+  );
 
   const handleAppleNotesSync = useCallback(() => {
     if (!appleNotes.status?.settings.enabled) openSettings('apple');
     else void appleNotes.syncNow();
   }, [appleNotes, openSettings]);
+
+  /* ------------------------------ command palette ----------------------------- */
+
+  const paletteRecents = useNotes({ sort: 'updated', limit: 6 }, Boolean(user));
+
+  const searchPaletteNotes = useCallback(async (q: string) => {
+    const result = await request<NoteListDto>('/notes', { query: { q, limit: 8 } });
+    return result.items;
+  }, []);
+
+  const paletteCommands = useMemo<PaletteCommand[]>(() => {
+    const commands: PaletteCommand[] = [
+      {
+        id: 'new-note',
+        label: '新建笔记',
+        icon: FilePlus2,
+        keywords: 'new note 新建 笔记',
+        run: () => void handleCreateNote(),
+      },
+      {
+        id: 'capture',
+        label: '记一条速记',
+        icon: NotebookPen,
+        keywords: 'capture quick 速记 快速笔记',
+        run: handleQuickCapture,
+      },
+      {
+        id: 'favorite-new',
+        label: '收藏链接',
+        icon: BookmarkPlus,
+        keywords: 'favorite save 收藏 链接',
+        run: handleCreateFavorite,
+      },
+      {
+        id: 'favorites-open',
+        label: '打开收藏',
+        icon: Bookmark,
+        keywords: 'favorites 收藏 列表',
+        run: handleOpenFavorites,
+      },
+      {
+        id: 'trash',
+        label: '打开回收站',
+        icon: Trash2,
+        keywords: 'trash 回收站',
+        run: () => handleSidebarSelect({ ...EMPTY_SELECTION, archived: 'only' }),
+      },
+      { id: 'mode-split', label: '视图：分栏', icon: Columns2, keywords: 'split view 分栏', run: () => handleModeChange('split') },
+      { id: 'mode-edit', label: '视图：编辑', icon: PencilLine, keywords: 'edit view 编辑', run: () => handleModeChange('edit') },
+      { id: 'mode-preview', label: '视图：预览', icon: Eye, keywords: 'preview view 预览', run: () => handleModeChange('preview') },
+      { id: 'import', label: '导入 Markdown / ZIP', icon: Import, keywords: 'import 导入', run: () => importInputRef.current?.click() },
+      { id: 'export-vault', label: '导出整个笔记库', icon: Download, keywords: 'export 导出 zip', run: () => void handleExportVault() },
+      {
+        id: 'settings-appearance',
+        label: '设置：外观',
+        icon: Settings2,
+        keywords: 'settings theme 设置 外观 主题',
+        run: () => openSettings('appearance'),
+      },
+      {
+        id: 'settings-editor',
+        label: '设置：编辑',
+        icon: Settings2,
+        keywords: 'settings editor 设置 编辑 字号',
+        run: () => openSettings('editor'),
+      },
+      {
+        id: 'settings-capture',
+        label: '设置：速记与桌面',
+        icon: Settings2,
+        keywords: 'settings hotkey 设置 速记 快捷键 窗口',
+        run: () => openSettings('capture'),
+      },
+      {
+        id: 'settings-ai',
+        label: '设置：AI 助手',
+        icon: Settings2,
+        keywords: 'settings ai 设置 助手',
+        run: () => openSettings('ai'),
+      },
+    ];
+    if (!mobile) {
+      commands.splice(
+        5,
+        0,
+        {
+          id: 'toggle-sidebar',
+          label: sidebarVisible ? '隐藏左侧栏' : '显示左侧栏',
+          icon: PanelLeft,
+          keywords: 'sidebar 侧栏 左侧',
+          run: handleToggleSidebar,
+        },
+        {
+          id: 'toggle-outline',
+          label: outlineVisible ? '隐藏大纲' : '显示大纲',
+          icon: PanelRight,
+          keywords: 'outline 大纲 右侧',
+          run: handleToggleOutline,
+        },
+      );
+    }
+    if (appleNotes.available) {
+      commands.push({
+        id: 'settings-apple',
+        label: '设置：macOS 备忘录',
+        icon: Settings2,
+        keywords: 'apple notes 备忘录 同步',
+        run: () => openSettings('apple'),
+      });
+    }
+    return commands;
+  }, [
+    appleNotes.available,
+    handleCreateFavorite,
+    handleCreateNote,
+    handleExportVault,
+    handleModeChange,
+    handleOpenFavorites,
+    handleQuickCapture,
+    handleSidebarSelect,
+    handleToggleOutline,
+    handleToggleSidebar,
+    mobile,
+    openSettings,
+    outlineVisible,
+    sidebarVisible,
+  ]);
+
+  const paletteElement = (
+    <CommandPalette
+      open={paletteOpen}
+      onClose={() => setPaletteOpen(false)}
+      commands={paletteCommands}
+      recents={paletteRecents.data?.items ?? []}
+      folders={treeQuery.data?.folders ?? []}
+      onOpenNote={handleOpenNote}
+      onSelectFolder={(folderId) => handleSidebarSelect({ ...EMPTY_SELECTION, folderId })}
+      searchNotes={searchPaletteNotes}
+    />
+  );
+
+
 
   // One handler for every native menu action, routed into the exact same code the TitleBar uses.
   // The listener is installed before `markMenuReady()` so clicks queued during window creation are
@@ -642,6 +825,10 @@ function Workspace() {
         event.preventDefault();
         void handleCreateNote();
       }
+      if (mod && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -690,13 +877,62 @@ function Workspace() {
 
   const handleDeleteNote = useCallback(
     (id: string) => {
+      if (inTrash) {
+        setNoteConfirm(id);
+        return;
+      }
       void (async () => {
-        if (inTrash && !window.confirm('彻底删除该笔记？此操作不可撤销。')) return;
-        await deleteNote.mutateAsync({ id, permanent: inTrash });
+        await deleteNote.mutateAsync({ id, permanent: false });
         if (id === selectedNoteId) setSelectedNoteId(null);
       })();
     },
     [deleteNote, inTrash, selectedNoteId],
+  );
+
+  const confirmDeleteNote = useCallback(async () => {
+    const id = noteConfirm;
+    setNoteConfirm(null);
+    if (!id) return;
+    await deleteNote.mutateAsync({ id, permanent: true });
+    if (id === selectedNoteId) setSelectedNoteId(null);
+  }, [deleteNote, noteConfirm, selectedNoteId]);
+
+  const folderPromptParent = folderPrompt.parentId
+    ? treeQuery.data?.folders.find((folder) => folder.id === folderPrompt.parentId)?.name
+    : undefined;
+
+  const dialogElements = (
+    <>
+      <PromptDialog
+        open={folderPrompt.open}
+        title={folderPromptParent ? `在「${folderPromptParent}」下新建目录` : '新建目录'}
+        placeholder="目录名称"
+        submitLabel="创建"
+        busy={createFolder.isPending}
+        onSubmit={handleCreateFolderSubmit}
+        onClose={() => setFolderPrompt({ open: false, parentId: null })}
+      />
+      <ConfirmDialog
+        open={folderConfirm !== null}
+        title="删除该目录？"
+        body="目录内的笔记会回到根层级（不会被删除）。"
+        confirmLabel="删除"
+        danger
+        busy={deleteFolder.isPending}
+        onConfirm={confirmDeleteFolder}
+        onClose={() => setFolderConfirm(null)}
+      />
+      <ConfirmDialog
+        open={noteConfirm !== null}
+        title="彻底删除该笔记？"
+        body="此操作不可撤销。"
+        confirmLabel="彻底删除"
+        danger
+        busy={deleteNote.isPending}
+        onConfirm={confirmDeleteNote}
+        onClose={() => setNoteConfirm(null)}
+      />
+    </>
   );
 
   const handleRestoreNote = useCallback(
@@ -801,6 +1037,9 @@ function Workspace() {
           capturesLoading={Boolean(settings.inboxNoteId) && inboxDocument.status === 'connecting' && captures.length === 0}
           captureView={captureView}
           captureCount={captures.length}
+          composerSignal={composerSignal}
+          onSubmitCapture={handleSubmitCapture}
+          onOpenPalette={() => setPaletteOpen(true)}
           reveal={editorReveal}
           settingsOpen={settingsOpen}
           tagBusy={updateNote.isPending || upsertTag.isPending}
@@ -808,7 +1047,6 @@ function Workspace() {
           onOpenNote={handleOpenNote}
           onOpenCaptures={handleOpenCaptures}
           onOpenCapture={handleOpenCapture}
-          onCapture={() => void handleQuickCapture()}
           onCreateNote={handleCreateNote}
           onCreateFolder={(parentId) => void handleCreateFolder(parentId)}
           onDeleteFolder={(id) => void handleDeleteFolder(id)}
@@ -847,6 +1085,8 @@ function Workspace() {
             initialTab={settingsInitialTab}
           />
         )}
+        {paletteElement}
+        {dialogElements}
         {favoriteDialog}
         {folderAiPanel}
       </>
@@ -863,6 +1103,7 @@ function Workspace() {
     >
       {importInput}
       <TitleBar
+        onOpenPalette={() => setPaletteOpen(true)}
         syncStatus={status}
         pendingCount={syncManager.pendingCount}
         mode={settings.editorMode}
@@ -920,7 +1161,8 @@ function Workspace() {
             loading={Boolean(settings.inboxNoteId) && inboxDocument.status === 'connecting' && captures.length === 0}
             hasInbox={Boolean(settings.inboxNoteId)}
             onOpen={handleOpenCapture}
-            onCapture={() => void handleQuickCapture()}
+            composerSignal={composerSignal}
+            onSubmitCapture={handleSubmitCapture}
           />
         ) : selection.favorites ? (
           <FavoriteList
@@ -1030,6 +1272,9 @@ function Workspace() {
           />
         )}
       </div>
+
+      {paletteElement}
+      {dialogElements}
 
       {settingsOpen && (
         <SettingsDialog

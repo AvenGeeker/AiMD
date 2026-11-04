@@ -49,9 +49,9 @@ export function NoteList({
   return (
     <div className="notes-panel flex h-full flex-col" data-testid="note-list">
       <div className="notes-header flex shrink-0 items-center justify-between px-4">
-        <div className="flex items-baseline gap-2">
+        <div className="flex items-center gap-2">
           <span className="text-[12px] font-semibold text-foreground">{inTrash ? '回收站' : '笔记'}</span>
-          <span className="text-[10.5px] tabular-nums text-muted">{notes.length}</span>
+          <span className="nav-count-chip">{notes.length}</span>
         </div>
         <div className="flex items-center gap-1">
           {!inTrash && onAskAi && (

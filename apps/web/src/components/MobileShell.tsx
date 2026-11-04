@@ -13,6 +13,7 @@ import {
   PinOff,
   Plus,
   RotateCcw,
+  Search,
   ShieldAlert,
   Sparkles,
   Tags,
@@ -77,6 +78,10 @@ export interface MobileShellProps {
   capturesLoading: boolean;
   captureView: boolean;
   captureCount: number;
+  /** Bumped when an external trigger asks to capture; expands the inline composer. */
+  composerSignal: number;
+  onSubmitCapture(text: string): Promise<void>;
+  onOpenPalette(): void;
   reveal: EditorReveal | null;
   settingsOpen: boolean;
   /** True while a tag mutation is in flight (disables the tag editor input). */
@@ -96,7 +101,6 @@ export interface MobileShellProps {
   onOpenNote(id: string): void;
   onOpenCaptures(): void;
   onOpenCapture(entry: QuickCaptureEntry): void;
-  onCapture(): void;
   onCreateNote(): Promise<void>;
   onCreateFolder(parentId: string | null): void;
   onDeleteFolder(id: string): void;
@@ -186,6 +190,9 @@ export function MobileShell(props: MobileShellProps) {
     capturesLoading,
     captureView,
     captureCount,
+    composerSignal,
+    onSubmitCapture,
+    onOpenPalette,
     reveal,
     settingsOpen,
     tagBusy,
@@ -203,7 +210,6 @@ export function MobileShell(props: MobileShellProps) {
     onOpenNote,
     onOpenCaptures,
     onOpenCapture,
-    onCapture,
     onCreateNote,
     onCreateFolder,
     onDeleteFolder,
@@ -400,6 +406,15 @@ export function MobileShell(props: MobileShellProps) {
             {captureView ? '速记' : wide ? '笔记' : APP_NAME}
           </span>
         </div>
+        <button
+          type="button"
+          className={headerButton}
+          aria-label="搜索或输入命令"
+          onClick={onOpenPalette}
+          data-testid="mobile-open-palette"
+        >
+          <Search size={19} />
+        </button>
         <SyncBadge status={status} />
         {selection.folderId ? (
           <button type="button" className={headerButton} aria-label="问 AI" onClick={onAskFolderAi}>
@@ -440,7 +455,8 @@ export function MobileShell(props: MobileShellProps) {
               onOpenCapture(entry);
               setView('editor');
             }}
-            onCapture={onCapture}
+            composerSignal={composerSignal}
+            onSubmitCapture={onSubmitCapture}
           />
         ) : selection.favorites ? (
           <FavoriteList

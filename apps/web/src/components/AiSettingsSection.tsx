@@ -10,6 +10,7 @@ import {
 } from '@aimarkdown/shared';
 import { describeError } from '../lib/api.js';
 import { ToggleSwitch } from './ui/ToggleSwitch.js';
+import { ConfirmDialog } from './ui/ConfirmDialog.js';
 import {
   useAiOverview,
   useCancelAiJob,
@@ -127,11 +128,9 @@ export function AiSettingsSection() {
     }
   };
 
+  const [confirming, setConfirming] = useState<'backfill' | 'delete' | null>(null);
+
   const startBackfill = async () => {
-    const confirmed = window.confirm(
-      '回填会逐篇调用 AI，可能消耗较多 Token。个人版 Token Plan 可能限制后端或批量调用，请确认套餐允许后再继续。是否开始？',
-    );
-    if (!confirmed) return;
     setError(null);
     try {
       await backfill.mutateAsync();
@@ -142,7 +141,6 @@ export function AiSettingsSection() {
   };
 
   const deleteConfig = async () => {
-    if (!window.confirm('清空 AI 配置和已保存的 API Key？')) return;
     setError(null);
     try {
       await remove.mutateAsync();
@@ -155,6 +153,31 @@ export function AiSettingsSection() {
 
   return (
     <div className="space-y-4" data-testid="ai-settings">
+      <ConfirmDialog
+        open={confirming === 'backfill'}
+        title="开始批量回填？"
+        body="回填会逐篇调用 AI，可能消耗较多 Token。个人版 Token Plan 可能限制后端或批量调用，请确认套餐允许后再继续。"
+        confirmLabel="开始回填"
+        busy={backfill.isPending}
+        onConfirm={async () => {
+          setConfirming(null);
+          await startBackfill();
+        }}
+        onClose={() => setConfirming(null)}
+      />
+      <ConfirmDialog
+        open={confirming === 'delete'}
+        title="清空 AI 配置？"
+        body="将删除已保存的 API Key 和连接配置，此操作不可撤销。"
+        confirmLabel="清空"
+        danger
+        busy={remove.isPending}
+        onConfirm={async () => {
+          setConfirming(null);
+          await deleteConfig();
+        }}
+        onClose={() => setConfirming(null)}
+      />
       <div className="flex items-center gap-1.5 text-[11px] font-semibold">
         <Sparkles size={13} className="text-accent" /> 连接配置
       </div>
@@ -287,7 +310,7 @@ export function AiSettingsSection() {
         {config && (
           <button
             type="button"
-            onClick={() => void deleteConfig()}
+            onClick={() => setConfirming('delete')}
             className="ml-auto flex items-center gap-1 rounded-md px-2 py-1 text-[10.5px] text-muted transition-colors hover:bg-danger-soft hover:text-danger"
             data-testid="ai-clear"
           >
@@ -327,7 +350,7 @@ export function AiSettingsSection() {
         <div className="flex gap-1.5">
           <button
             type="button"
-            onClick={() => void startBackfill()}
+            onClick={() => setConfirming('backfill')}
             disabled={Boolean(activeBackfill) || backfill.isPending || !config?.enabled}
             className="button-secondary !min-h-8 flex-1 text-[10.5px]"
             data-testid="ai-backfill"

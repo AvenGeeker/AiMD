@@ -5,6 +5,7 @@ import {
   ApiError,
   ERROR_CODES,
   MIN_SEARCH_QUERY_LENGTH,
+  cleanMarkdownExcerpt,
   STAMP_FORMATS,
   firstKey,
   keyBetween,
@@ -22,6 +23,7 @@ import { NOTE_KEYS, type NoteBodyDto, type NoteSummaryDto } from '@aimarkdown/sh
 import type { Logger } from '../utils/logger.js';
 import { newId } from '../utils/ids.js';
 import { decodeBytea, encodeBytea } from '../db/bytea.js';
+import { parseJsonb } from '../db/json.js';
 import { createNoteDoc, appendToBody, readBody, replaceBody, writeNoteMeta, writeSource, setTagIds } from '../collab/docFactory.js';
 import { mirrorNote } from '../collab/persistence.js';
 import { projectNote } from '../collab/projection.js';
@@ -66,6 +68,8 @@ export interface NoteRecord {
   tagIds: string[];
   source: NoteSourceState | null;
   mediaStatus: MediaStatus;
+  /** AI-generated one-paragraph summary, when the note has been analysed. */
+  aiSummary: string | null;
   category: {
     folderId: string | null;
     name: string | null;
@@ -226,6 +230,24 @@ export async function getNote(
   return mapRow(row);
 }
 
+/**
+ * Pull the stored AI summary out of the `ai_result` jsonb column.
+ *
+ * Under the simple query protocol jsonb can arrive as a string, so both shapes are accepted
+ * (see AGENTS.md: never read jsonb rows as objects directly).
+ */
+function readAiSummary(value: unknown): string | null {
+  if (value == null) return null;
+  const parsed =
+    typeof value === 'string'
+      ? parseJsonb<Record<string, unknown>>(value)
+      : typeof value === 'object'
+        ? (value as Record<string, unknown>)
+        : null;
+  const summary = parsed?.summary;
+  return typeof summary === 'string' && summary.trim().length > 0 ? summary : null;
+}
+
 function mapRow(row: Record<string, unknown>): NoteRecord {
   return {
     id: String(row.id),
@@ -246,6 +268,7 @@ function mapRow(row: Record<string, unknown>): NoteRecord {
     tagIds: Array.isArray(row.tag_ids) ? (row.tag_ids as string[]).map(String) : [],
     source: mapSource(row),
     mediaStatus: (row.media_status == null ? 'idle' : String(row.media_status)) as MediaStatus,
+    aiSummary: readAiSummary(row.ai_result),
     category: mapCategory(row),
   };
 }
@@ -359,6 +382,7 @@ export async function listNotes(
       n.position, n.word_count, n.created_at, n.content_updated_at, n.updated_at,
       n.source_url, n.source_platform, n.source_author, n.source_cover_id, n.source_original_title,
       n.collected_at, n.capture_status, n.media_status, n.ai_category_folder_id, n.ai_category_name,
+      n.ai_result,
       n.ai_category_status, n.ai_category_suggestion, n.ai_category_at, n.ai_category_error,
       coalesce(array_agg(nt.tag_id) filter (where nt.tag_id is not null), '{}') as tag_ids
     from notes n
@@ -489,7 +513,11 @@ export function toSummary(record: NoteRecord, query = ''): NoteSummaryDto {
     title: record.title,
     folderId: record.folderId,
     tagIds: record.tagIds,
-    excerpt: makeShortExcerpt(record.bodyText, 200),
+    // Favourites store their provenance as blockquotes and OCR comment markers at the top of
+    // the body; a raw excerpt would preview exactly that scaffolding. Clean it first.
+    excerpt: record.source
+      ? cleanMarkdownExcerpt(record.bodyText, 200)
+      : makeShortExcerpt(record.bodyText, 200),
     pinned: record.isPinned,
     archived: record.isArchived,
     position: record.position,
@@ -509,6 +537,7 @@ export function toSummary(record: NoteRecord, query = ''): NoteSummaryDto {
         }
       : null,
     mediaStatus: record.mediaStatus,
+    aiSummary: record.aiSummary,
     aiCategory: record.category
       ? {
           folderId: record.category.folderId,
@@ -675,6 +704,7 @@ export async function readNoteBodies(
     select
       n.id, n.owner_id, n.folder_id, n.title, n.body_text, n.is_pinned, n.is_archived,
       n.deleted_at, n.position, n.word_count, n.created_at, n.content_updated_at, n.updated_at,
+      n.ai_result,
       d.ydoc,
       coalesce(array_agg(nt.tag_id) filter (where nt.tag_id is not null), '{}') as tag_ids
     from notes n
@@ -802,6 +832,7 @@ export async function noteSummariesByIds(
       n.position, n.word_count, n.created_at, n.content_updated_at, n.updated_at,
       n.source_url, n.source_platform, n.source_author, n.source_cover_id, n.source_original_title,
       n.collected_at, n.capture_status, n.media_status, n.ai_category_folder_id, n.ai_category_name,
+      n.ai_result,
       n.ai_category_status, n.ai_category_suggestion, n.ai_category_at, n.ai_category_error,
       coalesce(array_agg(nt.tag_id) filter (where nt.tag_id is not null), '{}') as tag_ids
     from notes n

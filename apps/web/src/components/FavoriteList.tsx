@@ -1,4 +1,14 @@
-import { BookmarkPlus, Loader2, MessageSquareText, RefreshCw, Sparkles } from 'lucide-react';
+import {
+  Bookmark,
+  BookmarkPlus,
+  Globe2,
+  Loader2,
+  MessageCircle,
+  MessageSquareText,
+  Music2,
+  RefreshCw,
+  Sparkles,
+} from 'lucide-react';
 import type { NoteSummaryDto } from '@aimarkdown/shared';
 import { AuthedImage } from './AuthedImage.js';
 import { SourceBadge } from './SourceBadge.js';
@@ -23,21 +33,40 @@ const PLATFORMS = [
   ['manual', '手动'],
 ] as const;
 
+const COVER_ICON: Record<string, typeof Bookmark> = {
+  douyin: Music2,
+  wechat: MessageCircle,
+  web: Globe2,
+  manual: Bookmark,
+  xiaohongshu: Bookmark,
+};
+
+const COVER_TINT: Record<string, string> = {
+  xiaohongshu: '#c43c34',
+  wechat: '#218a55',
+  douyin: '#7d8bf2',
+};
+
 function formatDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   return date.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
 }
 
-function statusLabel(note: NoteSummaryDto): string | null {
-  if (note.mediaStatus === 'queued' || note.mediaStatus === 'running') return '识别中';
-  if (note.mediaStatus === 'unconfigured') return '未配置媒体模型';
-  if (note.mediaStatus === 'error') return '媒体识别失败';
-  if (note.mediaStatus === 'partial') return '部分识别完成';
+interface StatusChip {
+  label: string;
+  tone: 'busy' | 'warn' | 'accent';
+}
+
+function statusChip(note: NoteSummaryDto): StatusChip | null {
+  if (note.mediaStatus === 'queued' || note.mediaStatus === 'running') return { label: '识别中', tone: 'busy' };
+  if (note.mediaStatus === 'unconfigured') return { label: '未配置媒体模型', tone: 'warn' };
+  if (note.mediaStatus === 'error') return { label: '媒体识别失败', tone: 'warn' };
+  if (note.mediaStatus === 'partial') return { label: '部分识别完成', tone: 'warn' };
   const category = note.aiCategory;
-  if (category?.status === 'queued' || category?.status === 'running') return '分类中';
-  if (category?.status === 'suggested') return `建议：${category.suggestion ?? '新类别'}`;
-  if (category?.status === 'error') return '分类失败';
+  if (category?.status === 'queued' || category?.status === 'running') return { label: '分类中', tone: 'busy' };
+  if (category?.status === 'suggested') return { label: `建议：${category.suggestion ?? '新类别'}`, tone: 'accent' };
+  if (category?.status === 'error') return { label: '分类失败', tone: 'warn' };
   return null;
 }
 
@@ -54,9 +83,9 @@ export function FavoriteList({
   return (
     <div className="notes-panel flex h-full flex-col" data-testid="favorite-list">
       <div className="notes-header flex shrink-0 items-center justify-between px-4">
-        <div className="flex items-baseline gap-2">
+        <div className="flex items-center gap-2">
           <span className="text-[12px] font-semibold text-foreground">收藏</span>
-          <span className="text-[10.5px] tabular-nums text-muted">{notes.length}</span>
+          <span className="nav-count-chip">{notes.length}</span>
         </div>
         <div className="flex items-center gap-1">
           <button type="button" className="icon-button !h-7 !w-7" onClick={onAskAi} title="问 AI" aria-label="问 AI">
@@ -75,7 +104,7 @@ export function FavoriteList({
         </div>
       </div>
 
-      <div className="flex shrink-0 gap-1 overflow-x-auto px-4 pb-2">
+      <div className="chip-scroll flex shrink-0 gap-1 overflow-x-auto px-4 pb-2">
         {PLATFORMS.map(([value, label]) => (
           <button
             key={value || 'all'}
@@ -104,7 +133,13 @@ export function FavoriteList({
           </div>
         )}
         {notes.map((note) => {
-          const status = statusLabel(note);
+          const status = statusChip(note);
+          const platformKey = note.source?.platform ?? 'manual';
+          const tint = COVER_TINT[platformKey];
+          const CoverIcon = COVER_ICON[platformKey] ?? Bookmark;
+          // The server already strips quote/OCR scaffolding from favourite excerpts; the AI
+          // summary wins when the note has been analysed.
+          const excerpt = note.aiSummary ?? note.excerpt;
           return (
             <button
               key={note.id}
@@ -118,25 +153,42 @@ export function FavoriteList({
                   <AuthedImage
                     attachmentId={note.source.coverAttachmentId}
                     alt=""
-                    className="h-16 w-16 shrink-0 rounded-lg object-cover"
+                    className="h-14 w-14 shrink-0 rounded-[10px] object-cover"
                   />
                 ) : (
-                  <div className="favorite-cover-placeholder h-16 w-16 shrink-0 rounded-lg">
-                    <BookmarkPlus size={18} />
+                  <div
+                    className="favorite-cover-placeholder h-14 w-14 shrink-0 rounded-[10px]"
+                    style={
+                      tint
+                        ? { color: tint, background: `linear-gradient(150deg, ${tint}29, ${tint}10)` }
+                        : {
+                            color: 'var(--accent)',
+                            background: 'linear-gradient(150deg, var(--accent-soft-strong), var(--accent-soft))',
+                          }
+                    }
+                  >
+                    <CoverIcon size={17} />
                   </div>
                 )}
                 <div className="min-w-0 flex-1">
                   <div className="line-clamp-2 text-[12px] font-semibold leading-4 text-foreground">{note.title}</div>
-                  <div className="mt-1 line-clamp-2 text-[10.5px] leading-4 text-muted">{note.excerpt}</div>
+                  {excerpt ? (
+                    <div className="mt-1 line-clamp-2 text-[10.5px] leading-4 text-muted">{excerpt}</div>
+                  ) : null}
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                     <SourceBadge source={note.source} />
-                    {status ? <span className="favorite-status">{status}</span> : null}
-                    <span className="ml-auto text-[9.5px] text-muted/70">{formatDate(note.createdAt)}</span>
+                    {status ? (
+                      <span className={`favorite-status favorite-status-${status.tone}`}>
+                        {status.tone === 'busy' ? <Loader2 size={9} className="animate-spin" /> : null}
+                        {status.label}
+                      </span>
+                    ) : null}
+                    <span className="ml-auto text-[9.5px] tabular-nums text-muted/70">{formatDate(note.createdAt)}</span>
                   </div>
                 </div>
               </div>
               {note.aiCategory?.status === 'error' || note.mediaStatus === 'error' ? (
-                <span className="mt-1 inline-flex items-center gap-1 text-[9.5px] text-danger">
+                <span className="mt-1.5 inline-flex items-center gap-1 text-[9.5px] text-danger">
                   <RefreshCw size={9} /> 可在笔记操作中重试
                 </span>
               ) : null}

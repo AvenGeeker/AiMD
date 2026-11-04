@@ -139,6 +139,29 @@ describeDb('AI summaries, tags and backfill', () => {
     `;
     expect(tags.map((tag) => String(tag.name)).sort()).toEqual(['发布', '会议', '计划'].sort());
 
+    // The stored summary must surface on the list DTO so favourite cards can preview it.
+    const list = await api<{ items: Array<{ id: string; aiSummary: string | null }> }>(
+      server,
+      alice,
+      'GET',
+      '/api/notes',
+    );
+    expect(list.status).toBe(200);
+    expect(list.body.items.find((item) => item.id === noteId)?.aiSummary).toContain('发布计划');
+
+    const plain = await api<{ id: string }>(server, alice, 'POST', '/api/notes', {
+      title: '未分析',
+      body: '短笔记',
+    });
+    expect(plain.status).toBe(201);
+    const plainList = await api<{ items: Array<{ id: string; aiSummary: string | null }> }>(
+      server,
+      alice,
+      'GET',
+      '/api/notes',
+    );
+    expect(plainList.body.items.find((item) => item.id === plain.body.id)?.aiSummary).toBeNull();
+
     await api(server, alice, 'PATCH', `/api/notes/${noteId}`, {
       body: '修改后的正文仍然足够长，不应该再次自动触发 AI 分析。'.repeat(3),
     });
