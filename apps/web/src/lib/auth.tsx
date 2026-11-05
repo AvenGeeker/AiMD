@@ -12,9 +12,11 @@ import { apiBase, normalizeServerUrl } from './config.js';
 import {
   clearTokens,
   describeError,
+  getAccessToken,
   initApi,
   probeServerUrl,
   readJsonResponse,
+  refreshAccessToken,
   request,
   setTokens,
 } from './api.js';
@@ -102,6 +104,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (cancelled) return;
           setUser(me.user);
           setStatus('authenticated');
+          // A browser session lives in an httpOnly cookie, so boot has no access token for the
+          // collab WebSocket yet. Mint one before the provider connects, otherwise a reload
+          // leaves every document reporting 同步被拒绝 until the user signs in again.
+          if (!getAccessToken()) void refreshAccessToken();
         } catch (caught) {
           if (cancelled) return;
           await clearTokens();

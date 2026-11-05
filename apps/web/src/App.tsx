@@ -17,12 +17,13 @@ import {
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { deriveTitle } from '@aimarkdown/markdown';
-import type { NoteListDto, NoteSummaryDto, SettingsDto } from '@aimarkdown/shared';
+import type { NoteListDto, NoteSort, NoteSummaryDto, SettingsDto } from '@aimarkdown/shared';
 import { DEFAULT_SETTINGS, MIN_SEARCH_QUERY_LENGTH } from '@aimarkdown/shared';
 import { AuthProvider, useAuth } from './lib/auth.js';
-import { request } from './lib/api.js';
+import { currentBaseUrl, request } from './lib/api.js';
 import { isQuickCaptureWindow } from './lib/platform.js';
 import { consumeOpenFavoriteRequest, subscribeOpenFavorite } from './lib/nativeActions.js';
+import { applyStatusBarStyle } from './lib/statusBar.js';
 import { consumeNextShare, subscribeShares } from './lib/shareInbox.js';
 import { useIsMobile } from './hooks/useIsMobile.js';
 import { syncManager } from './lib/sync.js';
@@ -69,6 +70,7 @@ import { TitleBar } from './components/TitleBar.js';
 import { SettingsDialog, type SettingsTab } from './components/SettingsDialog.js';
 import { MobileShell } from './components/MobileShell.js';
 import { AuthView } from './components/AuthView.js';
+import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { QuickCapture } from './components/QuickCapture.js';
 import { useQuickCaptures, type QuickCaptureEntry } from './lib/quickCaptures.js';
 import { useAppleNotes } from './hooks/useAppleNotes.js';
@@ -81,10 +83,29 @@ import { FavoriteNoteBar } from './components/FavoriteNoteBar.js';
 import { CommandPalette, type PaletteCommand } from './components/CommandPalette.js';
 import { ConfirmDialog } from './components/ui/ConfirmDialog.js';
 import { PromptDialog } from './components/ui/PromptDialog.js';
+import { useNoteBatch } from './hooks/useNoteBatch.js';
+import { UndoToast } from './components/UndoToast.js';
+import { FolderPickerSheet } from './components/FolderPickerSheet.js';
+import { BatchTagSheet } from './components/BatchTagSheet.js';
 
 /** Per-device UI preferences for the two desktop rails. */
 const SIDEBAR_VISIBLE_KEY = 'aimarkdown.sidebar-visible';
 const OUTLINE_VISIBLE_KEY = 'aimarkdown.outline-visible';
+/** Per-device note list ordering, shared by the phone shell and the desktop rail. */
+const NOTE_SORT_KEY = 'aimarkdown.note-sort';
+
+const NOTE_SORT_VALUES: NoteSort[] = ['updated', 'created', 'title', 'position', 'collected'];
+
+function readNoteSort(): NoteSort {
+  try {
+    const raw = window.localStorage.getItem(NOTE_SORT_KEY) as NoteSort | null;
+    // `collected` is reserved for the favourites surface and is never a manual choice.
+    if (raw && NOTE_SORT_VALUES.includes(raw) && raw !== 'collected') return raw;
+  } catch {
+    /* storage blocked: fall back to the default */
+  }
+  return 'updated';
+}
 
 interface CaptureReveal extends EditorReveal {
   noteId: string;
@@ -154,6 +175,11 @@ function Workspace() {
   });
   const [folderConfirm, setFolderConfirm] = useState<string | null>(null);
   const [noteConfirm, setNoteConfirm] = useState<string | null>(null);
+  const [noteSort, setNoteSort] = useState<NoteSort>(readNoteSort);
+  /** The one list row currently revealing its swipe actions (phone shell). */
+  const [openRowId, setOpenRowId] = useState<string | null>(null);
+  const [movePickerOpen, setMovePickerOpen] = useState(false);
+  const [batchTagOpen, setBatchTagOpen] = useState(false);
   const firstFilterEffect = useRef(true);
   const creatingNoteRef = useRef(false);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -174,7 +200,7 @@ function Workspace() {
       tagIds: selection.tagIds,
       q: selection.q || undefined,
       archived: selection.archived,
-      sort: selection.favorites ? 'collected' : 'updated',
+      sort: selection.favorites ? 'collected' : noteSort,
       recursive: selection.recursive,
       sourcePlatform: selection.favorites ? favoritePlatform || undefined : undefined,
     },
@@ -238,6 +264,12 @@ function Workspace() {
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark);
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  }, [dark]);
+
+  // Immersive system bars: the native shells draw edge-to-edge, so the bar icon colour has to
+  // follow the resolved theme. A no-op in browsers and the Electron shell.
+  useEffect(() => {
+    applyStatusBarStyle(dark);
   }, [dark]);
 
   useEffect(() => {
@@ -330,6 +362,48 @@ function Workspace() {
     setBanner(message);
     window.setTimeout(() => setBanner(null), 3000);
   }, []);
+
+  /* ------------------------- multi-select batch actions ------------------------ */
+
+  const availableNoteIds = useMemo(() => notes.map((note) => note.id), [notes]);
+
+  const noteBatch = useNoteBatch({
+    availableIds: availableNoteIds,
+    selectedNoteId,
+    onSelectedNoteGone: () => setSelectedNoteId(null),
+    flash,
+  });
+
+  const handleSortChange = useCallback((sort: NoteSort) => {
+    setNoteSort(sort);
+    try {
+      window.localStorage.setItem(NOTE_SORT_KEY, sort);
+    } catch {
+      // A blocked storage partition only loses the preference.
+    }
+  }, []);
+
+  /** Inline phone search: only the query changes, so the capture/favourite view stays put. */
+  const handleSearchChange = useCallback((q: string) => {
+    setSelection((prev) => (prev.q === q ? prev : { ...prev, q }));
+  }, []);
+
+  const refreshNotes = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ['notes'] });
+    await queryClient.invalidateQueries({ queryKey: ['tree'] });
+    await queryClient.refetchQueries({ queryKey: ['notes'] });
+  }, [queryClient]);
+
+  const handleSyncNow = useCallback(() => {
+    syncManager.flush();
+  }, []);
+
+  const handleSaveSettings = useCallback(
+    (patch: Partial<SettingsDto>) => {
+      void updateSettings.mutateAsync(patch);
+    },
+    [updateSettings],
+  );
 
   const openSettings = useCallback((tab: SettingsTab = 'appearance') => {
     setSettingsInitialTab(tab);
@@ -1011,6 +1085,53 @@ function Workspace() {
     />
   );
 
+  const batchSheets = (
+    <>
+      <FolderPickerSheet
+        open={movePickerOpen}
+        count={noteBatch.selection.ids.length}
+        folders={treeQuery.data?.folders ?? []}
+        busy={noteBatch.busy}
+        onClose={() => setMovePickerOpen(false)}
+        onPick={(folderId) => {
+          setMovePickerOpen(false);
+          noteBatch.move(folderId);
+        }}
+        onCreateFolder={(parentId) => {
+          setMovePickerOpen(false);
+          handleCreateFolder(parentId);
+        }}
+      />
+      <BatchTagSheet
+        open={batchTagOpen}
+        count={noteBatch.selection.ids.length}
+        tags={treeQuery.data?.tags ?? []}
+        busy={noteBatch.busy}
+        onCreate={handleCreateTag}
+        onClose={() => setBatchTagOpen(false)}
+        onApply={(tagIds) => {
+          setBatchTagOpen(false);
+          noteBatch.addTags(tagIds);
+        }}
+      />
+      <UndoToast
+        state={noteBatch.undo}
+        onUndo={noteBatch.runUndo}
+        onDismiss={noteBatch.dismissUndo}
+      />
+      <ConfirmDialog
+        open={noteBatch.confirm !== null}
+        title={noteBatch.confirm?.title ?? ''}
+        body={noteBatch.confirm?.body}
+        confirmLabel={noteBatch.confirm?.confirmLabel ?? '确认'}
+        danger
+        busy={noteBatch.busy}
+        onConfirm={() => noteBatch.confirm?.onConfirm()}
+        onClose={noteBatch.dismissConfirm}
+      />
+    </>
+  );
+
   if (mobile) {
     return (
       <>
@@ -1075,6 +1196,27 @@ function Workspace() {
           onOpenFavoriteFolder={handleOpenFavoriteFolder}
           onCreateFavorite={handleCreateFavorite}
           onAskFolderAi={() => setFolderAiOpen(true)}
+          batch={noteBatch}
+          sort={noteSort}
+          onSortChange={handleSortChange}
+          openRowId={openRowId}
+          onOpenRowIdChange={setOpenRowId}
+          movePickerOpen={movePickerOpen}
+          onOpenMovePicker={() => setMovePickerOpen(true)}
+          onCloseMovePicker={() => setMovePickerOpen(false)}
+          batchTagOpen={batchTagOpen}
+          onOpenBatchTags={() => setBatchTagOpen(true)}
+          onCloseBatchTag={() => setBatchTagOpen(false)}
+          serverUrl={currentBaseUrl()}
+          pendingCount={syncManager.pendingCount}
+          onSaveSettings={handleSaveSettings}
+          onSyncNow={handleSyncNow}
+          onImport={() => importInputRef.current?.click()}
+          onExportVault={() => void handleExportVault()}
+          onOpenTrash={() => handleSidebarSelect({ ...EMPTY_SELECTION, archived: 'only' })}
+          onSearchChange={handleSearchChange}
+          onRequestCapture={handleQuickCapture}
+          refreshNotes={refreshNotes}
         />
         {settingsOpen && (
           <SettingsDialog
@@ -1089,6 +1231,7 @@ function Workspace() {
         {dialogElements}
         {favoriteDialog}
         {folderAiPanel}
+        {batchSheets}
       </>
     );
   }
@@ -1187,6 +1330,9 @@ function Workspace() {
             onTogglePin={(note) => void updateNote.mutateAsync({ id: note.id, patch: { pinned: !note.pinned } })}
             onDelete={handleDeleteNote}
             onRestore={handleRestoreNote}
+            batch={noteBatch}
+            onOpenMovePicker={() => setMovePickerOpen(true)}
+            onOpenBatchTags={() => setBatchTagOpen(true)}
           />
         )}
 
@@ -1275,6 +1421,7 @@ function Workspace() {
 
       {paletteElement}
       {dialogElements}
+      {batchSheets}
 
       {settingsOpen && (
         <SettingsDialog
@@ -1320,10 +1467,18 @@ function Gate() {
 
 export default function App() {
   // The Electron quick-capture window loads the same bundle but renders only the capture UI.
-  if (isQuickCaptureWindow()) return <QuickCapture />;
+  if (isQuickCaptureWindow()) {
+    return (
+      <ErrorBoundary>
+        <QuickCapture />
+      </ErrorBoundary>
+    );
+  }
   return (
     <AuthProvider>
-      <Gate />
+      <ErrorBoundary>
+        <Gate />
+      </ErrorBoundary>
     </AuthProvider>
   );
 }

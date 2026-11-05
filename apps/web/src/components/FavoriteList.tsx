@@ -1,17 +1,25 @@
 import {
   Bookmark,
   BookmarkPlus,
+  Check,
   Globe2,
   Loader2,
   MessageCircle,
   MessageSquareText,
   Music2,
+  Pin,
+  PinOff,
   RefreshCw,
   Sparkles,
+  Trash2,
 } from 'lucide-react';
 import type { NoteSummaryDto } from '@aimarkdown/shared';
+import type { NoteBatchController } from '../hooks/useNoteBatch.js';
+import { formatNoteDate } from '../lib/relativeTime.js';
+import { hapticTap } from '../lib/haptics.js';
 import { AuthedImage } from './AuthedImage.js';
 import { SourceBadge } from './SourceBadge.js';
+import { SwipeRow, type SwipeAction } from './SwipeRow.js';
 
 export interface FavoriteListProps {
   notes: NoteSummaryDto[];
@@ -22,6 +30,13 @@ export interface FavoriteListProps {
   onPlatformChange(value: string): void;
   onCreateFavorite(): void;
   onAskAi(): void;
+  /** The phone shell renders its own large-title header, so the card list hides this one. */
+  hideHeader?: boolean;
+  /** Present on the touch surfaces: enables swipe actions and long-press multi-select. */
+  batch?: NoteBatchController;
+  openRowId?: string | null;
+  onOpenRowIdChange?(id: string | null): void;
+  onTogglePin?(note: NoteSummaryDto): void;
 }
 
 const PLATFORMS = [
@@ -46,12 +61,6 @@ const COVER_TINT: Record<string, string> = {
   wechat: '#218a55',
   douyin: '#7d8bf2',
 };
-
-function formatDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
-}
 
 interface StatusChip {
   label: string;
@@ -79,9 +88,35 @@ export function FavoriteList({
   onPlatformChange,
   onCreateFavorite,
   onAskAi,
+  hideHeader = false,
+  batch,
+  openRowId = null,
+  onOpenRowIdChange,
+  onTogglePin,
 }: FavoriteListProps) {
+  const selecting = batch?.selection.active ?? false;
+
+  const swipeActions = (note: NoteSummaryDto): SwipeAction[] => [
+    {
+      key: 'pin',
+      label: note.pinned ? '取消置顶' : '置顶',
+      icon: note.pinned ? <PinOff size={17} /> : <Pin size={17} />,
+      testId: `favorite-swipe-pin-${note.id}`,
+      onClick: () => onTogglePin?.(note),
+    },
+    {
+      key: 'trash',
+      label: '删除',
+      icon: <Trash2 size={17} />,
+      tone: 'danger',
+      testId: `favorite-swipe-trash-${note.id}`,
+      onClick: () => batch?.trash([note.id]),
+    },
+  ];
+
   return (
     <div className="notes-panel flex h-full flex-col" data-testid="favorite-list">
+      {!hideHeader && (
       <div className="notes-header flex shrink-0 items-center justify-between px-4">
         <div className="flex items-center gap-2">
           <span className="text-[12px] font-semibold text-foreground">收藏</span>
@@ -103,6 +138,7 @@ export function FavoriteList({
           </button>
         </div>
       </div>
+      )}
 
       <div className="chip-scroll flex shrink-0 gap-1 overflow-x-auto px-4 pb-2">
         {PLATFORMS.map(([value, label]) => (
@@ -117,7 +153,7 @@ export function FavoriteList({
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 pb-4">
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 pb-4 mobile-list-scroll">
         {loading && notes.length === 0 && (
           <div className="flex items-center justify-center py-10 text-xs text-muted">
             <Loader2 size={14} className="mr-2 animate-spin" /> 正在加载收藏
@@ -140,14 +176,41 @@ export function FavoriteList({
           // The server already strips quote/OCR scaffolding from favourite excerpts; the AI
           // summary wins when the note has been analysed.
           const excerpt = note.aiSummary ?? note.excerpt;
-          return (
-            <button
-              key={note.id}
-              type="button"
-              onClick={() => onOpen(note.id)}
+          const checked = selecting && (batch?.selection.ids.includes(note.id) ?? false);
+          const card = (
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={(event) => {
+                if (selecting) {
+                  hapticTap();
+                  batch?.toggle(note.id);
+                  return;
+                }
+                if (event.metaKey || event.ctrlKey) {
+                  batch?.toggle(note.id);
+                  return;
+                }
+                onOpen(note.id);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                if (selecting) batch?.toggle(note.id);
+                else onOpen(note.id);
+              }}
               data-note-id={note.id}
-              className={`favorite-card group text-left ${selectedId === note.id ? 'is-selected' : ''}`}
+              data-testid={`favorite-item-${note.id}`}
+              aria-pressed={selecting ? checked : undefined}
+              className={`favorite-card group text-left ${selectedId === note.id ? 'is-selected' : ''} ${
+                checked ? 'is-checked' : ''
+              }`}
             >
+              {selecting && (
+                <span className={`favorite-check ${checked ? 'is-checked' : ''}`}>
+                  {checked && <Check size={12} strokeWidth={3} />}
+                </span>
+              )}
               <div className="flex gap-3">
                 {note.source?.coverAttachmentId ? (
                   <AuthedImage
@@ -183,7 +246,7 @@ export function FavoriteList({
                         {status.label}
                       </span>
                     ) : null}
-                    <span className="ml-auto text-[9.5px] tabular-nums text-muted/70">{formatDate(note.createdAt)}</span>
+                    <span className="ml-auto text-[9.5px] tabular-nums text-muted/70">{formatNoteDate(note.createdAt)}</span>
                   </div>
                 </div>
               </div>
@@ -192,7 +255,24 @@ export function FavoriteList({
                   <RefreshCw size={9} /> 可在笔记操作中重试
                 </span>
               ) : null}
-            </button>
+            </div>
+          );
+          if (!batch) return <div key={note.id}>{card}</div>;
+          return (
+            <SwipeRow
+              key={note.id}
+              testId={`favorite-row-${note.id}`}
+              className="favorite-swipe-row"
+              enabled={!selecting}
+              open={openRowId === note.id}
+              onOpenChange={(next) => onOpenRowIdChange?.(next ? note.id : null)}
+              onCommit={() => batch.trash([note.id])}
+              onLeading={() => onTogglePin?.(note)}
+              onLongPress={() => batch.enter(note.id)}
+              actions={swipeActions(note)}
+            >
+              {card}
+            </SwipeRow>
           );
         })}
       </div>

@@ -1,15 +1,28 @@
+import type { MouseEvent } from 'react';
 import {
   BookmarkPlus,
+  Check,
+  CheckSquare,
   FileText,
   MessageSquareText,
   Pin,
   Plus,
   RotateCcw,
   Trash2,
+  X,
 } from 'lucide-react';
 import type { NoteSummaryDto } from '@aimarkdown/shared';
+import type { NoteBatchController } from '../hooks/useNoteBatch.js';
+import { NoteRowContent } from './NoteRowContent.js';
+import { SelectionToolbar, selectionToolbarProps } from './SelectionToolbar.js';
 
-/** Middle rail: the notes matching the current sidebar selection. */
+/**
+ * Middle rail: the notes matching the current sidebar selection.
+ *
+ * Hover actions stay for pointer users, and the same batch controller the phone shell uses adds
+ * Cmd/Ctrl-click, Shift-range and an explicit 选择 button, so a desktop user gets multi-select
+ * without the list changing how it looks.
+ */
 
 interface NoteListProps {
   notes: NoteSummaryDto[];
@@ -23,14 +36,10 @@ interface NoteListProps {
   onCreateNote?(): void;
   onCreateFavorite?(): void;
   onAskAi?(): void;
-}
-
-function formatDate(iso: string): string {
-  const date = new Date(iso);
-  const now = new Date();
-  const sameDay = date.toDateString() === now.toDateString();
-  if (sameDay) return date.toTimeString().slice(0, 5);
-  return `${date.getMonth() + 1}/${date.getDate()}`;
+  /** Present when the workspace wires up batch operations. */
+  batch?: NoteBatchController;
+  onOpenMovePicker?(): void;
+  onOpenBatchTags?(): void;
 }
 
 export function NoteList({
@@ -45,7 +54,33 @@ export function NoteList({
   onCreateNote,
   onCreateFavorite,
   onAskAi,
+  batch,
+  onOpenMovePicker,
+  onOpenBatchTags,
 }: NoteListProps) {
+  const selecting = batch?.selection.active ?? false;
+  const orderedIds = notes.map((note) => note.id);
+
+  const handleRowClick = (note: NoteSummaryDto, event: MouseEvent) => {
+    if (!batch) {
+      onOpen(note.id);
+      return;
+    }
+    if (selecting) {
+      batch.toggle(note.id);
+      return;
+    }
+    if (event.metaKey || event.ctrlKey) {
+      batch.toggle(note.id);
+      return;
+    }
+    if (event.shiftKey) {
+      batch.range(note.id, orderedIds);
+      return;
+    }
+    onOpen(note.id);
+  };
+
   return (
     <div className="notes-panel flex h-full flex-col" data-testid="note-list">
       <div className="notes-header flex shrink-0 items-center justify-between px-4">
@@ -54,6 +89,19 @@ export function NoteList({
           <span className="nav-count-chip">{notes.length}</span>
         </div>
         <div className="flex items-center gap-1">
+          {batch && (
+            <button
+              type="button"
+              className="icon-button !h-7 !w-7"
+              onClick={() => (selecting ? batch.exit() : batch.enter())}
+              title={selecting ? '退出多选' : '选择笔记'}
+              aria-label={selecting ? '退出多选' : '选择笔记'}
+              aria-pressed={selecting}
+              data-testid="note-list-select"
+            >
+              {selecting ? <X size={14} /> : <CheckSquare size={14} />}
+            </button>
+          )}
           {!inTrash && onAskAi && (
             <button type="button" className="icon-button !h-7 !w-7" onClick={onAskAi} title="问 AI" aria-label="问 AI">
               <MessageSquareText size={14} />
@@ -113,93 +161,106 @@ export function NoteList({
             )}
           </div>
         )}
-        {notes.map((note) => (
-          <div
-            key={note.id}
-            draggable={!inTrash}
-            onDragStart={(event) => event.dataTransfer.setData('text/aimarkdown-note', note.id)}
-            onClick={() => onOpen(note.id)}
-            className={`note-row group cursor-pointer ${selectedId === note.id ? 'is-selected' : ''}`}
-            data-testid={`note-item-${note.id}`}
-            aria-current={selectedId === note.id ? 'page' : undefined}
-          >
-            <div className="flex items-start gap-2">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  {note.pinned && <Pin size={11} className="shrink-0 fill-current text-accent" />}
-                  <span className="note-row-title truncate">{note.title}</span>
+        {notes.map((note) => {
+          const checked = selecting && (batch?.selection.ids.includes(note.id) ?? false);
+          return (
+            <div
+              key={note.id}
+              draggable={!inTrash && !selecting}
+              onDragStart={(event) => event.dataTransfer.setData('text/aimarkdown-note', note.id)}
+              onClick={(event) => handleRowClick(note, event)}
+              className={`note-row group cursor-pointer ${selectedId === note.id ? 'is-selected' : ''} ${
+                checked ? 'is-selected-row' : ''
+              }`}
+              data-testid={`note-item-${note.id}`}
+              aria-current={selectedId === note.id ? 'page' : undefined}
+              aria-pressed={selecting ? checked : undefined}
+            >
+              <div className="note-row-inner">
+                {selecting && (
+                  <span
+                    className={`note-row-check ${checked ? 'is-checked' : ''}`}
+                    data-testid={`note-check-${note.id}`}
+                  >
+                    {checked && <Check size={11} strokeWidth={3} />}
+                  </span>
+                )}
+                <div className="min-w-0 flex-1">
+                  <NoteRowContent note={note} variant="desktop" />
                 </div>
-                {note.excerpt && <div className="note-row-excerpt mt-1 line-clamp-2">{note.excerpt}</div>}
               </div>
-              <span className="note-row-date mt-0.5 shrink-0">{formatDate(note.contentUpdatedAt)}</span>
-            </div>
 
-            {note.matches && note.matches.length > 0 && (
-              <div className="mt-1.5 space-y-0.5">
-                {note.matches.slice(0, 2).map((match, index) => (
-                  <div key={index} className="truncate text-[10.5px] leading-4 text-accent/85">
-                    {match}
-                  </div>
-                ))}
+              <div className="note-row-actions mt-1.5 flex items-center gap-0.5">
+                {!inTrash ? (
+                  <>
+                    <button
+                      type="button"
+                      className="icon-button !h-6 !w-6"
+                      title={note.pinned ? '取消置顶' : '置顶'}
+                      aria-label={note.pinned ? '取消置顶' : '置顶'}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onTogglePin(note);
+                      }}
+                    >
+                      <Pin size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-button is-danger !h-6 !w-6"
+                      title="移到回收站"
+                      aria-label="移到回收站"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDelete(note.id);
+                      }}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="flex h-6 items-center gap-1 rounded px-1.5 text-[10.5px] text-muted hover:bg-hover hover:text-foreground"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onRestore(note.id);
+                      }}
+                    >
+                      <RotateCcw size={11} /> 恢复
+                    </button>
+                    <button
+                      type="button"
+                      className="flex h-6 items-center gap-1 rounded px-1.5 text-[10.5px] text-muted hover:bg-danger-soft hover:text-danger"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDelete(note.id);
+                      }}
+                    >
+                      <Trash2 size={11} /> 彻底删除
+                    </button>
+                  </>
+                )}
               </div>
-            )}
-
-            <div className="note-row-actions mt-1.5 flex items-center gap-0.5">
-              {!inTrash ? (
-                <>
-                  <button
-                    type="button"
-                    className="icon-button !h-6 !w-6"
-                    title={note.pinned ? '取消置顶' : '置顶'}
-                    aria-label={note.pinned ? '取消置顶' : '置顶'}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onTogglePin(note);
-                    }}
-                  >
-                    <Pin size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-button is-danger !h-6 !w-6"
-                    title="移到回收站"
-                    aria-label="移到回收站"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onDelete(note.id);
-                    }}
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className="flex h-6 items-center gap-1 rounded px-1.5 text-[10.5px] text-muted hover:bg-hover hover:text-foreground"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onRestore(note.id);
-                    }}
-                  >
-                    <RotateCcw size={11} /> 恢复
-                  </button>
-                  <button
-                    type="button"
-                    className="flex h-6 items-center gap-1 rounded px-1.5 text-[10.5px] text-muted hover:bg-danger-soft hover:text-danger"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onDelete(note.id);
-                    }}
-                  >
-                    <Trash2 size={11} /> 彻底删除
-                  </button>
-                </>
-              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
+
+      {batch && selecting && (
+        <SelectionToolbar
+          variant="desktop"
+          {...selectionToolbarProps({
+            batch,
+            notes,
+            inTrash,
+            orderedIds,
+            onMove: () => onOpenMovePicker?.(),
+            onTags: () => onOpenBatchTags?.(),
+          })}
+        />
+      )}
     </div>
   );
 }

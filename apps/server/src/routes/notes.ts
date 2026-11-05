@@ -5,6 +5,8 @@ import {
   createNoteInput,
   createNotesBatchInput,
   createNotesBatchDto,
+  noteBatchDto,
+  noteBatchInput,
   noteBodyBatchInput,
   noteBodyBatchDto,
   listNotesQuery,
@@ -20,6 +22,7 @@ import { requireAuth, currentUser } from '../plugins/auth.js';
 import { parse, parseIdList } from '../utils/validate.js';
 import {
   appendQuickCapture,
+  batchUpdateNotes,
   createNote,
   getNote,
   listNotes,
@@ -95,6 +98,20 @@ export function registerNoteRoutes(app: FastifyInstance, deps: NotesDeps, ws: Wo
       }
     }
     return reply.code(201).send(createNotesBatchDto.parse({ items }));
+  });
+
+  /**
+   * Multi-select batch operations (mobile long-press selection and desktop Cmd/Ctrl-click).
+   *
+   * Each note is mutated through its own CRDT document by `batchUpdateNotes`, so a batch action
+   * taken on a phone reaches every other connected device and the mirror is only ever refreshed
+   * from the projection — never written directly. Per-note failures come back in `items` instead
+   * of failing the whole request.
+   */
+  app.post('/api/notes/batch', opts, async (request, reply) => {
+    const input = parse(noteBatchInput, request.body ?? {}, '批量操作参数');
+    const result = await batchUpdateNotes(deps, currentUser(request).id, input);
+    return reply.send(noteBatchDto.parse(result));
   });
 
   app.get('/api/notes/:id', opts, async (request, reply) => {

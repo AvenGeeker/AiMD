@@ -34,8 +34,8 @@ Hocuspocus WebSocket 同步，离线依赖 WebView 的 IndexedDB（y-indexeddb�
 
 | 可用宽度 | 布局 | 交互 |
 | --- | --- | --- |
-| < 600px | 单栏 | 笔记列表 ⇄ 编辑器，左侧导航从抽屉打开（折叠状态手机） |
-| 600–839px | 双栏 | 左笔记列表 + 右编辑器；导航抽屉保留，左侧列表可隐藏 |
+| < 600px | 单栏 | 底部 Tab Bar（笔记 / 收藏 / 速记 / 我的）+ 情境 FAB；大标题列表 ⇄ 全屏编辑器；目录与标签收进筛选 Sheet（折叠状态手机） |
+| 600–839px | 双栏 | 左笔记列表 + 右编辑器；导航抽屉保留，列表头部用分段切换笔记/收藏/速记，左侧列表可隐藏 |
 | ≥ 840px | 三栏 | 导航栏 + 笔记列表 + 编辑器，接近桌面端；左侧导航可隐藏 |
 
 因此典型折叠屏：折叠竖持是单栏；展开竖持是双栏；展开横持或平板宽度是三栏。布局偏好按设备保存在
@@ -83,6 +83,52 @@ make mobile-hap        # copy-renderer → 同步 resfile → ohpm install → h
 
 拿到 SDK 后也可以直接在 DevEco Studio 打开 `apps/mobile/harmony`：File → Sync，然后 Build → HAP。
 
+
+## 移动端交互（< 600px）
+
+手机宽度是一套独立的触摸外壳，交互对齐 Apple Notes / Notion 移动端：
+
+- **底部 Tab Bar + FAB**：四个 Tab（笔记 / 收藏 / 速记 / 我的），徽标显示待分类收藏数与速记条数；
+  FAB 按 Tab 变形（新建笔记 / 收藏链接 / 记一条速记）。进入编辑器后两者都隐藏，底部换成
+  编辑/预览 + AI/标签/设置的工具栏。
+- **大标题列表**：作用域标题滚动 24px 后收缩成紧凑条；内联搜索（≥2 字符才发请求）、排序菜单
+  （最近更新 / 最近创建 / 标题 / 手动排序，按设备记忆）、筛选 Sheet（目录树 + 标签 + 回收站）。
+  列表按 置顶 / 今天 / 昨天 / 更早 分组成圆角卡片。
+- **滑动手势**：左划露出「置顶 / 删除」，继续全划直接进回收站并弹出 5 秒「撤销」；右划快捷置顶；
+  点按已展开的行或行外任意位置收回。行内左划从 26px 之后才开始识别，把 iOS 左边缘返回手势让出来。
+- **长按多选**：按住 500ms 进入多选；底部批量工具栏提供 置顶 / 移动 / 标签 / 删除，回收站视图换成
+  恢复 / 彻底删除 / 清空回收站（清空为服务端全量且需二次确认）。桌面端同一套状态机走
+  Cmd/Ctrl 点选 + Shift 范围选。
+- **批量写路径**：所有批量操作走 `POST /api/notes/batch`，服务端逐条经 Hocuspocus 直连写 Y.Doc
+  再刷投影；响应带 per-item 结果，跨租户 id 返回 `NOT_FOUND` 而不影响同批其他笔记。
+- **下拉刷新**：列表在顶部下拉 ≥56px 触发 notes/tree 重新拉取；多选或有展开行时禁用。
+- **触感反馈**：Android / iOS 经 `@capacitor/haptics` 在选中、滑动提交、批量完成时给轻/中触感；
+  HarmonyOS 与浏览器无插件，静默降级为无触感。
+- **我的页**：账户卡片、同步状态与「立即同步」、主题分段（跟随系统/浅色/深色）、回收站与导入导出、
+  设置入口、退出登录（二次确认）。
+
+## 沉浸式状态栏 / 导航栏
+
+三端窗口都是 edge-to-edge，系统栏透明、内容延伸到栏下，渲染层只靠
+`env(safe-area-inset-*)`（`index.html` 的 `viewport-fit=cover` 是前提，不能删）让顶栏 / Tab Bar /
+FAB 避开刘海与手势条：
+
+- **Android**：`values/styles.xml` 把 `statusBarColor` / `navigationBarColor` 设为透明并关闭对比度
+  强制，`windowLayoutInDisplayCutoutMode=shortEdges` 让横屏用满刘海屏；`MainActivity` 调
+  `WindowCompat.setDecorFitsSystemWindows(window, false)`（Android 15+ 平台强制 edge-to-edge，
+  这些标志保证 14 及以下一致）。
+- **iOS**：WKWebView 天然延伸到状态栏与 Home 指示条下；`Info.plist` 已开
+  `UIViewControllerBasedStatusBarAppearance`，图标颜色由插件切换。
+- **HarmonyOS**：`EntryAbility.onWindowStageCreate` 调 `setWindowLayoutFullScreen(true)`，
+  `Index.ets` 的 Web 组件 `.expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP,
+  SafeAreaEdge.BOTTOM])`。注意这两个枚举是 ArkTS 全局枚举，不能从 `@kit.ArkUI` import。
+- **图标颜色跟随 App 主题**：`apps/web/src/lib/statusBar.ts` 在主题变化时调用
+  `@capacitor/status-bar`（Android / iOS）或 bridge 的 `setStatusBarDark`（HarmonyOS）；
+  浏览器与 Electron 是 no-op。
+
+构建 APK 需要 **JDK 17**（AGP 要求）；本机只有 JDK 11 时 `make mobile-apk` 会直接报
+"Android Gradle plugin requires Java 17"。iOS 模拟器构建 `make mobile-ipa` 与 HarmonyOS
+`make mobile-hap` 不依赖 JDK（后者用 DevEco 自带 hvigor + `~/Library/Huawei/Sdk`）。
 
 ## 分享到收藏
 

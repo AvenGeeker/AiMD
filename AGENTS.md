@@ -105,6 +105,24 @@ open -a /Applications/AiMD.app
 
 ## 会让人踩坑的地方（都是真实修过的 bug）
 
+### 移动端触摸手势有三条硬约束
+
+- **行内左划必须让开 iOS 边缘返回带**：`swipeActions.ts` 的 `SWIPE_EDGE_BAND_IOS` 与
+  `iosSwipeBack.ts` 的 `EDGE_WIDTH` 都是 26px，改一个必须改另一个，否则从编辑器左划返回会
+  顺带撕开列表行的删除按钮。
+- **批量写只能走 `POST /api/notes/batch`**：服务端逐条 `mutateDocument()` 写 Y.Doc 再刷投影，
+  响应带 per-item 结果。桌面与移动共用 `useNoteBatch()`；任何新批量操作都要加进
+  `NOTE_BATCH_OPS` 并在 `notes-batch.test.ts` 补跨租户用例，禁止直写 `notes` 投影表。
+- **浏览器刷新后要给 collab 补 token**：浏览器会话在 httpOnly cookie 里，启动时内存里没有
+  access token；`auth.tsx` 启动路径必须 `refreshAccessToken()`，否则重载后整库显示「同步被拒绝」。
+- **沉浸式系统栏是三端各改一处**：Android 改 `values/styles.xml` + `MainActivity`，iOS 靠
+  `@capacitor/status-bar`（`Info.plist` 的 `UIViewControllerBasedStatusBarAppearance` 必须为
+  true），HarmonyOS 改 `EntryAbility` + `Index.ets` 的 `expandSafeArea`；渲染层只认
+  `env(safe-area-inset-*)`，`index.html` 的 `viewport-fit=cover` 删掉三端会一起坏。图标颜色统一
+  走 `lib/statusBar.ts`，别在原生侧另读系统主题。ArkTS 里 `SafeAreaType` / `SafeAreaEdge` 是全局
+  枚举，**不能**从 `@kit.ArkUI` import（hvigor 会报 10311006）；改完 Harmony 代码用
+  `make mobile-hap` 在本机就能编译验证（DevEco 自带的 hvigor + SDK）。
+
 ### 模块系统每个包都不一样
 
 | 包 | module | 后果 |

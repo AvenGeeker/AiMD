@@ -5,7 +5,7 @@ import { CaptureComposer } from './CaptureComposer.js';
 
 /** Middle rail for the dedicated quick-capture view: composer on top, day-grouped list below. */
 
-interface CaptureListProps {
+export interface CaptureListProps {
   captures: QuickCaptureEntry[];
   loading: boolean;
   hasInbox: boolean;
@@ -13,6 +13,8 @@ interface CaptureListProps {
   composerSignal: number;
   onOpen(entry: QuickCaptureEntry): void;
   onSubmitCapture(text: string): Promise<void>;
+  /** The phone shell renders its own large-title header and a FAB, so this one hides. */
+  hideHeader?: boolean;
 }
 
 export function CaptureList({
@@ -22,6 +24,7 @@ export function CaptureList({
   composerSignal,
   onOpen,
   onSubmitCapture,
+  hideHeader = false,
 }: CaptureListProps) {
   const [composerOpen, setComposerOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -39,6 +42,7 @@ export function CaptureList({
 
   return (
     <div className="notes-panel flex h-full flex-col" data-testid="capture-list">
+      {!hideHeader && (
       <div className="notes-header flex shrink-0 items-center justify-between px-4">
         <div className="flex items-center gap-2">
           <NotebookPen size={14} className="text-accent" />
@@ -58,6 +62,7 @@ export function CaptureList({
           <NotebookPen size={14} />
         </button>
       </div>
+      )}
 
       <CaptureComposer
         open={composerOpen}

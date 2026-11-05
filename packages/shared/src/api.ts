@@ -279,6 +279,101 @@ export const createNotesBatchDto = z.object({
 export type CreateNotesBatchDto = z.infer<typeof createNotesBatchDto>;
 
 
+/* ------------------------------ batch mutations ---------------------------- */
+
+/**
+ * Multi-select note operations shared by the mobile and desktop shells.
+ *
+ * Every op except `destroy` is applied through each note's CRDT document (`mutateDocument()`),
+ * so a batch action taken on a phone reaches every other connected device exactly like a single
+ * edit does. `destroy` deletes the Postgres row and relies on the FK cascade to drop
+ * `note_documents` / `note_tags`; the collab `store` hook already skips documents whose note row
+ * disappeared, so a pending flush can neither resurrect the note nor take down the batch.
+ */
+export const NOTE_BATCH_OPS = [
+  'trash',
+  'restore',
+  'destroy',
+  'pin',
+  'unpin',
+  'move',
+  'addTags',
+  'removeTags',
+] as const;
+export type NoteBatchOp = (typeof NOTE_BATCH_OPS)[number];
+
+/** Upper bound for one batch call; `scope` matches beyond it are reported as `truncated`. */
+export const NOTE_BATCH_MAX_IDS = 200;
+
+export const noteBatchInput = z
+  .object({
+    /** Explicit targets. Mutually exclusive with `scope`. */
+    ids: z.array(idSchema).max(NOTE_BATCH_MAX_IDS).optional(),
+    /** Server-resolved targets; `trashed` is every soft-deleted note of the caller. */
+    scope: z.enum(['trashed']).optional(),
+    op: z.enum(NOTE_BATCH_OPS),
+    /** Required by `move`; `null` moves the notes to the root level. */
+    folderId: idSchema.nullish(),
+    /** Required by `addTags` / `removeTags`. */
+    tagIds: z.array(idSchema).max(50).optional(),
+  })
+  .superRefine((value, ctx) => {
+    const hasIds = value.ids !== undefined;
+    const hasScope = value.scope !== undefined;
+    if (hasIds === hasScope) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [hasIds ? 'ids' : 'scope'],
+        message: 'ids 与 scope 必须二选一',
+      });
+      return;
+    }
+    if (hasIds && (value.ids ?? []).length === 0) {
+      ctx.addIssue({ code: 'custom', path: ['ids'], message: '至少选择一篇笔记' });
+      return;
+    }
+    if (value.op === 'move' && value.folderId === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['folderId'], message: '移动操作需要目标目录' });
+      return;
+    }
+    const tagging = value.op === 'addTags' || value.op === 'removeTags';
+    if (tagging && (value.tagIds ?? []).length === 0) {
+      ctx.addIssue({ code: 'custom', path: ['tagIds'], message: '标签操作至少需要一个标签' });
+      return;
+    }
+    if (
+      !tagging &&
+      value.op !== 'move' &&
+      (value.folderId !== undefined || value.tagIds !== undefined)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['op'],
+        message: `${value.op} 不接受 folderId / tagIds`,
+      });
+    }
+  });
+export type NoteBatchInput = z.infer<typeof noteBatchInput>;
+
+export const noteBatchItemDto = z.object({
+  id: idSchema,
+  ok: z.boolean(),
+  note: noteSummaryDto.optional(),
+  error: z.object({ code: z.string(), message: z.string() }).optional(),
+});
+export type NoteBatchItemDto = z.infer<typeof noteBatchItemDto>;
+
+export const noteBatchDto = z.object({
+  op: z.enum(NOTE_BATCH_OPS),
+  /** Per-note outcomes; empty for `destroy`, which runs as one owner-scoped statement. */
+  items: z.array(noteBatchItemDto),
+  succeeded: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  /** True when `scope` matched more notes than a single call is allowed to process. */
+  truncated: z.boolean(),
+});
+export type NoteBatchDto = z.infer<typeof noteBatchDto>;
+
 export const listNotesQuery = z.object({
   folderId: idSchema.nullish(),
   /**

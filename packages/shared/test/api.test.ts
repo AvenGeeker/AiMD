@@ -6,10 +6,12 @@ import {
   toApiErrorBody,
 } from '../src/errors.js';
 import {
+  NOTE_BATCH_MAX_IDS,
   createFolderInput,
   createNoteInput,
   listNotesQuery,
   loginInput,
+  noteBatchInput,
   registerInput,
   settingsPatchInput,
   upsertTagInput,
@@ -168,5 +170,64 @@ describe('settings patch', () => {
       true,
     );
     expect(settingsPatchInput.safeParse({ mainWindowHotkey: '' }).success).toBe(false);
+  });
+});
+
+describe('note batch input', () => {
+  it('accepts explicit ids with a plain op', () => {
+    const result = noteBatchInput.parse({ ids: ['a1', 'b2'], op: 'trash' });
+    expect(result.ids).toEqual(['a1', 'b2']);
+    expect(result.op).toBe('trash');
+    expect(result.scope).toBeUndefined();
+  });
+
+  it('accepts a scope instead of ids', () => {
+    expect(noteBatchInput.parse({ scope: 'trashed', op: 'destroy' }).scope).toBe('trashed');
+  });
+
+  it('requires exactly one of ids and scope', () => {
+    expect(noteBatchInput.safeParse({ op: 'trash' }).success).toBe(false);
+    expect(noteBatchInput.safeParse({ ids: ['a1'], scope: 'trashed', op: 'trash' }).success).toBe(
+      false,
+    );
+    expect(noteBatchInput.safeParse({ ids: [], op: 'trash' }).success).toBe(false);
+  });
+
+  it('bounds the id list', () => {
+    const max = Array.from({ length: NOTE_BATCH_MAX_IDS }, (_, index) => `n${index}`);
+    expect(noteBatchInput.safeParse({ ids: max, op: 'pin' }).success).toBe(true);
+    expect(noteBatchInput.safeParse({ ids: [...max, 'extra'], op: 'pin' }).success).toBe(false);
+  });
+
+  it('requires a destination folder for move, and allows null for the root', () => {
+    expect(noteBatchInput.safeParse({ ids: ['a1'], op: 'move' }).success).toBe(false);
+    expect(noteBatchInput.parse({ ids: ['a1'], op: 'move', folderId: null }).folderId).toBeNull();
+    expect(noteBatchInput.parse({ ids: ['a1'], op: 'move', folderId: 'f1' }).folderId).toBe('f1');
+  });
+
+  it('requires at least one tag for the tag ops', () => {
+    expect(noteBatchInput.safeParse({ ids: ['a1'], op: 'addTags' }).success).toBe(false);
+    expect(noteBatchInput.safeParse({ ids: ['a1'], op: 'removeTags', tagIds: [] }).success).toBe(
+      false,
+    );
+    expect(noteBatchInput.parse({ ids: ['a1'], op: 'addTags', tagIds: ['t1'] }).tagIds).toEqual([
+      't1',
+    ]);
+  });
+
+  it('rejects payload fields the op cannot use', () => {
+    expect(noteBatchInput.safeParse({ ids: ['a1'], op: 'trash', tagIds: ['t1'] }).success).toBe(
+      false,
+    );
+    expect(noteBatchInput.safeParse({ ids: ['a1'], op: 'destroy', folderId: 'f1' }).success).toBe(
+      false,
+    );
+    expect(noteBatchInput.safeParse({ ids: ['a1'], op: 'restore', folderId: null }).success).toBe(
+      false,
+    );
+  });
+
+  it('rejects an unknown op', () => {
+    expect(noteBatchInput.safeParse({ ids: ['a1'], op: 'publish' }).success).toBe(false);
   });
 });

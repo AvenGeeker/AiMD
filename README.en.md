@@ -51,7 +51,7 @@ That invariant runs through the whole repository — see [Architecture](#archite
 | **Attachments** | Paste/drop image upload, authenticated download, SVG served under its own CSP |
 | **Import and export** | Export a note as `.md`, export the vault as a ZIP (folder hierarchy and CJK filenames preserved), import `.md` or ZIP to rebuild the tree |
 | **Trash** | Soft delete / restore / delete permanently |
-| **Responsive and mobile** | The same web build runs in the browser, Electron and the Capacitor shells; foldable and rotation layouts are handled |
+| **Responsive and mobile** | The same web build runs in the browser, Electron and the Capacitor shells; the phone shell adds a tab bar, contextual FAB and large-title lists with long-press multi-select batch actions, swipe-to-delete with undo, pull-to-refresh and immersive status/navigation bars; foldable and rotation layouts are handled |
 | **Security** | argon2id, JWT with refresh rotation, httpOnly cookies in the browser / OS keychain on desktop, `owner_id`-scoped tenancy, rate limiting, AI keys encrypted with AES-256-GCM |
 
 <!-- Screenshots: drop images into docs/screenshots/ and embed them here with Markdown image syntax (editor.png / capture.png / mobile.png) -->

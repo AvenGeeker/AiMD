@@ -74,6 +74,15 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
+    try {
+      // Immersive: the page extends under the status and navigation bars; the renderer keeps its
+      // chrome clear of them with env(safe-area-inset-*), and Index.ets expands the Web component
+      // into the system safe areas.
+      windowStage.getMainWindowSync().setWindowLayoutFullScreen(true);
+    } catch (err) {
+      const e = err as Error;
+      hilog.error(0x0000, TAG, 'full-screen layout failed: %{public}s', e.message);
+    }
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {
         hilog.error(0x0000, TAG, 'Failed to load content: %{public}s', JSON.stringify(err));

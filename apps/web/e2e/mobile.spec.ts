@@ -56,10 +56,12 @@ test('mobile shell: open a note, edit it, preview it, then return to the list', 
   const email = uniqueEmail('mob1');
   await registerThroughUi(page, email);
 
-  // Land on the single-pane list view, not the desktop three-pane layout.
+  // Land on the single-pane list view, not the desktop three-pane layout. The phone shell
+  // navigates through the bottom tab bar; the drawer only exists on foldable widths.
   await expect(page.getByTestId('workspace')).toBeVisible();
   await expect(page.getByTestId('note-list')).toBeVisible();
-  await expect(page.getByTestId('open-drawer')).toBeVisible();
+  await expect(page.getByTestId('mobile-tabbar')).toBeVisible();
+  await expect(page.getByTestId('mobile-filter-button')).toBeVisible();
   await expect(page.locator('[data-testid="sidebar"]')).toHaveCount(0);
 
   // The auto-selected first note (the inbox) is highlighted, not opened.
@@ -91,17 +93,18 @@ test('mobile shell: open a note, edit it, preview it, then return to the list', 
   await expect(page.getByTestId('editor-host')).toHaveCount(0);
 });
 
-test('mobile shell: drawer navigation filters and closes', async ({ page }) => {
+test('mobile shell: the filter sheet navigates and closes', async ({ page }) => {
   const email = uniqueEmail('mob2');
   await registerThroughUi(page, email);
 
-  await page.getByTestId('open-drawer').click();
+  await page.getByTestId('mobile-filter-button').click();
+  await expect(page.getByTestId('filter-sheet')).toBeVisible();
   await expect(page.getByTestId('sidebar')).toBeVisible();
   await expect(page.getByTestId('search-input')).toBeVisible();
 
-  // Selecting a filter applies it and dismisses the drawer.
+  // Selecting a filter applies it and dismisses the sheet.
   await page.getByTestId('all-notes').click();
-  await expect(page.getByTestId('sidebar')).toHaveCount(0);
+  await expect(page.getByTestId('filter-sheet')).toHaveCount(0);
   await expect(page.getByTestId('note-list')).toBeVisible();
 });
 
@@ -141,6 +144,8 @@ test('mobile shell: create a note and offline edits survive reconnection', async
 
 test('mobile shell: settings open full-screen and theme changes apply', async ({ page }) => {
   await registerThroughUi(page, uniqueEmail('mob4'));
+  // Settings live behind the 我的 tab on the phone shell.
+  await page.getByTestId('mobile-tab-me').click();
   await page.getByTestId('open-settings').click();
   await expect(page.getByTestId('settings-dialog')).toBeVisible();
   await page.getByTestId('settings-theme-dark').click();

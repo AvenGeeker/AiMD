@@ -215,6 +215,38 @@ test.describe('workspace basics', () => {
     await expect(page.locator(`[data-testid="note-item-${noteId}"]`)).toBeVisible();
   });
 
+  test('multi-selects notes on the desktop rail and trashes them as a batch', async ({ page }) => {
+    await registerThroughUi(page);
+    const first = await createNote(page);
+    const second = await createNote(page);
+    await expect(page.locator(`[data-testid="note-item-${second}"]`)).toBeVisible();
+
+    // Cmd/Ctrl-click enters selection mode without opening the note.
+    const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+    await page.keyboard.down(modifier);
+    await page.locator(`[data-testid="note-item-${first}"]`).click();
+    await page.keyboard.up(modifier);
+    await expect(page.getByTestId('selection-toolbar')).toBeVisible();
+    await expect(page.getByTestId('selection-count')).toContainText('已选 1 项');
+
+    // Shift-click extends the range across the list order.
+    await page.keyboard.down('Shift');
+    await page.locator(`[data-testid="note-item-${second}"]`).click();
+    await page.keyboard.up('Shift');
+    await expect(page.getByTestId('selection-count')).toContainText('已选 2 项');
+
+    await page.getByTestId('selection-trash').click();
+    await expect(page.locator(`[data-testid="note-item-${first}"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-testid="note-item-${second}"]`)).toHaveCount(0);
+    await expect(page.getByTestId('undo-toast')).toBeVisible();
+
+    // Undo brings both notes back and leaves selection mode.
+    await page.getByTestId('undo-toast-action').click();
+    await expect(page.locator(`[data-testid="note-item-${first}"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="note-item-${second}"]`)).toBeVisible();
+    await expect(page.getByTestId('selection-toolbar')).toHaveCount(0);
+  });
+
   test('opens account details without logging out and can close them again', async ({ page }) => {
     const email = await registerThroughUi(page);
 

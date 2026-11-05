@@ -12,6 +12,8 @@ import type {
   AiJobDto,
   AiOverviewDto,
   FavoritePreviewDto,
+  NoteBatchDto,
+  NoteBatchInput,
   FavoriteSaveInput,
   FavoriteSaveResultDto,
   FolderDto,
@@ -144,6 +146,21 @@ export function useRestoreNote() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => request<NoteSummaryDto>(`/notes/${id}/restore`, { method: 'POST' }),
+    onSuccess: () => invalidateStructure(client),
+  });
+}
+
+/**
+ * Multi-select batch operations.
+ *
+ * One call per user action instead of one per note: the server applies each note through its CRDT
+ * document, so the whole batch broadcasts to other devices and reports per-note failures.
+ */
+export function useBatchNotes() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: NoteBatchInput) =>
+      request<NoteBatchDto>('/notes/batch', { method: 'POST', body: input }),
     onSuccess: () => invalidateStructure(client),
   });
 }

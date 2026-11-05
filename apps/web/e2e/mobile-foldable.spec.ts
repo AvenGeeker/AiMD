@@ -17,6 +17,14 @@ test('foldable: unfolded portrait uses list + editor and can hide the left pane'
   await expect(page.getByTestId('note-list')).toBeVisible();
   await expect(page.getByTestId('open-drawer')).toBeVisible();
   await expect(page.locator('[data-testid="sidebar"]')).toHaveCount(0);
+  // The tab bar is a phone-width affordance; unfolded layouts keep the pane chrome.
+  await expect(page.getByTestId('mobile-tabbar')).toHaveCount(0);
+
+  // The header surface switch keeps its text labels at foldable widths: the desktop 768–1100px
+  // rule collapses segmented controls to icon-only buttons, and the shell must opt out of it.
+  const switchTab = page.getByTestId('wide-tab-notes');
+  await expect(switchTab).toContainText('笔记');
+  expect((await switchTab.boundingBox())?.width ?? 0).toBeGreaterThan(48);
 
   const id = (await workspace.getAttribute('data-active-note-id')) ?? '';
   expect(id).toBeTruthy();
@@ -75,6 +83,8 @@ test('foldable: expanded layout keeps the navigation sidebar and can hide it', a
   await expect(page.locator('[data-testid="sidebar"]')).toBeVisible();
   await expect(page.getByTestId('note-list')).toBeVisible();
   await expect(page.getByTestId('open-drawer')).toHaveCount(0);
+  await expect(page.getByTestId('mobile-tabbar')).toHaveCount(0);
+  await expect(page.getByTestId('wide-tab-favorites')).toContainText('收藏');
 
   await page.getByTestId('toggle-left-pane').click();
   await expect(page.locator('[data-testid="sidebar"]')).toHaveCount(0);

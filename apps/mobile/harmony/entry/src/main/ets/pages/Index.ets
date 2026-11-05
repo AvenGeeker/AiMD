@@ -2,6 +2,9 @@ import { preferences } from '@kit.ArkData';
 import { webview } from '@kit.ArkWeb';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+// `SafeAreaType` / `SafeAreaEdge` are global ArkTS enums (component-common declarations); they
+// are NOT exported by any kit, so importing them from '@kit.ArkUI' fails the ArkTS compile.
+import { window } from '@kit.ArkUI';
 
 const TAG = 'AiMD';
 
@@ -16,8 +19,10 @@ const TAG = 'AiMD';
 class TokenBridge {
   private pref: preferences.Preferences | null = null;
   private initPromise: Promise<void> | null = null;
+  private context: common.Context | null = null;
 
   init(context: common.Context): void {
+    this.context = context;
     if (this.initPromise !== null) {
       return;
     }
@@ -73,6 +78,27 @@ class TokenBridge {
       const e = err as Error;
       hilog.error(0x0000, TAG, 'bridge remove failed: %{public}s', e.message);
       throw e;
+    }
+  }
+
+  /**
+   * Immersive bars: mirror the renderer's theme into the status/navigation icon colour so the
+   * icons stay readable on both themes while the page draws edge-to-edge.
+   */
+  async setStatusBarDark(dark: boolean): Promise<void> {
+    if (this.context === null) {
+      return;
+    }
+    try {
+      const win = await window.getLastWindow(this.context);
+      const color = dark ? '#FFFFFF' : '#1F2229';
+      await win.setWindowSystemBarProperties({
+        statusBarContentColor: color,
+        navigationBarContentColor: color,
+      });
+    } catch (err) {
+      const e = err as Error;
+      hilog.error(0x0000, TAG, 'status bar style failed: %{public}s', e.message);
     }
   }
 }
@@ -200,7 +226,7 @@ struct Index {
           object: this.bridge,
           name: 'aiMarkdownHarmony',
           methodList: [],
-          asyncMethodList: ['get', 'set', 'remove'],
+          asyncMethodList: ['get', 'set', 'remove', 'setStatusBarDark'],
           controller: this.controller
         })
         .domStorageAccess(true)
@@ -221,6 +247,9 @@ struct Index {
               event.request.getRequestUrl(), event.error.getErrorInfo());
           }
         })
+        // Immersive: draw under the status and navigation bars; the renderer reports them as
+        // env(safe-area-inset-top/bottom) because index.html sets viewport-fit=cover.
+        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
         .width('100%')
         .height('100%')
     }

@@ -1,20 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowDownUp,
   ArrowLeft,
-  Cloud,
-  CloudOff,
-  Eye,
+  BookmarkPlus,
+  Check,
+  CheckSquare,
   Download,
-  Loader2,
+  Eye,
+  ListFilter,
   Menu,
   MessageSquareText,
+  MoreHorizontal,
   Pencil,
   Pin,
   PinOff,
   Plus,
   RotateCcw,
   Search,
-  ShieldAlert,
+  Settings2,
   Sparkles,
   Tags,
   Trash2,
@@ -23,7 +26,8 @@ import {
 import * as Y from 'yjs';
 import type { Awareness } from 'y-protocols/awareness';
 import {
-  APP_NAME,
+  MIN_SEARCH_QUERY_LENGTH,
+  type NoteSort,
   type NoteSummaryDto,
   type SettingsDto,
   type TagDto,
@@ -36,24 +40,33 @@ import { useMobileBackButton, type BackLayerAction } from '../lib/androidBack.js
 import { useIOSEdgeSwipeBack } from '../lib/iosSwipeBack.js';
 import type { QuickCaptureEntry } from '../lib/quickCaptures.js';
 import { useMobileLayout } from '../hooks/useMobileLayout.js';
-import { Sidebar, type SidebarSelection } from './Sidebar.js';
-import { NoteList } from './NoteList.js';
+import type { NoteBatchController } from '../hooks/useNoteBatch.js';
+import { Sidebar, EMPTY_SELECTION, type SidebarSelection } from './Sidebar.js';
+import { MobileNoteList } from './MobileNoteList.js';
+import { MobileTabBar, type MobileTab } from './MobileTabBar.js';
+import { MobileFab, type MobileFabAction } from './MobileFab.js';
+import { MobileProfilePage } from './MobileProfilePage.js';
 import { FavoriteList } from './FavoriteList.js';
 import { CaptureList } from './CaptureList.js';
 import { MarkdownEditor, type EditorMode, type EditorReveal } from './MarkdownEditor.js';
 import { TagEditor } from './TagEditor.js';
 import { AiPanel } from './AiPanel.js';
 import { ActionMenu, MenuItem } from './ui/Menu.js';
+import { SegmentedControl } from './ui/SegmentedControl.js';
+import { SelectionToolbar, selectionToolbarProps } from './SelectionToolbar.js';
+import { SyncBadge } from './SyncStatusBadge.js';
 import { SettingsToolbarIcon, SidebarToolbarIcon } from './ui/ToolbarIcons.js';
+import { hapticTap } from '../lib/haptics.js';
 
 /**
  * Adaptive mobile shell.
  *
  * The parent Workspace owns every piece of state; this component only changes the presentation.
- * A folded phone uses list ⇄ editor navigation, an unfolded foldable becomes list + editor, and
- * an unfolded landscape foldable / tablet adds the persistent navigation sidebar. Resizing is
- * live, so folding, rotating or entering split-screen never requires a reload. All variants keep
- * the slide-in folder/tag drawer and touch-sized chrome (safe areas, ≥44px targets).
+ * A phone gets the modern touch shell — a large-title list with inline search, a bottom tab bar,
+ * a contextual FAB, swipe actions and long-press multi-select. An unfolded foldable becomes
+ * list + editor, and an unfolded landscape foldable / tablet adds the persistent navigation rail;
+ * both keep the classic pane chrome instead of a tab bar, because they already have room for it.
+ * Resizing is live, so folding, rotating or entering split-screen never requires a reload.
  */
 
 export interface MobileShellProps {
@@ -97,6 +110,30 @@ export interface MobileShellProps {
   onCreateFavorite(): void;
   onAskFolderAi(): void;
 
+  /** Multi-select + batch operations, shared with the desktop shell. */
+  batch: NoteBatchController;
+  sort: NoteSort;
+  onSortChange(sort: NoteSort): void;
+  /** One row may reveal its swipe actions at a time; the shell owns that so back can close it. */
+  openRowId: string | null;
+  onOpenRowIdChange(id: string | null): void;
+  movePickerOpen: boolean;
+  onOpenMovePicker(): void;
+  onCloseMovePicker(): void;
+  batchTagOpen: boolean;
+  onOpenBatchTags(): void;
+  onCloseBatchTag(): void;
+  serverUrl: string;
+  pendingCount: number;
+  onSaveSettings(patch: Partial<SettingsDto>): void;
+  onSyncNow(): void;
+  onImport(): void;
+  onExportVault(): void;
+  onOpenTrash(): void;
+  onSearchChange(q: string): void;
+  onRequestCapture(): void;
+  refreshNotes(): Promise<void>;
+
   onSelect(next: SidebarSelection): void;
   onOpenNote(id: string): void;
   onOpenCaptures(): void;
@@ -121,30 +158,19 @@ export interface MobileShellProps {
   onNavigate(noteId: string): void;
 }
 
-const STATUS_META: Record<SyncStatus, { label: string; icon: typeof Cloud; className: string }> = {
-  connected: { label: '已同步', icon: Cloud, className: 'text-success' },
-  connecting: { label: '同步中', icon: Loader2, className: 'text-muted animate-spin' },
-  disconnected: { label: '离线（已本地保存）', icon: CloudOff, className: 'text-warning' },
-  denied: { label: '同步被拒绝', icon: ShieldAlert, className: 'text-danger' },
-};
-
-function SyncBadge({ status }: { status: SyncStatus }) {
-  const meta = STATUS_META[status];
-  const Icon = meta.icon;
-  return (
-    <div
-      className="flex items-center"
-      title={meta.label}
-      data-testid="sync-status"
-      data-status={status}
-    >
-      <Icon size={15} className={meta.className} />
-    </div>
-  );
-}
-
 const NAV_VISIBLE_KEY = 'aimarkdown.mobile-nav-visible';
 const LIST_VISIBLE_KEY = 'aimarkdown.mobile-list-visible';
+/** Scrolling past this collapses the large title into a compact bar. */
+const TITLE_COLLAPSE_OFFSET = 24;
+/** Debounce so a keystroke does not fire one search request per character. */
+const SEARCH_DEBOUNCE_MS = 300;
+
+const SORT_OPTIONS: { value: NoteSort; label: string }[] = [
+  { value: 'updated', label: '最近更新' },
+  { value: 'created', label: '最近创建' },
+  { value: 'title', label: '标题' },
+  { value: 'position', label: '手动排序' },
+];
 
 function readPaneVisible(key: string): boolean {
   try {
@@ -206,6 +232,27 @@ export function MobileShell(props: MobileShellProps) {
     onOpenFavoriteFolder,
     onCreateFavorite,
     onAskFolderAi,
+    batch,
+    sort,
+    onSortChange,
+    openRowId,
+    onOpenRowIdChange,
+    movePickerOpen,
+    onOpenMovePicker,
+    onCloseMovePicker,
+    batchTagOpen,
+    onOpenBatchTags,
+    onCloseBatchTag,
+    serverUrl,
+    pendingCount,
+    onSaveSettings,
+    onSyncNow,
+    onImport,
+    onExportVault,
+    onOpenTrash,
+    onSearchChange,
+    onRequestCapture,
+    refreshNotes,
     onSelect,
     onOpenNote,
     onOpenCaptures,
@@ -233,11 +280,17 @@ export function MobileShell(props: MobileShellProps) {
   const layout = useMobileLayout();
   const [view, setView] = useState<'list' | 'editor'>('list');
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [tagsOpen, setTagsOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [titleCollapsed, setTitleCollapsed] = useState(false);
+  const [searchDraft, setSearchDraft] = useState(selection.q);
   const [navVisible, setNavVisible] = usePaneVisible(NAV_VISIBLE_KEY);
   const [listVisible, setListVisible] = usePaneVisible(LIST_VISIBLE_KEY);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
+  const compact = layout === 'compact';
   const showNavPane = layout === 'expanded' && navVisible;
   // The expanded layout always keeps the note list; list visibility only controls the two-pane
   // unfolded layout. Otherwise a list hidden in portrait could leave no way to restore it after
@@ -245,9 +298,28 @@ export function MobileShell(props: MobileShellProps) {
   const showListPane = layout === 'split' ? listVisible : layout === 'expanded';
   const leftPaneVisible = layout === 'expanded' ? navVisible : listVisible;
 
+  /* -------------------------------- search -------------------------------- */
+
+  // An external clear (the sidebar's own search box, a filter change) must reach the field.
+  useEffect(() => {
+    setSearchDraft((draft) => (draft === selection.q ? draft : selection.q));
+  }, [selection.q]);
+
+  const searchTooShort =
+    searchDraft.trim().length > 0 && searchDraft.trim().length < MIN_SEARCH_QUERY_LENGTH;
+
+  useEffect(() => {
+    const value = searchDraft.trim();
+    if (searchTooShort) return;
+    if (value === selection.q) return;
+    const timer = window.setTimeout(() => onSearchChange(value), SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [searchDraft, searchTooShort, selection.q, onSearchChange]);
+
+  /* ------------------------------ back layers ----------------------------- */
+
   // Android's hardware key and iOS's left-edge gesture share one layer order: overlays first,
-  // then the editor, and only the root list is allowed to leave the app. Wide layouts have no
-  // editor→list step because both panes stay on screen.
+  // then the profile tab, then list modes, then the editor. Only the root list may leave the app.
   const applyBackAction = (action: BackLayerAction) => {
     switch (action) {
       case 'close-settings':
@@ -259,8 +331,26 @@ export function MobileShell(props: MobileShellProps) {
       case 'close-tags':
         setTagsOpen(false);
         return;
+      case 'close-batch-tags':
+        onCloseBatchTag();
+        return;
+      case 'close-move-sheet':
+        onCloseMovePicker();
+        return;
+      case 'close-filter':
+        setFilterOpen(false);
+        return;
       case 'close-drawer':
         setDrawerOpen(false);
+        return;
+      case 'close-profile':
+        setProfileOpen(false);
+        return;
+      case 'exit-selection':
+        batch.exit();
+        return;
+      case 'close-swipe-row':
+        onOpenRowIdChange(null);
         return;
       case 'show-list':
         setView('list');
@@ -268,8 +358,20 @@ export function MobileShell(props: MobileShellProps) {
     }
   };
 
-  const backView: 'list' | 'editor' = layout === 'compact' ? view : 'list';
-  const backState = { settingsOpen, aiOpen, tagsOpen, drawerOpen, view: backView };
+  const backView: 'list' | 'editor' = compact ? view : 'list';
+  const backState = {
+    settingsOpen,
+    aiOpen,
+    tagsOpen,
+    batchTagsOpen: batchTagOpen,
+    moveSheetOpen: movePickerOpen,
+    filterOpen,
+    drawerOpen,
+    profileOpen,
+    selectMode: batch.selection.active,
+    swipeRowOpen: openRowId !== null,
+    view: backView,
+  };
   useMobileBackButton(backState, applyBackAction);
   useIOSEdgeSwipeBack(backState, applyBackAction);
 
@@ -315,14 +417,110 @@ export function MobileShell(props: MobileShellProps) {
   const selectedNote = notes.find((note) => note.id === selectedNoteId);
 
   const headerButton =
-    'flex h-11 w-11 shrink-0 items-center justify-center rounded text-muted active:bg-hover';
+    'mobile-header-button flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted active:bg-hover';
+
+  /* ------------------------------- tab / fab ------------------------------ */
+
+  const activeTab: MobileTab = profileOpen
+    ? 'me'
+    : captureView
+      ? 'captures'
+      : selection.favorites
+        ? 'favorites'
+        : 'notes';
+
+  const handleTabChange = (tab: MobileTab) => {
+    setTitleCollapsed(false);
+    setView('list');
+    onOpenRowIdChange(null);
+    if (batch.selection.active) batch.exit();
+    switch (tab) {
+      case 'me':
+        setProfileOpen(true);
+        return;
+      case 'favorites':
+        setProfileOpen(false);
+        if (!selection.favorites) onOpenFavorites();
+        return;
+      case 'captures':
+        setProfileOpen(false);
+        if (!captureView) onOpenCaptures();
+        return;
+      case 'notes': {
+        setProfileOpen(false);
+        const atRoot =
+          !captureView &&
+          !selection.favorites &&
+          selection.folderId === undefined &&
+          selection.archived === 'false' &&
+          selection.tagIds.length === 0 &&
+          selection.q === '';
+        // Tapping the active tab pops back to 全部笔记, the same affordance iOS lists use.
+        if (!atRoot) onSelect({ ...EMPTY_SELECTION });
+        return;
+      }
+    }
+  };
+
+  const fabAction: MobileFabAction | null =
+    !compact || view === 'editor' || profileOpen || batch.selection.active
+      ? null
+      : captureView
+        ? 'capture'
+        : selection.favorites
+          ? 'favorite'
+          : 'note';
+
+  const handleFab = () => {
+    if (fabAction === 'note') void handleCreateNote();
+    else if (fabAction === 'favorite') onCreateFavorite();
+    else if (fabAction === 'capture') onRequestCapture();
+  };
+
+  /* -------------------------------- titles -------------------------------- */
+
+  const scopeTitle = useMemo(() => {
+    if (captureView) return '速记';
+    if (selection.favorites) {
+      if (!selection.folderId || selection.folderId === favoritesFolderId) return '收藏';
+      return (
+        tree?.folders.find((folder) => folder.id === selection.folderId)?.name ?? '收藏'
+      );
+    }
+    if (inTrash) return '回收站';
+    if (selection.tagIds.length > 0) {
+      const names = selection.tagIds
+        .map((id) => tree?.tags.find((tag) => tag.id === id)?.name)
+        .filter((name): name is string => Boolean(name));
+      return names.length > 0 ? names.join(' · ') : '标签';
+    }
+    if (selection.folderId) {
+      return tree?.folders.find((folder) => folder.id === selection.folderId)?.name ?? '目录';
+    }
+    if (selection.q) return '搜索结果';
+    return '全部笔记';
+  }, [
+    captureView,
+    favoritesFolderId,
+    inTrash,
+    selection.favorites,
+    selection.folderId,
+    selection.q,
+    selection.tagIds,
+    tree,
+  ]);
+
+  const filterCount =
+    (selection.folderId ? 1 : 0) +
+    (selection.tagIds.length > 0 ? 1 : 0) +
+    (inTrash ? 1 : 0) +
+    (selection.rootOnly ? 1 : 0);
+
+  /* ------------------------------ render bits ----------------------------- */
 
   const renderBanner = () =>
     banner ? (
-      <div
-        className="border-b border-border bg-accent/10 px-3 py-1.5 text-xs text-accent"
-        data-testid="banner"
-      >
+      <div className="mobile-banner" data-testid="banner">
         {banner}
       </div>
     ) : null;
@@ -334,12 +532,19 @@ export function MobileShell(props: MobileShellProps) {
       selection={selection}
       onSelect={(next) => {
         onSelect(next);
-        if (closeAfterSelect) closeDrawer();
+        if (closeAfterSelect) {
+          closeDrawer();
+          setFilterOpen(false);
+          setProfileOpen(false);
+        }
       }}
       onOpenNote={(id) => {
         onOpenNote(id);
         setView('editor');
-        if (closeAfterSelect) closeDrawer();
+        if (closeAfterSelect) {
+          closeDrawer();
+          setFilterOpen(false);
+        }
       }}
       onCreateNote={() => void handleCreateNote()}
       onCreateFolder={onCreateFolder}
@@ -352,7 +557,11 @@ export function MobileShell(props: MobileShellProps) {
       onOpenCaptures={() => {
         onOpenCaptures();
         setView('list');
-        if (closeAfterSelect) closeDrawer();
+        if (closeAfterSelect) {
+          closeDrawer();
+          setFilterOpen(false);
+          setProfileOpen(false);
+        }
       }}
       favoritesFolderId={favoritesFolderId}
       favoritesInboxFolderId={favoritesInboxFolderId}
@@ -361,129 +570,300 @@ export function MobileShell(props: MobileShellProps) {
       onOpenFavorites={() => {
         onOpenFavorites();
         setView('list');
-        if (closeAfterSelect) closeDrawer();
+        if (closeAfterSelect) {
+          closeDrawer();
+          setFilterOpen(false);
+          setProfileOpen(false);
+        }
       }}
       onOpenFavoriteFolder={(folderId) => {
         onOpenFavoriteFolder(folderId);
         setView('list');
-        if (closeAfterSelect) closeDrawer();
+        if (closeAfterSelect) {
+          closeDrawer();
+          setFilterOpen(false);
+          setProfileOpen(false);
+        }
       }}
       onCreateFavorite={() => {
         onCreateFavorite();
-        if (closeAfterSelect) closeDrawer();
+        if (closeAfterSelect) {
+          closeDrawer();
+          setFilterOpen(false);
+        }
       }}
     />
   );
 
-  const renderListPane = (wide: boolean) => (
-    <div
-      className={
-        wide
-          ? 'mobile-list-pane flex min-h-0 flex-col'
-          : 'flex min-h-0 flex-1 flex-col'
-      }
-      data-testid="mobile-list-pane"
+  /** Phone header: collapsing large title, inline search, sort and filter. */
+  const renderTitleHeader = () => (
+    <header
+      className={`mobile-header mobile-titlebar ${titleCollapsed ? 'is-collapsed' : ''}`}
+      data-testid="mobile-titlebar"
+      data-collapsed={titleCollapsed ? 'true' : 'false'}
     >
-      <header className="mobile-header flex shrink-0 items-center gap-1 px-2 pt-[env(safe-area-inset-top)]">
-        {(!wide || !showNavPane) && (
-          <button
-            type="button"
-            className={headerButton}
-            onClick={() => setDrawerOpen(true)}
-            aria-label="打开导航"
-            data-testid="open-drawer"
-          >
-            <Menu size={20} />
-          </button>
-        )}
-        <div className="flex min-w-0 flex-1 items-center gap-2.5 pl-1">
-          {!wide && (
-            <span className="brand-mark !h-7 !w-7 !rounded-lg !text-[11px]" aria-hidden>
-              M
-            </span>
-          )}
-          <span className="truncate text-[13px] font-semibold tracking-tight">
-            {captureView ? '速记' : wide ? '笔记' : APP_NAME}
+      <div className="mobile-titlebar-row">
+        <div className="mobile-titlebar-text">
+          <h1 className="mobile-large-title">{scopeTitle}</h1>
+          <span className="mobile-title-meta" data-testid="mobile-title-count">
+            {captureView
+              ? `${captureCount} 条`
+              : selection.favorites
+                ? `${notes.length} 条收藏`
+                : `${notes.length} 篇`}
           </span>
         </div>
-        <button
-          type="button"
-          className={headerButton}
-          aria-label="搜索或输入命令"
-          onClick={onOpenPalette}
-          data-testid="mobile-open-palette"
-        >
-          <Search size={19} />
-        </button>
-        <SyncBadge status={status} />
-        {selection.folderId ? (
-          <button type="button" className={headerButton} aria-label="问 AI" onClick={onAskFolderAi}>
-            <MessageSquareText size={19} />
-          </button>
-        ) : null}
-        <button
-          type="button"
-          className={headerButton}
-          aria-label="新建笔记"
-          onClick={() => void handleCreateNote()}
-          data-testid="mobile-new-note"
-        >
-          <Plus size={20} />
-        </button>
-        {!wide && (
+        <div className="mobile-titlebar-actions">
+          <SyncBadge status={status} />
+          {titleCollapsed && (
+            <button
+              type="button"
+              className={headerButton}
+              aria-label="搜索笔记"
+              data-testid="mobile-search-expand"
+              onClick={() => {
+                setTitleCollapsed(false);
+                window.setTimeout(() => searchInputRef.current?.focus(), 60);
+              }}
+            >
+              <Search size={19} />
+            </button>
+          )}
+          {!captureView && !selection.favorites && (
+            <ActionMenu
+              label="排序"
+              testId="mobile-sort"
+              trigger={<ArrowDownUp size={18} />}
+            >
+              {SORT_OPTIONS.map((option) => (
+                <MenuItem
+                  key={option.value}
+                  testId={`mobile-sort-${option.value}`}
+                  icon={sort === option.value ? <Check size={14} /> : <span className="menu-icon-spacer" />}
+                  onClick={() => onSortChange(option.value)}
+                >
+                  {option.label}
+                </MenuItem>
+              ))}
+            </ActionMenu>
+          )}
+          <ActionMenu label="更多" testId="mobile-more">
+            <MenuItem
+              icon={<CheckSquare size={14} />}
+              testId="mobile-enter-selection"
+              onClick={() => (batch.selection.active ? batch.exit() : batch.enter())}
+            >
+              {batch.selection.active ? '退出多选' : '选择笔记'}
+            </MenuItem>
+            <MenuItem
+              icon={<ListFilter size={14} />}
+              testId="mobile-open-filter-menu"
+              onClick={() => setFilterOpen(true)}
+            >
+              筛选与目录
+            </MenuItem>
+            {!inTrash && (
+              <MenuItem
+                icon={<BookmarkPlus size={14} />}
+                testId="mobile-open-favorite"
+                onClick={onCreateFavorite}
+              >
+                收藏链接
+              </MenuItem>
+            )}
+            {selection.folderId && !inTrash && (
+              <MenuItem icon={<MessageSquareText size={14} />} onClick={onAskFolderAi}>
+                问 AI
+              </MenuItem>
+            )}
+            <MenuItem
+              icon={<Trash2 size={14} />}
+              testId="mobile-open-trash"
+              onClick={() => (inTrash ? onSelect({ ...EMPTY_SELECTION }) : onOpenTrash())}
+            >
+              {inTrash ? '退出回收站' : '打开回收站'}
+            </MenuItem>
+            <div className="menu-separator" />
+            <MenuItem icon={<Settings2 size={14} />} onClick={() => setProfileOpen(true)}>
+              我的与设置
+            </MenuItem>
+          </ActionMenu>
+        </div>
+      </div>
+
+      {!captureView && (
+        <div className="mobile-search-row">
+          <div className="mobile-search-field">
+            <Search size={15} className="mobile-search-icon" />
+            <input
+              ref={searchInputRef}
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return;
+                if (searchTooShort) return;
+                onSearchChange(searchDraft.trim());
+              }}
+              placeholder="搜索笔记"
+              aria-label="搜索笔记"
+              data-testid="mobile-search-input"
+            />
+            {searchDraft && (
+              <button
+                type="button"
+                className="mobile-search-clear"
+                aria-label="清除搜索"
+                data-testid="mobile-search-clear"
+                onClick={() => {
+                  setSearchDraft('');
+                  onSearchChange('');
+                }}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
           <button
             type="button"
-            className={headerButton}
-            aria-label="设置"
-            onClick={onOpenSettings}
-            data-testid="open-settings"
-          >
-            <SettingsToolbarIcon size={20} />
-          </button>
-        )}
-      </header>
-
-      {renderBanner()}
-
-      <div className="min-h-0 flex-1">
-        {captureView ? (
-          <CaptureList
-            captures={captures}
-            loading={capturesLoading}
-            hasInbox={Boolean(inboxNoteId)}
-            onOpen={(entry) => {
-              onOpenCapture(entry);
-              setView('editor');
+            className="mobile-filter-button"
+            aria-label="筛选与目录"
+            data-testid="mobile-filter-button"
+            onClick={() => {
+              hapticTap();
+              setFilterOpen(true);
             }}
-            composerSignal={composerSignal}
-            onSubmitCapture={onSubmitCapture}
-          />
-        ) : selection.favorites ? (
-          <FavoriteList
-            notes={notes}
-            selectedId={selectedNoteId}
-            onOpen={openNote}
-            loading={loading}
-            platform={favoritePlatform}
-            onPlatformChange={onFavoritePlatformChange}
-            onCreateFavorite={onCreateFavorite}
-            onAskAi={onAskFolderAi}
-          />
-        ) : (
-          <NoteList
-            notes={notes}
-            selectedId={selectedNoteId}
-            onOpen={openNote}
-            inTrash={inTrash}
-            loading={loading}
-            onTogglePin={onTogglePin}
-            onDelete={onDeleteNote}
-            onRestore={onRestoreNote}
-            onCreateNote={() => void handleCreateNote()}
-            onCreateFavorite={onCreateFavorite}
-          />
-        )}
-      </div>
+          >
+            <ListFilter size={16} />
+            {filterCount > 0 && <span className="mobile-filter-badge">{filterCount}</span>}
+          </button>
+        </div>
+      )}
+
+      {searchTooShort && (
+        <div className="mobile-search-hint">搜索词至少 {MIN_SEARCH_QUERY_LENGTH} 个字符</div>
+      )}
+    </header>
+  );
+
+  /** Foldable / tablet header: keeps the drawer, adds a surface switch instead of the tab bar. */
+  const renderWideListHeader = () => (
+    <header className="mobile-header flex shrink-0 items-center gap-1 px-2 pt-[env(safe-area-inset-top)]">
+      {!showNavPane && (
+        <button
+          type="button"
+          className={headerButton}
+          onClick={() => setDrawerOpen(true)}
+          aria-label="打开导航"
+          data-testid="open-drawer"
+        >
+          <Menu size={20} />
+        </button>
+      )}
+      <SegmentedControl
+        value={activeTab === 'me' ? 'notes' : activeTab}
+        ariaLabel="切换列表"
+        testIdPrefix="wide-tab"
+        className="mobile-surface-switch"
+        options={[
+          { value: 'notes', label: '笔记' },
+          { value: 'favorites', label: '收藏' },
+          { value: 'captures', label: '速记' },
+        ]}
+        onChange={(tab) => handleTabChange(tab as MobileTab)}
+      />
+      <span className="min-w-0 flex-1" />
+      <button
+        type="button"
+        className={headerButton}
+        aria-label="搜索或输入命令"
+        onClick={onOpenPalette}
+        data-testid="mobile-open-palette"
+      >
+        <Search size={19} />
+      </button>
+      <SyncBadge status={status} />
+      <button
+        type="button"
+        className={headerButton}
+        aria-label="新建笔记"
+        onClick={() => void handleCreateNote()}
+        data-testid="mobile-new-note"
+      >
+        <Plus size={20} />
+      </button>
+    </header>
+  );
+
+  const renderListContent = () => {
+    if (captureView) {
+      return (
+        <CaptureList
+          captures={captures}
+          loading={capturesLoading}
+          hasInbox={Boolean(inboxNoteId)}
+          hideHeader={compact}
+          onOpen={(entry) => {
+            onOpenCapture(entry);
+            setView('editor');
+          }}
+          composerSignal={composerSignal}
+          onSubmitCapture={onSubmitCapture}
+        />
+      );
+    }
+    if (selection.favorites) {
+      return (
+        <FavoriteList
+          notes={notes}
+          selectedId={selectedNoteId}
+          onOpen={openNote}
+          loading={loading}
+          hideHeader={compact}
+          platform={favoritePlatform}
+          onPlatformChange={onFavoritePlatformChange}
+          onCreateFavorite={onCreateFavorite}
+          onAskAi={onAskFolderAi}
+          batch={batch}
+          openRowId={openRowId}
+          onOpenRowIdChange={onOpenRowIdChange}
+          onTogglePin={onTogglePin}
+        />
+      );
+    }
+    return (
+      <MobileNoteList
+        notes={notes}
+        tags={tree?.tags ?? []}
+        selectedNoteId={selectedNoteId}
+        loading={loading}
+        inTrash={inTrash}
+        grouped={sort === 'updated'}
+        batch={batch}
+        openRowId={openRowId}
+        onOpenRowIdChange={onOpenRowIdChange}
+        onOpen={openNote}
+        onTogglePin={onTogglePin}
+        onCreateNote={() => void handleCreateNote()}
+        onRefresh={refreshNotes}
+        onScrollOffset={(offset) => setTitleCollapsed(offset > TITLE_COLLAPSE_OFFSET)}
+        emptyTitle={selection.q ? `没有匹配「${selection.q}」的笔记` : '这里还没有笔记'}
+        emptyHint={
+          selection.q
+            ? `搜索词至少 ${MIN_SEARCH_QUERY_LENGTH} 个字符，且只匹配正文与标题`
+            : '点右下角的按钮写下第一篇'
+        }
+      />
+    );
+  };
+
+  const renderListPane = (wide: boolean) => (
+    <div
+      className={wide ? 'mobile-list-pane flex min-h-0 flex-col' : 'flex min-h-0 flex-1 flex-col'}
+      data-testid="mobile-list-pane"
+    >
+      {wide ? renderWideListHeader() : renderTitleHeader()}
+      {renderBanner()}
+      <div className="min-h-0 flex-1">{renderListContent()}</div>
     </div>
   );
 
@@ -525,17 +905,13 @@ export function MobileShell(props: MobileShellProps) {
           disabled={!titleEditable}
           onChange={(event) => onTitleChange(event.target.value)}
           placeholder="无标题"
-          className="min-w-0 flex-1 truncate rounded-md border border-transparent bg-transparent px-2 py-1.5 text-[15px] font-semibold tracking-[-0.02em] outline-none transition-colors hover:border-border focus:border-accent focus:bg-background disabled:cursor-default"
+          className="mobile-title-input"
           data-testid="note-title-input"
         />
-        {inTrash && (
-          <span className="rounded-full bg-danger-soft px-2 py-0.5 text-[9.5px] font-medium text-danger">
-            回收站
-          </span>
-        )}
+        {inTrash && <span className="mobile-trash-chip">回收站</span>}
         <SyncBadge status={status} />
         {selectedNoteId && (
-          <ActionMenu label="笔记操作" testId="mobile-note-actions">
+          <ActionMenu label="笔记操作" testId="mobile-note-actions" trigger={<MoreHorizontal size={19} />}>
             <MenuItem icon={<Download size={14} />} onClick={onExportNote}>
               导出当前笔记
             </MenuItem>
@@ -574,15 +950,6 @@ export function MobileShell(props: MobileShellProps) {
             )}
           </ActionMenu>
         )}
-        <button
-          type="button"
-          className={headerButton}
-          aria-label="设置"
-          onClick={onOpenSettings}
-          data-testid="open-settings"
-        >
-          <SettingsToolbarIcon size={20} />
-        </button>
       </header>
 
       {(!wide || !showListPane) && renderBanner()}
@@ -602,18 +969,19 @@ export function MobileShell(props: MobileShellProps) {
             reveal={reveal}
           />
         ) : (
-          <div className="empty-state h-full">
-            <span className="empty-state-icon">
-              <Sparkles size={19} />
+          <div className="mobile-empty h-full">
+            <span className="mobile-empty-icon">
+              <Sparkles size={22} />
             </span>
-            <span className="text-[12px]">{loading ? '加载中…' : '选择或新建一篇笔记'}</span>
+            <div className="mobile-empty-title">{loading ? '加载中…' : '选择或新建一篇笔记'}</div>
             {!loading && (
               <button
                 type="button"
-                className="button-secondary"
+                className="button-primary mt-2"
                 onClick={() => void handleCreateNote()}
                 data-testid="mobile-empty-create"
               >
+                <Plus size={15} />
                 新建笔记
               </button>
             )}
@@ -644,7 +1012,7 @@ export function MobileShell(props: MobileShellProps) {
         <span className="min-w-0 flex-1" />
         <button
           type="button"
-          className="flex h-11 items-center gap-1.5 rounded-lg px-3 text-[11px] text-muted active:bg-hover"
+          className="mobile-bar-action"
           onClick={() => setAiOpen(true)}
           data-testid="open-ai-mobile"
         >
@@ -653,44 +1021,117 @@ export function MobileShell(props: MobileShellProps) {
         </button>
         <button
           type="button"
-          className="flex h-11 items-center gap-1.5 rounded-lg px-3 text-[11px] text-muted active:bg-hover"
+          className="mobile-bar-action"
           onClick={() => setTagsOpen(true)}
           data-testid="open-tags"
         >
           <Tags size={16} />
           标签
         </button>
+        <button
+          type="button"
+          className="mobile-bar-action"
+          aria-label="设置"
+          onClick={onOpenSettings}
+          data-testid="open-settings"
+        >
+          <SettingsToolbarIcon size={18} />
+        </button>
       </footer>
     </div>
   );
 
+  const selectionActive = batch.selection.active;
+  const orderedIds = notes.map((note) => note.id);
+
+  const renderBottomDock = () => {
+    if (view === 'editor') return null;
+    if (selectionActive) {
+      return (
+        <SelectionToolbar
+          variant="mobile"
+          {...selectionToolbarProps({
+            batch,
+            notes,
+            inTrash,
+            orderedIds,
+            onMove: onOpenMovePicker,
+            onTags: onOpenBatchTags,
+          })}
+        />
+      );
+    }
+    return (
+      <MobileTabBar
+        active={activeTab}
+        favoritesBadge={favoritesPending}
+        capturesBadge={captureCount}
+        onChange={handleTabChange}
+      />
+    );
+  };
+
   return (
     <div
-      className="mobile-shell flex flex-col bg-canvas text-foreground"
+      className={`mobile-shell flex flex-col bg-canvas text-foreground ${
+        selectionActive ? 'is-selecting' : ''
+      }`}
       data-testid="workspace"
       data-layout={layout}
       // Same contract as the desktop shell: exposes the active note without list-ordering
       // assumptions (the inbox note is pinned and always sorts first).
       data-active-note-id={selectedNoteId ?? ''}
     >
-      {layout === 'compact' ? (
-        view === 'list' ? (
-          renderListPane(false)
-        ) : (
+      {compact ? (
+        view === 'editor' ? (
           renderEditorPane(false)
+        ) : profileOpen ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <MobileProfilePage
+              user={user}
+              status={status}
+              pendingCount={pendingCount}
+              theme={settings.theme}
+              serverUrl={serverUrl}
+              trashCount={tree?.counts.trashed ?? 0}
+              favoriteCount={favoriteCount}
+              onBack={() => {
+                // 我的 is a detour: leaving it always lands on the notes home, keeping the
+                // trash/search context so the user does not lose their place.
+                setProfileOpen(false);
+                setView('list');
+                onSelect({ ...EMPTY_SELECTION, archived: selection.archived, q: selection.q });
+              }}
+              onOpenSettings={onOpenSettings}
+              onOpenTrash={onOpenTrash}
+              onOpenFavorites={() => {
+                setProfileOpen(false);
+                onOpenFavorites();
+              }}
+              onImport={onImport}
+              onExportVault={onExportVault}
+              onThemeChange={(theme) => onSaveSettings({ theme })}
+              onSyncNow={onSyncNow}
+              onLogout={onLogout}
+            />
+            {renderBottomDock()}
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col">
+            {renderListPane(false)}
+            {renderBottomDock()}
+          </div>
         )
       ) : (
         <div className={`mobile-layout-wide mobile-layout-${layout} flex min-h-0 flex-1`}>
           {showNavPane && (
             <div className="mobile-nav-pane flex min-h-0 flex-col" data-testid="mobile-nav-pane">
               <div className="min-h-0 flex-1">{renderSidebar('rail', false)}</div>
-              <div className="flex h-14 shrink-0 items-center gap-2 border-t border-border-subtle px-3 pb-[env(safe-area-inset-bottom)]">
-                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-soft text-[10px] font-semibold text-accent">
+              <div className="mobile-pane-footer">
+                <span className="mobile-pane-avatar">
                   {Array.from(user.displayName.trim())[0]?.toUpperCase() ?? '?'}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-[11px] text-muted">
-                  {user.displayName}
-                </span>
+                <span className="mobile-pane-name">{user.displayName}</span>
                 <button
                   type="button"
                   className="button-ghost !min-h-8 px-2 text-[11px]"
@@ -708,7 +1149,56 @@ export function MobileShell(props: MobileShellProps) {
         </div>
       )}
 
-      {/* slide-in navigation drawer */}
+      {!compact && selectionActive && view !== 'editor' && (
+        <SelectionToolbar
+          variant="desktop"
+          {...selectionToolbarProps({
+            batch,
+            notes,
+            inTrash,
+            orderedIds,
+            onMove: onOpenMovePicker,
+            onTags: onOpenBatchTags,
+          })}
+        />
+      )}
+
+      <MobileFab action={fabAction} onClick={handleFab} />
+
+      {/* filter sheet: the phone-width replacement for the navigation drawer */}
+      {filterOpen && (
+        <div
+          className="mobile-backdrop"
+          onClick={() => setFilterOpen(false)}
+          data-testid="filter-backdrop"
+        >
+          <div
+            className="mobile-sheet mobile-filter-sheet"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="筛选与目录"
+            data-testid="filter-sheet"
+          >
+            <span className="sheet-grabber" aria-hidden />
+            <div className="sheet-header">
+              <span className="sheet-title">筛选与目录</span>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setFilterOpen(false)}
+                aria-label="关闭筛选"
+                data-testid="close-filter"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1">{renderSidebar('drawer', true)}</div>
+          </div>
+        </div>
+      )}
+
+      {/* slide-in navigation drawer (foldable / tablet widths only) */}
       {drawerOpen && (
         <div className="mobile-backdrop" onClick={closeDrawer} data-testid="drawer-backdrop">
           <div className="mobile-drawer" onClick={(event) => event.stopPropagation()}>
@@ -730,27 +1220,25 @@ export function MobileShell(props: MobileShellProps) {
               </button>
             </div>
             <div className="min-h-0 flex-1">{renderSidebar('drawer', true)}</div>
-            <div className="flex h-14 shrink-0 items-center gap-2 border-t border-border-subtle px-4 pb-[env(safe-area-inset-bottom)]">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-soft text-[10px] font-semibold text-accent">
+            <div className="mobile-pane-footer">
+              <span className="mobile-pane-avatar">
                 {Array.from(user.displayName.trim())[0]?.toUpperCase() ?? '?'}
               </span>
-              <span className="min-w-0 flex-1 truncate text-[11px] text-muted">
-                {user.displayName}
-              </span>
+              <span className="mobile-pane-name">{user.displayName}</span>
               <button
                 type="button"
                 className="button-ghost !min-h-8 px-2 text-[11px]"
-                onClick={onLogout}
-                data-testid="mobile-logout"
+                onClick={() => setProfileOpen(true)}
+                data-testid="drawer-open-profile"
               >
-                退出登录
+                我的
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* tag sheet */}
+      {/* tag sheet for the open note */}
       {tagsOpen && (
         <div className="mobile-backdrop" onClick={() => setTagsOpen(false)}>
           <div
@@ -758,8 +1246,9 @@ export function MobileShell(props: MobileShellProps) {
             onClick={(event) => event.stopPropagation()}
             data-testid="tag-sheet"
           >
-            <div className="flex h-14 shrink-0 items-center justify-between border-b border-border-subtle px-4">
-              <span className="text-sm font-medium">标签</span>
+            <span className="sheet-grabber" aria-hidden />
+            <div className="sheet-header">
+              <span className="sheet-title">标签</span>
               <button
                 type="button"
                 className="icon-button"
@@ -787,12 +1276,13 @@ export function MobileShell(props: MobileShellProps) {
       {aiOpen && (
         <div className="mobile-backdrop" onClick={() => setAiOpen(false)}>
           <div
-            className="mobile-sheet h-[70vh]"
+            className="mobile-sheet mobile-sheet-tall"
             onClick={(event) => event.stopPropagation()}
             data-testid="ai-sheet"
           >
-            <div className="flex h-14 shrink-0 items-center justify-between border-b border-border-subtle px-4">
-              <span className="text-sm font-medium">AI 助手</span>
+            <span className="sheet-grabber" aria-hidden />
+            <div className="sheet-header">
+              <span className="sheet-title">AI 助手</span>
               <button
                 type="button"
                 className="icon-button"
@@ -816,6 +1306,7 @@ export function MobileShell(props: MobileShellProps) {
           </div>
         </div>
       )}
+
     </div>
   );
 }

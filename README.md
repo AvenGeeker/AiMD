@@ -46,7 +46,7 @@ markdown-it / KaTeX / mermaid / DOMPurify。**唯一真相是 Y.Doc**，关系�
 | **附件** | 图片粘贴 / 拖拽上传，鉴权下载，SVG 带独立 CSP |
 | **导入导出** | 单篇导出 `.md`；整库导出 ZIP（保留目录层级与中文名）；`.md` 或 ZIP 导入重建层级 |
 | **回收站** | 软删除 / 恢复 / 彻底删除 |
-| **响应式与移动端** | 同一份 Web 构建产物跑在浏览器、Electron 与 Capacitor 壳里；适配折叠屏与横竖屏旋转 |
+| **响应式与移动端** | 同一份 Web 构建产物跑在浏览器、Electron 与 Capacitor 壳里；手机端为 Tab Bar + FAB + 大标题列表，支持长按多选批量操作、左划删除（可撤销）、下拉刷新与沉浸式状态栏/导航栏；适配折叠屏与横竖屏旋转 |
 | **安全** | argon2id、JWT + refresh 轮换、浏览器 httpOnly cookie / 桌面端系统钥匙串、按 `owner_id` 收窄的跨租户隔离、限流、AI Key AES-256-GCM 加密存储 |
 
 <!-- 截图：把图片放进 docs/screenshots/ 后在此处用 Markdown 图片语法插入（editor.png / capture.png / mobile.png） -->

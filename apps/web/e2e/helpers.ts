@@ -159,3 +159,178 @@ export async function stubServerHealth(
     }),
   );
 }
+
+/* ------------------------------- touch gestures ------------------------------ */
+
+/**
+ * Real (trusted) touch input over an element.
+ *
+ * The mobile list gestures are driven by native `touchstart/move/end` listeners, and Playwright's
+ * `touchscreen` API can only tap. Dispatching through CDP produces trusted events with genuine
+ * timestamps, which the swipe recogniser needs for its flick-velocity branch. A synthetic
+ * `TouchEvent` fallback keeps the helpers usable on browsers without a CDP session.
+ */
+
+async function elementCentre(page: Page, selector: string): Promise<{ x: number; y: number }> {
+  const box = await page.locator(selector).boundingBox();
+  if (!box) throw new Error(`no bounding box for ${selector}`);
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+async function cdpTouchDrag(
+  page: Page,
+  from: { x: number; y: number },
+  options: { dx: number; dy?: number; steps?: number; durationMs?: number },
+): Promise<void> {
+  const client = await page.context().newCDPSession(page);
+  const steps = Math.max(options.steps ?? 12, 2);
+  const dy = options.dy ?? 0;
+  const perStep = (options.durationMs ?? 320) / steps;
+  try {
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [{ x: from.x, y: from.y, id: 1 }],
+    });
+    for (let step = 1; step <= steps; step += 1) {
+      await page.waitForTimeout(perStep);
+      await client.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [
+          { x: from.x + (options.dx * step) / steps, y: from.y + (dy * step) / steps, id: 1 },
+        ],
+      });
+    }
+    await page.waitForTimeout(30);
+    await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  } finally {
+    await client.detach();
+  }
+}
+
+async function syntheticTouchDrag(
+  page: Page,
+  selector: string,
+  options: { dx: number; dy?: number; steps?: number; durationMs?: number },
+): Promise<void> {
+  await page.evaluate(
+    async ({ target, dx, dy, steps, durationMs }) => {
+      const element = document.querySelector(target);
+      if (!element) throw new Error(`missing ${target}`);
+      const box = element.getBoundingClientRect();
+      const startX = box.x + box.width / 2;
+      const startY = box.y + box.height / 2;
+      const perStep = (durationMs ?? 320) / steps;
+      const touch = (x: number, y: number) =>
+        new Touch({ identifier: 1, target: element, clientX: x, clientY: y });
+      const fire = (type: string, x: number, y: number) => {
+        const list = type === 'touchend' ? [] : [touch(x, y)];
+        element.dispatchEvent(
+          new TouchEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            touches: list,
+            targetTouches: list,
+            changedTouches: [touch(x, y)],
+          }),
+        );
+      };
+      fire('touchstart', startX, startY);
+      for (let step = 1; step <= steps; step += 1) {
+        await new Promise((resolve) => setTimeout(resolve, perStep));
+        fire('touchmove', startX + (dx * step) / steps, startY + ((dy ?? 0) * step) / steps);
+      }
+      fire('touchend', startX + dx, startY + (dy ?? 0));
+    },
+    { target: selector, dx: options.dx, dy: options.dy ?? 0, steps: options.steps ?? 12, durationMs: options.durationMs ?? 320 },
+  );
+}
+
+/** Drag from the centre of `selector` by `dx`/`dy` CSS pixels. */
+export async function touchDrag(
+  page: Page,
+  selector: string,
+  options: { dx: number; dy?: number; steps?: number; durationMs?: number },
+): Promise<void> {
+  try {
+    const from = await elementCentre(page, selector);
+    await cdpTouchDrag(page, from, options);
+  } catch {
+    await syntheticTouchDrag(page, selector, options);
+  }
+}
+
+/**
+ * Reveal a row's swipe actions (slow drag, no flick) or commit the full-swipe delete (fast drag).
+ *
+ * `dx` past about -260, or a fast drag past -160, commits the delete instead of revealing.
+ */
+export async function swipeRow(
+  page: Page,
+  testId: string,
+  dx: number,
+  options: { durationMs?: number } = {},
+): Promise<void> {
+  await touchDrag(page, `[data-testid="${testId}"]`, {
+    dx,
+    durationMs: options.durationMs ?? (dx < -200 ? 120 : 420),
+  });
+}
+
+/** Press and hold without moving: enters multi-select on the touch surfaces. */
+export async function longPress(page: Page, testId: string, ms = 650): Promise<void> {
+  const selector = `[data-testid="${testId}"]`;
+  const from = await elementCentre(page, selector);
+  try {
+    const client = await page.context().newCDPSession(page);
+    try {
+      await client.send('Input.dispatchTouchEvent', {
+        type: 'touchStart',
+        touchPoints: [{ x: from.x, y: from.y, id: 1 }],
+      });
+      await page.waitForTimeout(ms);
+      await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    } finally {
+      await client.detach();
+    }
+  } catch {
+    await page.evaluate(
+      async ({ target, hold }) => {
+        const element = document.querySelector(target);
+        if (!element) throw new Error(`missing ${target}`);
+        const box = element.getBoundingClientRect();
+        const x = box.x + box.width / 2;
+        const y = box.y + box.height / 2;
+        const touch = () => [new Touch({ identifier: 1, target: element, clientX: x, clientY: y })];
+        element.dispatchEvent(
+          new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: touch(), targetTouches: touch(), changedTouches: touch() }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, hold));
+        element.dispatchEvent(
+          new TouchEvent('touchend', { bubbles: true, cancelable: true, touches: [], targetTouches: [], changedTouches: touch() }),
+        );
+      },
+      { target: selector, hold: ms },
+    );
+  }
+}
+
+/** Read a note straight from the REST API: the editor DOM is virtualised, the server is not. */
+export async function fetchNote(
+  page: Page,
+  id: string,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const response = await page.request.get(`/api/notes/${id}`);
+  if (!response.ok()) return { status: response.status(), body: {} };
+  return { status: response.status(), body: (await response.json()) as Record<string, unknown> };
+}
+
+/** List note ids from the server for a filter, used to assert what a batch operation did. */
+export async function listNoteIds(
+  page: Page,
+  query: Record<string, string> = {},
+): Promise<string[]> {
+  const response = await page.request.get('/api/notes', { params: query });
+  if (!response.ok()) return [];
+  const payload = (await response.json()) as { items: { id: string }[] };
+  return payload.items.map((item) => item.id);
+}

@@ -213,6 +213,13 @@ export interface HarmonyBridge {
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<void>;
   remove(key: string): Promise<void>;
+  /**
+   * Immersive bars: sync the status/navigation icon colour with the app theme.
+   *
+   * ArkWeb's `javaScriptProxy` marshals `asyncMethodList` entries inconsistently across SDK
+   * versions — some return a Promise, others return void — so callers must not assume `.catch`.
+   */
+  setStatusBarDark?(dark: boolean): void | Promise<void>;
 }
 
 function capacitorRuntime(): CapacitorRuntime | null {

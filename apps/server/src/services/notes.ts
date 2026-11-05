@@ -5,11 +5,16 @@ import {
   ApiError,
   ERROR_CODES,
   MIN_SEARCH_QUERY_LENGTH,
+  NOTE_BATCH_MAX_IDS,
   cleanMarkdownExcerpt,
   STAMP_FORMATS,
   firstKey,
   keyBetween,
   noteDocName,
+  toApiErrorBody,
+  type NoteBatchInput,
+  type NoteBatchItemDto,
+  type NoteBatchOp,
   type NoteSort,
   type StampFormat,
   type NoteSourceState,
@@ -842,4 +847,211 @@ export async function noteSummariesByIds(
   `;
   const byId = new Map(rows.map((row) => [String(row.id), toSummary(mapRow(row))]));
   return ids.map((id) => byId.get(id)).filter((item): item is NoteSummaryDto => Boolean(item));
+}
+
+/* ------------------------------ batch mutations --------------------------- */
+
+export interface NoteBatchResult {
+  op: NoteBatchOp;
+  items: NoteBatchItemDto[];
+  succeeded: number;
+  failed: number;
+  truncated: boolean;
+}
+
+interface BatchTargetState {
+  id: string;
+  /** True when the note is soft-deleted (`deleted_at is not null`), i.e. sitting in the trash. */
+  deleted: boolean;
+  tagIds: string[];
+}
+
+function dedupeIds(ids: string[]): string[] {
+  return [...new Set(ids)];
+}
+
+function batchErrorBody(error: unknown): { code: string; message: string } {
+  const body = toApiErrorBody(error);
+  return { code: body.code, message: body.message };
+}
+
+/** Resolve a `scope` into concrete ids, capping non-destructive ops at one batch worth of work. */
+async function resolveBatchTargets(
+  deps: NotesDeps,
+  ownerId: string,
+  input: NoteBatchInput,
+): Promise<{ ids: string[]; truncated: boolean }> {
+  if (input.ids) return { ids: dedupeIds(input.ids), truncated: false };
+  const rows = await deps.sql`
+    select id from notes
+    where owner_id = ${ownerId} and deleted_at is not null
+    order by content_updated_at desc
+  `;
+  const all = rows.map((row) => String(row.id));
+  if (all.length <= NOTE_BATCH_MAX_IDS) return { ids: all, truncated: false };
+  return { ids: all.slice(0, NOTE_BATCH_MAX_IDS), truncated: true };
+}
+
+/** One round trip for the visibility + tag state of every target, instead of one per note. */
+async function loadBatchStates(
+  sql: Sql,
+  ownerId: string,
+  ids: string[],
+): Promise<Map<string, BatchTargetState>> {
+  const rows = await sql`
+    select
+      n.id, n.deleted_at,
+      coalesce(array_agg(nt.tag_id) filter (where nt.tag_id is not null), '{}') as tag_ids
+    from notes n
+    left join note_tags nt on nt.note_id = n.id
+    where n.owner_id = ${ownerId} and n.id = any(${ids}::text[])
+    group by n.id
+  `;
+  const states = new Map<string, BatchTargetState>();
+  for (const row of rows) {
+    states.set(String(row.id), {
+      id: String(row.id),
+      deleted: row.deleted_at != null,
+      tagIds: Array.isArray(row.tag_ids) ? (row.tag_ids as string[]).map(String) : [],
+    });
+  }
+  return states;
+}
+
+/**
+ * Keep only tags this user owns before they reach the CRDT.
+ *
+ * The mirror already drops foreign tag ids, but writing them into the document first would leave
+ * an id that never resolves on any device. An entirely unknown set is a client bug, so it fails.
+ */
+async function resolveOwnedTagIds(sql: Sql, ownerId: string, tagIds: string[]): Promise<string[]> {
+  const unique = dedupeIds(tagIds);
+  const rows = await sql`
+    select id from tags where owner_id = ${ownerId} and id = any(${unique}::text[])
+  `;
+  const owned = new Set(rows.map((row) => String(row.id)));
+  const resolved = unique.filter((id) => owned.has(id));
+  if (resolved.length === 0) throw new ApiError(ERROR_CODES.NOT_FOUND, '标签不存在');
+  return resolved;
+}
+
+function buildBatchPatch(
+  op: NoteBatchOp,
+  state: BatchTargetState,
+  input: NoteBatchInput,
+  tagIds: string[],
+): NoteMetaPatch {
+  switch (op) {
+    case 'trash':
+      return { archived: true, deletedAt: new Date().toISOString() };
+    case 'restore':
+      return { archived: false, deletedAt: null };
+    case 'pin':
+      return { pinned: true };
+    case 'unpin':
+      return { pinned: false };
+    case 'move':
+      return { folderId: input.folderId ?? null };
+    case 'addTags': {
+      // Union: a batch tag never drops tags another device added concurrently.
+      const merged = [...state.tagIds];
+      for (const id of tagIds) if (!merged.includes(id)) merged.push(id);
+      return { tagIds: merged };
+    }
+    case 'removeTags': {
+      const drop = new Set(tagIds);
+      return { tagIds: state.tagIds.filter((id) => !drop.has(id)) };
+    }
+    default:
+      throw new ApiError(ERROR_CODES.VALIDATION_ERROR, '不支持的批量操作');
+  }
+}
+
+/**
+ * Apply one operation to many notes.
+ *
+ * Every note goes through `patchNoteMeta()`, i.e. a Hocuspocus direct connection: the change is
+ * written to the authoritative Y.Doc, broadcast to all connected clients, and the Postgres mirror
+ * is refreshed from the projection in the same step. The projection is never written directly.
+ *
+ * `destroy` is the single exception. It deletes the owner-scoped rows in one statement and lets
+ * the FK cascade drop `note_documents` / `note_tags`; the collab `store` hook skips documents
+ * whose note row disappeared, so an in-flight flush cannot resurrect the note or fail the batch.
+ *
+ * Per-item failures (another tenant's id, a note already in the trash) are reported in `items`
+ * rather than aborting the whole call.
+ */
+export async function batchUpdateNotes(
+  deps: NotesDeps,
+  ownerId: string,
+  input: NoteBatchInput,
+): Promise<NoteBatchResult> {
+  const { sql } = deps;
+  const op = input.op;
+
+  if (op === 'destroy') {
+    const deleted = input.ids
+      ? await sql`
+          delete from notes
+          where owner_id = ${ownerId} and id = any(${dedupeIds(input.ids)}::text[])
+          returning id
+        `
+      : await sql`
+          delete from notes
+          where owner_id = ${ownerId} and deleted_at is not null
+          returning id
+        `;
+    return { op, items: [], succeeded: deleted.length, failed: 0, truncated: false };
+  }
+
+  const { ids, truncated } = await resolveBatchTargets(deps, ownerId, input);
+  if (ids.length === 0) return { op, items: [], succeeded: 0, failed: 0, truncated };
+
+  if (op === 'move') {
+    // One destination for the whole batch: fail fast instead of repeating NOT_FOUND per note.
+    await assertFolderUsable(sql, ownerId, input.folderId ?? null);
+  }
+  const tagIds =
+    op === 'addTags' || op === 'removeTags'
+      ? await resolveOwnedTagIds(sql, ownerId, input.tagIds ?? [])
+      : [];
+
+  const states = await loadBatchStates(sql, ownerId, ids);
+  const items: NoteBatchItemDto[] = [];
+  let succeeded = 0;
+
+  for (const id of ids) {
+    const state = states.get(id);
+    if (!state) {
+      items.push({ id, ok: false, error: { code: ERROR_CODES.NOT_FOUND, message: '笔记不存在' } });
+      continue;
+    }
+    // Restore only applies to trashed notes; every other op only applies to live ones.
+    if (op === 'restore' ? !state.deleted : state.deleted) {
+      items.push({
+        id,
+        ok: false,
+        error: {
+          code: ERROR_CODES.CONFLICT,
+          message: op === 'restore' ? '笔记不在回收站' : '笔记已在回收站',
+        },
+      });
+      continue;
+    }
+
+    try {
+      const record = await patchNoteMeta(
+        deps,
+        ownerId,
+        id,
+        buildBatchPatch(op, state, input, tagIds),
+      );
+      items.push({ id, ok: true, note: toSummary(record) });
+      succeeded += 1;
+    } catch (error) {
+      items.push({ id, ok: false, error: batchErrorBody(error) });
+    }
+  }
+
+  return { op, items, succeeded, failed: items.length - succeeded, truncated };
 }

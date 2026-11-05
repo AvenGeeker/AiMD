@@ -6,7 +6,19 @@ export interface AndroidBackState {
   settingsOpen: boolean;
   aiOpen: boolean;
   tagsOpen: boolean;
+  /** Batch tag sheet opened from the selection toolbar. */
+  batchTagsOpen: boolean;
+  /** Folder picker opened from the selection toolbar. */
+  moveSheetOpen: boolean;
+  /** Filter sheet that replaced the drawer on phone-width layouts. */
+  filterOpen: boolean;
   drawerOpen: boolean;
+  /** The 我的 tab page. */
+  profileOpen: boolean;
+  /** Multi-select mode; back leaves it before navigating away. */
+  selectMode: boolean;
+  /** A list row is currently revealing its swipe actions. */
+  swipeRowOpen: boolean;
   view: 'list' | 'editor';
 }
 
@@ -14,7 +26,13 @@ export type AndroidBackAction =
   | 'close-settings'
   | 'close-ai'
   | 'close-tags'
+  | 'close-batch-tags'
+  | 'close-move-sheet'
+  | 'close-filter'
   | 'close-drawer'
+  | 'close-profile'
+  | 'exit-selection'
+  | 'close-swipe-row'
   | 'show-list'
   | 'exit';
 
@@ -33,13 +51,20 @@ declare global {
 
 /**
  * Back must peel one visible layer at a time. Keep this separate from the reader so the order is
- * explicit and testable: overlays first, then the editor, and only the list is allowed to exit.
+ * explicit and testable: modal overlays first, then the page-level tab (profile), then transient
+ * list modes (selection, an open swipe row), then the editor — and only the root list may exit.
  */
 export function resolveAndroidBackAction(state: AndroidBackState): AndroidBackAction {
   if (state.settingsOpen) return 'close-settings';
   if (state.aiOpen) return 'close-ai';
   if (state.tagsOpen) return 'close-tags';
+  if (state.batchTagsOpen) return 'close-batch-tags';
+  if (state.moveSheetOpen) return 'close-move-sheet';
+  if (state.filterOpen) return 'close-filter';
   if (state.drawerOpen) return 'close-drawer';
+  if (state.profileOpen) return 'close-profile';
+  if (state.selectMode) return 'exit-selection';
+  if (state.swipeRowOpen) return 'close-swipe-row';
   if (state.view === 'editor') return 'show-list';
   return 'exit';
 }

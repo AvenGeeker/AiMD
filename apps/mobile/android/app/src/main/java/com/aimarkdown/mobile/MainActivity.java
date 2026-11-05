@@ -9,6 +9,8 @@ import android.webkit.WebView;
 
 import com.getcapacitor.BridgeActivity;
 
+import androidx.core.view.WindowCompat;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -32,6 +34,10 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Immersive status + navigation bars: the renderer owns the insets through
+        // env(safe-area-inset-*), so the WebView must reach the window edges. Android 15+
+        // enforces edge-to-edge anyway; this keeps Android 14 and below identical.
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         dispatchNativeAction(getIntent());
         dispatchShare(getIntent());
     }
