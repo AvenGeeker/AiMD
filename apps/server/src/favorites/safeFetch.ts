@@ -27,6 +27,7 @@ export interface SafeFetchOptions {
   timeoutMs: number;
   referer?: string;
   accept?: string;
+  userAgent?: string;
   allowPrivate?: boolean;
 }
 
@@ -113,10 +114,26 @@ function once(url: URL, addresses: Array<{ address: string; family: number }>, o
         method: 'GET',
         timeout: options.timeoutMs,
         headers: {
-          'user-agent': USER_AGENT,
+          'user-agent': options.userAgent ?? USER_AGENT,
           accept: options.accept ?? PAGE_ACCEPT,
           'accept-language': 'zh-CN,zh;q=0.9,en;q=0.6',
           ...(options.referer ? { referer: options.referer } : {}),
+          // A real Chrome navigation sends these client hints and fetch metadata. They do not
+          // solve a site's JavaScript/CAPTCHA challenge (Zhihu still needs its app-view path),
+          // but they avoid some sites treating the request as a bare script download.
+          ...(!options.userAgent && (options.accept ?? PAGE_ACCEPT) === PAGE_ACCEPT
+            ? {
+                'cache-control': 'max-age=0',
+                'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"macOS"',
+                'sec-fetch-dest': 'document',
+                'sec-fetch-mode': 'navigate',
+                'sec-fetch-site': options.referer ? 'cross-site' : 'none',
+                'sec-fetch-user': '?1',
+                'upgrade-insecure-requests': '1',
+              }
+            : {}),
         },
         lookup: (_hostname, lookupOptions, callback) => {
           const family = typeof lookupOptions === 'object' ? lookupOptions.family : undefined;

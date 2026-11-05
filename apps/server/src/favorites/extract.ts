@@ -4,6 +4,7 @@ import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';
 import { parseHTML } from 'linkedom';
 import type { SourcePlatform } from '@aimarkdown/shared';
+import { isZhihuUrl } from './zhihu.js';
 
 export interface ExtractedPage {
   platform: SourcePlatform;
@@ -15,6 +16,8 @@ export interface ExtractedPage {
   videoUrl: string | null;
   blocked: boolean;
   blockReason: string | null;
+  /** The platform returned only a preview of a longer article. */
+  truncated: boolean;
   warnings: string[];
 }
 
@@ -102,7 +105,9 @@ function findObjectWithKey(root: unknown, keys: string[], depth = 0): Record<str
 function parseScriptJson(document: DomDocument, needle: string): unknown {
   for (const script of Array.from(document.querySelectorAll('script')) as DomElement[]) {
     const text = script.textContent ?? '';
-    if (!text.includes(needle)) continue;
+    // Embedded states are usually found by their assignment marker, but Zhihu's app view puts
+    // the JSON in a typed script tag whose id is the only marker.
+    if (!text.includes(needle) && script.id !== needle) continue;
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
     if (start < 0 || end <= start) continue;
@@ -117,6 +122,50 @@ function parseScriptJson(document: DomDocument, needle: string): unknown {
 
 function pickString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+interface ZhihuArticle {
+  title: string | null;
+  author: string | null;
+  content: string;
+  truncated: boolean;
+}
+
+/**
+ * Read the article object embedded in Zhihu's app-view page. The page is a server-rendered
+ * React shell, so Readability sees too much chrome; the JSON state has the clean title and body.
+ */
+function readZhihuArticle(document: DomDocument): ZhihuArticle | null {
+  const state = parseScriptJson(document, 'js-initialData');
+  if (!state || typeof state !== 'object') return null;
+  const initialState = (state as Record<string, unknown>).initialState;
+  if (!initialState || typeof initialState !== 'object') return null;
+  const postMap = (initialState as Record<string, unknown>).post;
+  if (!postMap || typeof postMap !== 'object') return null;
+  const post = Object.values(postMap as Record<string, unknown>).find(
+    (value): value is Record<string, unknown> =>
+      Boolean(value) &&
+      typeof value === 'object' &&
+      typeof (value as Record<string, unknown>).title === 'string' &&
+      typeof (value as Record<string, unknown>).content === 'string',
+  );
+  if (!post) return null;
+  const users = (initialState as Record<string, unknown>).user;
+  const authorToken = pickString(post.author);
+  const authorRecord =
+    authorToken && users && typeof users === 'object'
+      ? (users as Record<string, unknown>)[authorToken]
+      : null;
+  const author =
+    authorRecord && typeof authorRecord === 'object'
+      ? pickString((authorRecord as Record<string, unknown>).name)
+      : null;
+  return {
+    title: pickString(post.title),
+    author,
+    content: String(post.content),
+    truncated: post.contentNeedTruncated === true,
+  };
 }
 
 function imageListOf(value: unknown): string[] {
@@ -184,6 +233,18 @@ export function extractPage(rawUrl: string, html: string): ExtractedPage {
   let coverUrl = metaOf(document, ['og:image', 'twitter:image']);
   let contentHtml: string | null = null;
   let videoUrl: string | null = null;
+  let truncated = false;
+
+  const zhihuArticle = isZhihuUrl(rawUrl) ? readZhihuArticle(document) : null;
+  if (zhihuArticle) {
+    title = zhihuArticle.title ?? title;
+    author = zhihuArticle.author ?? author;
+    contentHtml = zhihuArticle.content;
+    truncated = zhihuArticle.truncated;
+    if (truncated) {
+      warnings.push('知乎只返回了部分正文，完整内容可在浏览器中打开后复制粘贴。');
+    }
+  }
 
   if (platform === 'wechat') {
     const content = document.querySelector('#js_content');
@@ -247,6 +308,7 @@ export function extractPage(rawUrl: string, html: string): ExtractedPage {
   }
 
   const content = contentHtml ? makeMarkdown(contentHtml, rawUrl) : { body: '', imageUrls: [] };
+  if (!coverUrl && zhihuArticle && content.imageUrls[0]) coverUrl = content.imageUrls[0];
   const flat = content.body.replace(/\s+/g, ' ').trim();
   const blocked =
     flat.length < 60 ||
@@ -263,6 +325,7 @@ export function extractPage(rawUrl: string, html: string): ExtractedPage {
     videoUrl: videoUrl ? absolute(videoUrl, rawUrl) : null,
     blocked,
     blockReason: blocked ? '未能提取到正文，平台可能限制了自动抓取' : null,
+    truncated,
     warnings,
   };
 }

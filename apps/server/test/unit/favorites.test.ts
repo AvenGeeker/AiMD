@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createServer } from 'node:http';
 import { detectPlatform, extractPage } from '../../src/favorites/extract.js';
 import { isUnsafeAddress, safeFetch } from '../../src/favorites/safeFetch.js';
+import { zhihuAppviewUrl } from '../../src/favorites/zhihu.js';
 
 describe('favourite link extraction', () => {
   it('detects the supported platforms', () => {
@@ -57,6 +58,61 @@ describe('favourite link extraction', () => {
     expect(page.blocked).toBe(false);
   });
 
+  it('extracts a Zhihu article from the app-view initial state', () => {
+    const html = `<!doctype html><html><head><title>知乎 - 知乎</title></head><body>
+      <div id="root"><h1>页面里的标题</h1></div>
+      <script id="js-initialData" type="text/json">${JSON.stringify({
+        initialState: {
+          post: {
+            '123': {
+              title: 'Pi 极简 Agent 全攻略',
+              content: '<p>这是一段足够长的知乎正文内容，用来确认提取器会优先读取应用内视图里嵌入的文章 JSON，而不是页面上那些导航和按钮。</p><img src="https://picx.zhimg.com/a.jpg" />',
+              author: 'author-token',
+              contentNeedTruncated: false,
+            },
+          },
+          user: { 'author-token': { name: '测试答主' } },
+        },
+      })}</script>
+    </body></html>`;
+    const page = extractPage('https://www.zhihu.com/appview/p/123', html);
+    expect(page.title).toBe('Pi 极简 Agent 全攻略');
+    expect(page.author).toBe('测试答主');
+    expect(page.body).toContain('应用内视图');
+    expect(page.imageUrls).toContain('https://picx.zhimg.com/a.jpg');
+    expect(page.coverUrl).toBe('https://picx.zhimg.com/a.jpg');
+    expect(page.truncated).toBe(false);
+    expect(page.blocked).toBe(false);
+  });
+
+  it('flags a truncated Zhihu app-view article', () => {
+    const html = `<html><body><script id="js-initialData" type="text/json">${JSON.stringify({
+      initialState: {
+        post: {
+          '123': {
+            title: '长文',
+            content: '<p>只返回了开头这一段，后面的内容因为知乎的未登录限制被截断了。</p>',
+            author: 'author-token',
+            contentNeedTruncated: true,
+          },
+        },
+        user: { 'author-token': { name: '作者' } },
+      },
+    })}</script></body></html>`;
+    const page = extractPage('https://www.zhihu.com/appview/p/123', html);
+    expect(page.truncated).toBe(true);
+    expect(page.warnings.join('')).toContain('部分正文');
+  });
+
+  it('rewrites Zhihu article links to the app view', () => {
+    expect(zhihuAppviewUrl('https://zhuanlan.zhihu.com/p/2072440015578215998')).toBe(
+      'https://www.zhihu.com/appview/p/2072440015578215998',
+    );
+    expect(zhihuAppviewUrl('https://www.zhihu.com/p/123/')).toBe('https://www.zhihu.com/appview/p/123');
+    expect(zhihuAppviewUrl('https://www.zhihu.com/question/23811180')).toBeNull();
+    expect(zhihuAppviewUrl('https://example.com/p/123')).toBeNull();
+  });
+
   it('marks a login wall as blocked', () => {
     const page = extractPage('https://www.xiaohongshu.com/explore/abc', '<html><body>请登录后查看</body></html>');
     expect(page.blocked).toBe(true);
@@ -92,6 +148,27 @@ describe('safe fetch DNS lookup', () => {
       });
       expect(result.buffer.toString()).toContain('公开笔记正文');
       expect(result.finalUrl).toBe(`http://localhost:${address.port}/note`);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
+  });
+
+  it('uses a caller-supplied user agent', async () => {
+    const server = createServer((request, response) => {
+      response.writeHead(200, { 'content-type': 'text/html' });
+      response.end(String(request.headers['user-agent'] ?? ''));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('fixture did not bind');
+    try {
+      const result = await safeFetch(`http://localhost:${address.port}/note`, {
+        maxBytes: 1024,
+        timeoutMs: 5_000,
+        allowPrivate: true,
+        userAgent: 'Zhihu/10.62.0 (iPhone; iOS 17.0; Scale/3.00)',
+      });
+      expect(result.buffer.toString()).toBe('Zhihu/10.62.0 (iPhone; iOS 17.0; Scale/3.00)');
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     }

@@ -13,6 +13,7 @@ import type { Logger } from '../utils/logger.js';
 import { newId } from '../utils/ids.js';
 import { PAGE_ACCEPT, safeFetch } from './safeFetch.js';
 import { detectPlatform, extractPage } from './extract.js';
+import { isZhihuUrl, ZHIHU_APP_USER_AGENT, zhihuAppviewUrl } from './zhihu.js';
 import type { AttachmentStorage } from '../services/storage.js';
 import { createNote, getNote, loadStoredDoc, patchNoteMeta, toSummary, type NotesDeps } from '../services/notes.js';
 import { createFolder, getSettings, type WorkspaceDeps } from '../services/workspace.js';
@@ -261,10 +262,12 @@ export async function previewFavorite(
   } catch {
     throw new ApiError(ERROR_CODES.VALIDATION_ERROR, '链接格式不正确');
   }
-  const fetched = await safeFetch(url, {
+  const appviewUrl = zhihuAppviewUrl(url);
+  const fetched = await safeFetch(appviewUrl ?? url, {
     maxBytes: deps.config.LINK_FETCH_MAX_BYTES,
     timeoutMs: deps.config.LINK_FETCH_TIMEOUT_MS,
     accept: PAGE_ACCEPT,
+    userAgent: appviewUrl ? ZHIHU_APP_USER_AGENT : undefined,
     allowPrivate: deps.config.LINK_FETCH_ALLOW_PRIVATE,
   });
   if (!fetched.contentType.includes('html')) {
@@ -273,11 +276,11 @@ export async function previewFavorite(
   const extracted = extractPage(fetched.finalUrl, fetched.buffer.toString('utf8'));
   const existing = await deps.sql`
     select id from notes
-    where owner_id = ${ownerId} and source_url = ${fetched.finalUrl} and deleted_at is null
+    where owner_id = ${ownerId} and source_url = ${url} and deleted_at is null
     limit 1
   `;
   return {
-    url: fetched.finalUrl,
+    url,
     platform: extracted.platform,
     title: extracted.title,
     author: extracted.author,
@@ -309,10 +312,12 @@ export async function saveFavorite(
 
   if (input.url && body.length < 20) {
     try {
-      const fetched = await safeFetch(input.url, {
+      const appviewUrl = zhihuAppviewUrl(input.url);
+      const fetched = await safeFetch(appviewUrl ?? input.url, {
         maxBytes: deps.config.LINK_FETCH_MAX_BYTES,
         timeoutMs: deps.config.LINK_FETCH_TIMEOUT_MS,
         accept: PAGE_ACCEPT,
+        userAgent: appviewUrl ? ZHIHU_APP_USER_AGENT : undefined,
         allowPrivate: deps.config.LINK_FETCH_ALLOW_PRIVATE,
       });
       if (fetched.contentType.includes('html')) {
@@ -323,6 +328,7 @@ export async function saveFavorite(
         author = author ?? extracted.author;
         coverUrl = coverUrl ?? extracted.coverUrl;
         warnings.push(...extracted.warnings);
+        if (extracted.truncated) captureStatus = 'partial';
         if (extracted.blocked) {
           warnings.push(extracted.blockReason ?? '目标平台限制了自动抓取，已只保存网址。');
         }
@@ -330,11 +336,15 @@ export async function saveFavorite(
         warnings.push('链接不是可解析的网页，已只保存网址。');
       }
     } catch (error) {
-      warnings.push(
-        error instanceof Error
-          ? `未能解析网页内容，已只保存网址：${error.message.slice(0, 120)}`
-          : '未能解析网页内容，已只保存网址。',
-      );
+      if (input.url && isZhihuUrl(input.url)) {
+        warnings.push('知乎触发了安全验证，未能自动解析；请在浏览器中打开后复制正文粘贴收藏。');
+      } else {
+        warnings.push(
+          error instanceof Error
+            ? `未能解析网页内容，已只保存网址：${error.message.slice(0, 120)}`
+            : '未能解析网页内容，已只保存网址。',
+        );
+      }
     }
     if (body.length === 0) captureStatus = 'partial';
   }

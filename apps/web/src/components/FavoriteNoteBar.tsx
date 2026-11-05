@@ -49,6 +49,9 @@ export function FavoriteNoteBar({ note, tree }: { note: NoteSummaryDto; tree: Tr
           </button>
         </span>
       ) : null}
+      {note.source.captureStatus === 'partial' ? (
+        <span className="text-warning" title="目标平台只返回了部分正文，可打开原文复制剩余内容。">仅抓取到部分正文</span>
+      ) : null}
       {category?.status === 'error' ? <span className="text-danger">分类失败</span> : null}
       {note.mediaStatus === 'unconfigured' ? <span className="text-warning">未配置媒体模型</span> : null}
       {note.mediaStatus === 'error' || note.mediaStatus === 'partial' ? <span className="text-warning">媒体识别未完成</span> : null}
