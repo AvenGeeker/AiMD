@@ -431,6 +431,10 @@ REST 写操作（移动目录、置顶、打标签）不会绕过 CRDT：服务�
 `Authorization: Bearer` 并把 refresh 令牌存进系统钥匙串（`safeStorage` / Keychain / Android Keystore）。
 桌面端请求时带上 `X-Token-Transport: bearer`，服务端才会在响应体里返回 refresh 令牌。
 
+登录页默认勾选「记住密码」。它的实现不是把明文密码写到本地，而是把一枚设备专属的 refresh
+令牌长期保存在安全存储里：同一台设备下次启动会直接静默登录，只有换新设备或主动退出后才需要
+再次填写账号密码。勾选后的令牌有效期为一年，并且每次使用都会滑动续期。
+
 ---
 
 ## 安全模型
@@ -438,7 +442,8 @@ REST 写操作（移动目录、置顶、打标签）不会绕过 CRDT：服务�
 细节与部署方检查清单见 [`SECURITY.md`](./SECURITY.md)。要点：
 
 - **密码**：`argon2id`（`@node-rs/argon2`），永不明文存储或打日志。
-- **会话**：15 分钟 access token + 30 天 refresh token，refresh 轮换。
+- **会话**：15 分钟 access token + 30 天 refresh token；勾选「记住密码」后为一年滑动有效，refresh 轮换。
+- **同设备自动登录**：凭据只存 refresh 令牌（安全存储），不存明文密码。轮换后的新令牌如果还没被使用，旧令牌可以安全补发一次；进程被杀在刷新请求中途、隔很久再打开，或两个标签页同时刷新，都不会被误判为盗用并吊销整台设备。
 - **浏览器**：refresh token 在 `httpOnly` + `SameSite=Lax` cookie 里，HTTPS 下带 `Secure`；脚本读不到。
 - **桌面端 / 移动端**：refresh token 在系统钥匙串里；客户端必须显式声明 `X-Token-Transport: bearer`，服务端才会把它放进响应体。
 - **协同通道**：连接时就要求 access token，跨租户文档直接拒绝。

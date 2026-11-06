@@ -105,6 +105,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       accessSeconds: config.ACCESS_TOKEN_TTL_SECONDS ?? DEFAULT_TTLS.accessSeconds,
       refreshSeconds: config.REFRESH_TOKEN_TTL_SECONDS ?? DEFAULT_TTLS.refreshSeconds,
     },
+    rememberedRefreshSeconds: config.REMEMBERED_REFRESH_TOKEN_TTL_SECONDS,
+    refreshRotationGraceSeconds: config.REFRESH_ROTATION_GRACE_SECONDS,
   };
   const notesDeps: NotesDeps = {
     sql: ctx.dbHandle.sql,

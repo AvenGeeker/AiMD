@@ -9,6 +9,7 @@ import {
   type TestServer,
 } from './helpers.js';
 import type { NoteDto, NoteListDto, NoteSummaryDto, TreeDto } from '@aimarkdown/shared';
+import { hashRefreshToken } from '../../src/auth/tokens.js';
 import { INBOX_NOTE_TITLE } from '@aimarkdown/shared';
 
 const dbUp = await databaseAvailable();
@@ -153,7 +154,7 @@ describeDb('REST API against a real Postgres', () => {
       expect(response.json()).toMatchObject({ code: 'TOKEN_EXPIRED' });
     });
 
-    it('rotates the refresh token and invalidates the old one', async () => {
+    it('rotates the refresh token and recovers after a killed process loses the response', async () => {
       const email = uniqueEmail('refresh');
       const bearer = { 'x-token-transport': 'bearer' };
       const registration = await server.app.inject({
@@ -175,7 +176,64 @@ describeDb('REST API against a real Postgres', () => {
       const second = rotated.json() as { refreshToken: string; accessToken: string };
       expect(second.refreshToken).not.toBe(first.refreshToken);
 
-      // Replaying the consumed token must fail.
+      // The server may have rotated just before the process died, so the old token arriving again
+      // later must issue a replacement rather than logging the device out while its successor was
+      // never persisted. Simulate a long gap, beyond the legacy time-based grace window.
+      await server.handle.sql`
+        update refresh_tokens set revoked_at = now() - interval '1 day'
+        where token_hash = ${hashRefreshToken(first.refreshToken)}
+      `;
+      const retried = await server.app.inject({
+        method: 'POST',
+        url: '/api/auth/refresh',
+        headers: bearer,
+        payload: { refreshToken: first.refreshToken },
+      });
+      expect(retried.statusCode).toBe(200);
+      expect((retried.json() as { refreshToken: string }).refreshToken).toBeTruthy();
+
+      // The token from the first successful rotation is still alive: the grace path does not
+      // treat a routine retry as a stolen-token replay.
+      const stillValid = await server.app.inject({
+        method: 'POST',
+        url: '/api/auth/refresh',
+        headers: bearer,
+        payload: { refreshToken: second.refreshToken },
+      });
+      expect(stillValid.statusCode).toBe(200);
+      expect(second.accessToken.length).toBeGreaterThan(0);
+    });
+
+    it('revokes the token family when an old token is replayed after its successor was used', async () => {
+      const email = uniqueEmail('refresh-replay');
+      const bearer = { 'x-token-transport': 'bearer' };
+      const registration = await server.app.inject({
+        method: 'POST',
+        url: '/api/auth/register',
+        headers: bearer,
+        payload: { email, password: 'password123' },
+      });
+      const first = registration.json() as { refreshToken: string };
+      const rotated = await server.app.inject({
+        method: 'POST',
+        url: '/api/auth/refresh',
+        headers: bearer,
+        payload: { refreshToken: first.refreshToken },
+      });
+      expect(rotated.statusCode).toBe(200);
+      const second = rotated.json() as { refreshToken: string };
+
+      // The legitimate client received and used its successor. From this point on, replaying the
+      // older token can no longer be explained by a lost response, so it must trigger detection.
+      const secondRotation = await server.app.inject({
+        method: 'POST',
+        url: '/api/auth/refresh',
+        headers: bearer,
+        payload: { refreshToken: second.refreshToken },
+      });
+      expect(secondRotation.statusCode).toBe(200);
+      const third = secondRotation.json() as { refreshToken: string };
+
       const replay = await server.app.inject({
         method: 'POST',
         url: '/api/auth/refresh',
@@ -184,15 +242,70 @@ describeDb('REST API against a real Postgres', () => {
       });
       expect(replay.statusCode).toBe(401);
 
-      // Replay detection revokes the whole family, so the rotated token is dead too.
       const afterRevoke = await server.app.inject({
         method: 'POST',
         url: '/api/auth/refresh',
         headers: bearer,
-        payload: { refreshToken: second.refreshToken },
+        payload: { refreshToken: third.refreshToken },
       });
       expect(afterRevoke.statusCode).toBe(401);
-      expect(second.accessToken.length).toBeGreaterThan(0);
+    });
+
+    it('does not apply the rotation grace window to an explicit logout', async () => {
+      const email = uniqueEmail('logout-replay');
+      const bearer = { 'x-token-transport': 'bearer' };
+      const registration = await server.app.inject({
+        method: 'POST',
+        url: '/api/auth/register',
+        headers: bearer,
+        payload: { email, password: 'password123' },
+      });
+      const session = registration.json() as { refreshToken: string };
+      const logout = await server.app.inject({
+        method: 'POST',
+        url: '/api/auth/logout',
+        headers: bearer,
+        payload: { refreshToken: session.refreshToken },
+      });
+      expect(logout.statusCode).toBe(200);
+
+      const replay = await server.app.inject({
+        method: 'POST',
+        url: '/api/auth/refresh',
+        headers: bearer,
+        payload: { refreshToken: session.refreshToken },
+      });
+      expect(replay.statusCode).toBe(401);
+    });
+
+    it('keeps a remembered session remembered across rotation', async () => {
+      const email = uniqueEmail('remember');
+      const bearer = { 'x-token-transport': 'bearer' };
+      const registration = await server.app.inject({
+        method: 'POST',
+        url: '/api/auth/register',
+        headers: bearer,
+        payload: { email, password: 'password123', rememberMe: true },
+      });
+      expect(registration.statusCode).toBe(201);
+      const first = registration.json() as {
+        refreshToken: string;
+        remembered: boolean;
+        refreshExpiresIn: number;
+      };
+      expect(first.remembered).toBe(true);
+      expect(first.refreshExpiresIn).toBeGreaterThan(30 * 24 * 60 * 60);
+
+      const rotated = await server.app.inject({
+        method: 'POST',
+        url: '/api/auth/refresh',
+        headers: bearer,
+        payload: { refreshToken: first.refreshToken },
+      });
+      expect(rotated.statusCode).toBe(200);
+      const second = rotated.json() as { remembered: boolean; refreshExpiresIn: number };
+      expect(second.remembered).toBe(true);
+      expect(second.refreshExpiresIn).toBeGreaterThan(30 * 24 * 60 * 60);
     });
 
     it('sets httpOnly cookies for the browser client', async () => {

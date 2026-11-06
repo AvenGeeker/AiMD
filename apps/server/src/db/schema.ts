@@ -197,6 +197,9 @@ export interface RefreshTokenRow {
   token_hash: string;
   expires_at: Date;
   revoked_at: Date | null;
+  revoked_reason: string | null;
+  replaced_by_id: string | null;
+  remembered: boolean;
   user_agent: string | null;
   created_at: Date;
 }
@@ -240,7 +243,10 @@ export const EXPECTED_COLUMNS: Record<TableName, readonly string[]> = {
   tags: ['id', 'owner_id', 'name', 'color'],
   note_tags: ['note_id', 'tag_id'],
   attachments: ['id', 'owner_id', 'note_id', 'filename', 'mime', 'size', 'storage_key', 'created_at'],
-  refresh_tokens: ['id', 'user_id', 'token_hash', 'expires_at', 'revoked_at', 'user_agent', 'created_at'],
+  refresh_tokens: [
+    'id', 'user_id', 'token_hash', 'expires_at', 'revoked_at', 'revoked_reason',
+    'replaced_by_id', 'remembered', 'user_agent', 'created_at',
+  ],
   ai_provider_configs: [
     'user_id', 'enabled', 'preset', 'base_url', 'model', 'api_key_enc', 'api_key_hint',
     'last_test_at', 'last_test_ok', 'last_test_error', 'created_at', 'updated_at',

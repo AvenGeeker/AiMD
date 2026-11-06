@@ -7,7 +7,6 @@ import {
   BEARER_TRANSPORT,
   ERROR_CODES,
   REFRESH_COOKIE,
-  REFRESH_TOKEN_TTL_SECONDS,
   TOKEN_TRANSPORT_HEADER,
   authSessionDto,
   bearerSessionDto,
@@ -70,11 +69,17 @@ function sessionPayload(
     // No cookies: the desktop client manages its own token storage.
     return bearerSessionDto.parse(session);
   }
-  setSessionCookies(reply, session.accessToken, session.refreshToken, secure);
+  setSessionCookies(reply, session.accessToken, session.refreshToken, session.refreshExpiresIn, secure);
   return authSessionDto.parse(session);
 }
 
-function setSessionCookies(reply: FastifyReply, accessToken: string, refreshToken: string, secure: boolean): void {
+function setSessionCookies(
+  reply: FastifyReply,
+  accessToken: string,
+  refreshToken: string,
+  refreshExpiresIn: number,
+  secure: boolean,
+): void {
   reply
     .setCookie(ACCESS_COOKIE, accessToken, {
       httpOnly: true,
@@ -88,7 +93,7 @@ function setSessionCookies(reply: FastifyReply, accessToken: string, refreshToke
       secure,
       sameSite: 'lax',
       path: '/api/auth',
-      maxAge: REFRESH_TOKEN_TTL_SECONDS,
+      maxAge: refreshExpiresIn,
     });
 }
 

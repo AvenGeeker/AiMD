@@ -179,23 +179,45 @@ export class HttpError extends Error {
   }
 }
 
-let refreshing: Promise<boolean> | null = null;
+let refreshing: Promise<RefreshOutcome> | null = null;
 
-/** Refresh the access token. Concurrent callers share one in-flight refresh. */
-export async function refreshAccessToken(): Promise<boolean> {
+/** Serialise refresh rotation across tabs when the browser supports Web Locks. */
+async function withRefreshLock<T>(work: () => Promise<T>): Promise<T> {
+  const locks =
+    typeof navigator !== 'undefined'
+      ? (navigator as Navigator & { locks?: { request<T>(name: string, callback: () => Promise<T>): Promise<T> } })
+          .locks
+      : undefined;
+  if (locks?.request) return locks.request('aimd-refresh-session', work);
+  return work();
+}
+
+/**
+ * Refresh the access token. Concurrent callers share one in-flight refresh.
+ *
+ * A transient failure (offline, timeout, 5xx) must never erase the persisted session. Doing so
+ * used to turn a brief network hiccup during startup into a forced password prompt. Only an
+ * explicit 401/403 from the token endpoint means the refresh token itself is dead.
+ */
+export type RefreshOutcome =
+  | { ok: true }
+  | { ok: false; reason: 'missing' | 'rejected' | 'transient' };
+
+export async function refreshAccessToken(): Promise<RefreshOutcome> {
   if (!refreshing) {
-    refreshing = (async () => {
+    refreshing = withRefreshLock(async (): Promise<RefreshOutcome> => {
       try {
         if (isDesktop()) {
           const bridge = getBridge();
           if (bridge?.refreshSession) {
             const result = await bridge.refreshSession();
-            if (!result) {
-              await clearTokens();
-              return false;
+            if (!result) return { ok: false, reason: 'transient' }; // Older shell: keep tokens.
+            if (!result.ok) {
+              if (result.reason === 'rejected') await clearTokens();
+              return { ok: false, reason: result.reason };
             }
-            await setTokens(result);
-            return true;
+            await setTokens({ accessToken: result.accessToken, refreshToken: result.refreshToken });
+            return { ok: true };
           }
         }
         const base = apiBase(resolvedBase);
@@ -211,30 +233,28 @@ export async function refreshAccessToken(): Promise<boolean> {
           },
           body: JSON.stringify(useBodyToken ? { refreshToken: memoryTokens.refreshToken } : {}),
         });
-        if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
           await clearTokens();
-          return false;
+          return { ok: false, reason: 'rejected' };
         }
+        if (!response.ok) return { ok: false, reason: 'transient' };
         const payload =
           (await readJsonResponse<{ accessToken?: string; refreshToken?: string }>(
             response,
             '刷新登录状态失败',
           )) ?? {};
-        if (typeof payload.accessToken !== 'string') {
-          await clearTokens();
-          return false;
-        }
+        if (typeof payload.accessToken !== 'string') return { ok: false, reason: 'transient' };
         await setTokens({
           accessToken: payload.accessToken,
           ...(payload.refreshToken !== undefined ? { refreshToken: payload.refreshToken } : {}),
         });
-        return true;
+        return { ok: true };
       } catch {
-        return false;
+        return { ok: false, reason: 'transient' };
       } finally {
         refreshing = null;
       }
-    })();
+    });
   }
   return refreshing;
 }
@@ -329,9 +349,17 @@ async function doFetch(path: string, options: RequestOptions, allowRetry: boolea
 
   if (response.status === 401 && allowRetry) {
     const payload = (await readBody(response.clone())).json as ApiErrorBody | null;
-    if (payload?.code === ERROR_CODES.TOKEN_EXPIRED || !isDesktop()) {
+    // Any 401 can mean the access token is stale: expired, signed with a rotated secret, or
+    // rejected after a server upgrade. If the refresh token is still valid, recover silently on
+    // every platform instead of forcing the user back to the login screen.
+    if (payload?.code === ERROR_CODES.TOKEN_EXPIRED || payload?.code === ERROR_CODES.UNAUTHENTICATED || !payload) {
       const refreshed = await refreshAccessToken();
-      if (refreshed) return doFetch(path, options, false);
+      if (refreshed.ok) return doFetch(path, options, false);
+      // A transient refresh failure proves nothing about the credentials. Surfacing it as an
+      // authentication error would make the boot path erase a perfectly valid device session.
+      if (refreshed.reason === 'transient') {
+        throw new ApiError(ERROR_CODES.INTERNAL, '暂时无法刷新登录状态，请检查网络后重试');
+      }
     }
   }
   return response;

@@ -13,10 +13,11 @@ const AUTH_MODES = [
 ];
 
 export function AuthView() {
-  const { login, register, error, baseUrl, setBaseUrl } = useAuth();
+  const { login, register, error, baseUrl, rememberedEmail, setBaseUrl } = useAuth();
   const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(rememberedEmail);
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [displayName, setDisplayName] = useState('');
   const [serverUrl, setServerUrlInput] = useState(baseUrl);
   const [editingServerUrl, setEditingServerUrl] = useState(false);
@@ -59,8 +60,8 @@ export function AuthView() {
         }
         return;
       }
-      if (mode === 'login') await login(email, password);
-      else await register(email, password, displayName || undefined);
+      if (mode === 'login') await login(email, password, rememberMe);
+      else await register(email, password, displayName || undefined, rememberMe);
     } catch (caught) {
       setLocalError(caught instanceof Error ? caught.message : '操作失败');
     } finally {
@@ -216,6 +217,22 @@ export function AuthView() {
                     minLength={mode === 'register' ? 8 : undefined}
                     required
                   />
+                </label>
+
+                <label className="flex cursor-pointer items-start gap-2.5 rounded-[10px] border border-border-subtle bg-surface/40 px-3 py-2.5">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(event) => setRememberMe(event.target.checked)}
+                    className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--accent)]"
+                    data-testid="remember-me"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-[11px] font-medium text-foreground">记住密码</span>
+                    <span className="mt-0.5 block text-[10.5px] leading-4 text-muted">
+                      一年内在这台设备上自动登录。只保存加密的登录令牌，不保存明文密码。
+                    </span>
+                  </span>
                 </label>
 
                 {mode === 'register' && (

@@ -75,7 +75,11 @@ export interface DesktopBridge {
   /** Tokens live in the OS keychain via `safeStorage`, never in localStorage. */
   getTokens(): Promise<{ accessToken: string | null; refreshToken: string | null }>;
   /** Desktop-only single-flight refresh shared by the renderer and background sync. */
-  refreshSession?(): Promise<{ accessToken: string; refreshToken: string } | null>;
+  refreshSession?(): Promise<
+    | { ok: true; accessToken: string; refreshToken: string }
+    | { ok: false; reason: 'missing' | 'rejected' | 'transient' }
+    | null
+  >;
   setTokens(tokens: { accessToken: string | null; refreshToken: string | null }): Promise<void>;
   /** Re-register one of the two global window shortcuts. */
   setHotkey(target: HotkeyTarget, accelerator: string): Promise<{ ok: boolean; error?: string }>;

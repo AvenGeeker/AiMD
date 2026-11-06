@@ -36,6 +36,17 @@ export const FAVORITE_CATEGORY_PRESETS = [
 /** Access token lifetime (seconds) and refresh token lifetime (seconds). */
 export const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 export const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
+/**
+ * Lifetime of a refresh token issued with "remember me". Rotation refreshes this window on every
+ * use, so a device that opens the app at least once a year never asks for the password again.
+ */
+export const REMEMBERED_REFRESH_TOKEN_TTL_SECONDS = 365 * 24 * 60 * 60;
+/**
+ * A rotated refresh token can be presented again during this short window without being treated
+ * as theft. This covers a process killed after the server rotated but before the client persisted
+ * the new token, and two tabs refreshing at the same moment.
+ */
+export const REFRESH_ROTATION_GRACE_SECONDS = 60;
 
 /** Cookie names used by the browser client. */
 export const ACCESS_COOKIE = 'amd_at';

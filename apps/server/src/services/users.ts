@@ -7,6 +7,8 @@ import {
   FAVORITES_FOLDER_NAME,
   FAVORITES_INBOX_NAME,
   FAVORITE_CATEGORY_PRESETS,
+  REMEMBERED_REFRESH_TOKEN_TTL_SECONDS,
+  REFRESH_ROTATION_GRACE_SECONDS,
   firstKey,
   keyBetween,
   workspaceDocName,
@@ -37,6 +39,10 @@ export interface UsersDeps {
   log: Logger;
   allowRegistration: boolean;
   ttls?: TokenTtls;
+  /** Optional override for remembered-session tests and self-hosted tuning. */
+  rememberedRefreshSeconds?: number;
+  /** Short replay window for a refresh token that was just rotated. */
+  refreshRotationGraceSeconds?: number;
 }
 
 export interface Session {
@@ -44,6 +50,8 @@ export interface Session {
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
+  refreshExpiresIn: number;
+  remembered: boolean;
 }
 
 export interface UserRowLite {
@@ -95,7 +103,7 @@ export async function findUserById(sql: Sql, userId: string): Promise<UserRowLit
 
 export async function registerUser(
   deps: UsersDeps,
-  input: { email: string; password: string; displayName?: string },
+  input: { email: string; password: string; displayName?: string; rememberMe?: boolean },
 ): Promise<Session> {
   if (!deps.allowRegistration) {
     throw new ApiError(ERROR_CODES.REGISTRATION_DISABLED, '该服务器已关闭注册');
@@ -117,7 +125,9 @@ export async function registerUser(
     await seedWorkspace(tx, id, now);
   });
 
-  return issueSession(deps, { id, email, displayName, createdAt: now });
+  return issueSession(deps, { id, email, displayName, createdAt: now }, undefined, {
+    remembered: input.rememberMe === true,
+  });
 }
 
 /**
@@ -273,7 +283,7 @@ export async function ensureWorkspace(deps: UsersDeps, userId: string): Promise<
 
 export async function loginUser(
   deps: UsersDeps,
-  input: { email: string; password: string },
+  input: { email: string; password: string; rememberMe?: boolean },
 ): Promise<Session> {
   const email = input.email.trim().toLowerCase();
   const rows = await deps.sql`
@@ -294,23 +304,61 @@ export async function loginUser(
     createdAt: toDateOr(row.created_at, new Date(0)),
   };
   await ensureWorkspace(deps, user.id);
-  return issueSession(deps, user);
+  return issueSession(deps, user, undefined, { remembered: input.rememberMe === true });
 }
 
-export async function issueSession(deps: UsersDeps, user: UserRowLite, userAgent?: string): Promise<Session> {
+export async function issueSession(
+  deps: UsersDeps,
+  user: UserRowLite,
+  userAgent?: string,
+  options: { remembered?: boolean; rotatedFromId?: string } = {},
+): Promise<Session> {
   const ttls = deps.ttls ?? DEFAULT_TTLS;
+  const remembered = options.remembered === true;
+  const refreshSeconds = remembered
+    ? (deps.rememberedRefreshSeconds ?? REMEMBERED_REFRESH_TOKEN_TTL_SECONDS)
+    : ttls.refreshSeconds;
   const accessToken = await deps.verifier.signAccessToken(user.id, user.email, ttls);
   const rawRefresh = generateRefreshToken();
+  const refreshId = newId();
+  const expiresAt = new Date(Date.now() + refreshSeconds * 1000);
 
-  await deps.sql`
-    insert into refresh_tokens (id, user_id, token_hash, expires_at, user_agent, created_at)
-    values (
-      ${newId()}, ${user.id}, ${hashRefreshToken(rawRefresh)},
-      ${new Date(Date.now() + ttls.refreshSeconds * 1000)}, ${userAgent ?? null}, now()
-    )
-  `;
+  const insert = async (sql: ISql) => {
+    await sql`
+      insert into refresh_tokens (
+        id, user_id, token_hash, expires_at, revoked_reason, replaced_by_id, remembered,
+        user_agent, created_at
+      )
+      values (
+        ${refreshId}, ${user.id}, ${hashRefreshToken(rawRefresh)}, ${expiresAt}, null, null,
+        ${remembered}, ${userAgent ?? null}, now()
+      )
+    `;
+  };
 
-  return { user: toUserDto(user), accessToken, refreshToken: rawRefresh, expiresIn: ttls.accessSeconds };
+  if (options.rotatedFromId) {
+    // Insert the successor and retire its predecessor atomically, so a crash can never leave a
+    // consumed token active or a successor without a back-pointer.
+    await deps.sql.begin(async (tx) => {
+      await insert(tx);
+      await tx`
+        update refresh_tokens
+        set revoked_at = now(), revoked_reason = 'rotation', replaced_by_id = ${refreshId}
+        where id = ${options.rotatedFromId!}
+      `;
+    });
+  } else {
+    await insert(deps.sql);
+  }
+
+  return {
+    user: toUserDto(user),
+    accessToken,
+    refreshToken: rawRefresh,
+    expiresIn: ttls.accessSeconds,
+    refreshExpiresIn: refreshSeconds,
+    remembered,
+  };
 }
 
 /**
@@ -328,47 +376,76 @@ export async function refreshSession(
   const tokenHash = hashRefreshToken(rawToken);
 
   const rows = await deps.sql`
-    select rt.id, rt.revoked_at, rt.expires_at, u.id as uid, u.email, u.display_name, u.created_at
-    from refresh_tokens rt join users u on u.id = rt.user_id
+    select
+      rt.id, rt.revoked_at, rt.revoked_reason, rt.replaced_by_id, rt.remembered, rt.expires_at,
+      successor.revoked_at as successor_revoked_at,
+      u.id as uid, u.email, u.display_name, u.created_at
+    from refresh_tokens rt
+    join users u on u.id = rt.user_id
+    left join refresh_tokens successor on successor.id = rt.replaced_by_id
     where rt.token_hash = ${tokenHash}
   `;
   const row = rows[0];
   if (!row) throw new ApiError(ERROR_CODES.UNAUTHENTICATED, '刷新令牌无效');
 
-  if (row.revoked_at) {
-    // A revoked token being presented again means it was copied. Revoke the whole family.
-    await deps.sql`update refresh_tokens set revoked_at = now() where user_id = ${String(row.uid)} and revoked_at is null`;
-    deps.log.warn({ userId: String(row.uid) }, 'refresh token replay detected; revoked all sessions');
-    throw new ApiError(ERROR_CODES.UNAUTHENTICATED, '刷新令牌已失效');
-  }
+  const user: UserRowLite = {
+    id: String(row.uid),
+    email: String(row.email),
+    displayName: String(row.display_name),
+    createdAt: toDateOr(row.created_at, new Date(0)),
+  };
+  const remembered = row.remembered === true;
   if (toDateOr(row.expires_at, new Date(0)).getTime() < Date.now()) {
     throw new ApiError(ERROR_CODES.TOKEN_EXPIRED, '刷新令牌已过期');
   }
 
-  await deps.sql`update refresh_tokens set revoked_at = now() where id = ${String(row.id)}`;
+  if (row.revoked_at) {
+    const revokedAt = toDateOr(row.revoked_at, new Date(0)).getTime();
+    const graceSeconds = deps.refreshRotationGraceSeconds ?? REFRESH_ROTATION_GRACE_SECONDS;
+    const hasUnusedSuccessor = row.replaced_by_id != null && row.successor_revoked_at == null;
+    const legacyRotationGrace =
+      row.replaced_by_id == null &&
+      row.revoked_reason === 'rotation' &&
+      Date.now() - revokedAt <= graceSeconds * 1000;
+    if (hasUnusedSuccessor || legacyRotationGrace) {
+      // The server rotated the token, but the client did not receive or persist the replacement:
+      // the process was killed mid-request, or two tabs refreshed at the same time. While the
+      // successor is still unused there is no evidence the old token leaked, so issue another
+      // replacement instead of revoking every device session.
+      deps.log.info(
+        { userId: user.id, hasUnusedSuccessor },
+        'refresh token replay recovered from an unused successor',
+      );
+      return issueSession(deps, user, userAgent, { remembered, rotatedFromId: String(row.id) });
+    }
 
-  return issueSession(
-    deps,
-    {
-      id: String(row.uid),
-      email: String(row.email),
-      displayName: String(row.display_name),
-      createdAt: toDateOr(row.created_at, new Date(0)),
-    },
-    userAgent,
-  );
+    // The successor was already consumed (or this is an explicit logout): presenting the old
+    // token now means it was copied. Revoke the family so neither side keeps a usable session.
+    await deps.sql`
+      update refresh_tokens
+      set revoked_at = now(), revoked_reason = 'replay'
+      where user_id = ${user.id} and revoked_at is null
+    `;
+    deps.log.warn({ userId: user.id }, 'refresh token replay detected; revoked all sessions');
+    throw new ApiError(ERROR_CODES.UNAUTHENTICATED, '刷新令牌已失效');
+  }
+
+  return issueSession(deps, user, userAgent, { remembered, rotatedFromId: String(row.id) });
 }
 
 export async function revokeRefreshToken(deps: UsersDeps, rawToken: string | null): Promise<void> {
   if (!rawToken) return;
   await deps.sql`
-    update refresh_tokens set revoked_at = now()
+    update refresh_tokens set revoked_at = now(), revoked_reason = 'logout'
     where token_hash = ${hashRefreshToken(rawToken)} and revoked_at is null
   `;
 }
 
 export async function revokeAllSessions(deps: UsersDeps, userId: string): Promise<void> {
-  await deps.sql`update refresh_tokens set revoked_at = now() where user_id = ${userId} and revoked_at is null`;
+  await deps.sql`
+    update refresh_tokens set revoked_at = now(), revoked_reason = 'revoked_all'
+    where user_id = ${userId} and revoked_at is null
+  `;
 }
 
 /** Create the bootstrap admin from deploy-time env vars, if it does not exist yet. */

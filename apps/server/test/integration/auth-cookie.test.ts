@@ -67,4 +67,22 @@ describeDb('auth cookie Secure flag follows the request scheme', () => {
     expect(response.statusCode).toBe(201);
     expect(setCookieHeader(response.headers)).toContain('Secure');
   });
+
+  it('extends the refresh cookie for a remembered device', async () => {
+    const email = uniqueEmail('cookie-remember');
+    await server.app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { email, password: 'password123' },
+    });
+    const response = await server.app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email, password: 'password123', rememberMe: true },
+    });
+    expect(response.statusCode).toBe(200);
+    const cookies = setCookieHeader(response.headers);
+    expect(cookies).toContain('amd_rt=');
+    expect(cookies).toContain('Max-Age=31536000');
+  });
 });

@@ -13,6 +13,7 @@ import {
   clearTokens,
   describeError,
   getAccessToken,
+  HttpError,
   initApi,
   probeServerUrl,
   readJsonResponse,
@@ -23,6 +24,7 @@ import {
 import { getBridge, isDesktop, isMobile } from './platform.js';
 import { mobileSetServerUrl } from './mobile.js';
 import { syncManager } from './sync.js';
+import { forgetRememberedEmail, readRememberedEmail, rememberEmail } from './rememberedAccount.js';
 
 /** Session state shared by the whole app. */
 
@@ -30,11 +32,18 @@ export interface AuthState {
   user: UserDto | null;
   status: 'loading' | 'anonymous' | 'authenticated';
   error: string | null;
-  login(email: string, password: string): Promise<void>;
-  register(email: string, password: string, displayName?: string): Promise<void>;
+  login(email: string, password: string, rememberMe?: boolean): Promise<void>;
+  register(
+    email: string,
+    password: string,
+    displayName?: string,
+    rememberMe?: boolean,
+  ): Promise<void>;
   logout(): Promise<void>;
   /** Server URL the desktop shell is pointed at (empty string for same-origin browser use). */
   baseUrl: string;
+  /** Address remembered on this device for prefilling the sign-in form. Never a password. */
+  rememberedEmail: string;
   /**
    * Validate, persist and apply a new server address.
    *
@@ -51,6 +60,13 @@ interface SessionPayload {
   user: UserDto;
   accessToken: string;
   refreshToken?: string;
+  refreshExpiresIn?: number;
+  remembered?: boolean;
+}
+
+function isAuthenticationFailure(error: unknown): boolean {
+  if (error instanceof HttpError) return error.status === 401 || error.status === 403;
+  return false;
 }
 
 function transportHeaders(): Record<string, string> {
@@ -63,6 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthState['status']>('loading');
   const [error, setError] = useState<string | null>(null);
   const [baseUrl, setBaseUrlState] = useState('');
+  const [rememberedEmail, setRememberedEmail] = useState(() => readRememberedEmail());
 
   /**
    * Resolve the API base (browser: same origin; desktop/mobile: stored server URL) before
@@ -110,12 +127,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (!getAccessToken()) void refreshAccessToken();
         } catch (caught) {
           if (cancelled) return;
-          await clearTokens();
-          // A signed-out user is the normal case and must not show an error. An address that is
-          // not an AiMD server at all is worth saying out loud: it is the one failure the user can
-          // fix from this screen, and the raw parse error used to be the only hint.
-          if (toApiErrorBody(caught).code === ERROR_CODES.INVALID_SERVER_RESPONSE) {
+          // Only an actual authentication rejection invalidates the stored session. A timeout,
+          // offline network, proxy error or 5xx must not erase a valid refresh token: that used to
+          // force a password prompt every time the app was opened before the server was reachable.
+          if (isAuthenticationFailure(caught)) {
+            await clearTokens();
+          } else if (toApiErrorBody(caught).code === ERROR_CODES.INVALID_SERVER_RESPONSE) {
+            // An address that is not an AiMD server at all is worth saying out loud: it is the one
+            // failure the user can fix from this screen.
             setError(describeError(caught));
+          } else {
+            setError('暂时无法验证登录状态，本机登录信息已保留；请检查网络或服务器后重新打开。');
           }
           setStatus('anonymous');
         }
@@ -135,18 +157,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const applySession = useCallback(async (payload: SessionPayload) => {
+  const applySession = useCallback(async (payload: SessionPayload, rememberMe: boolean) => {
     await setTokens({
       accessToken: payload.accessToken,
       ...(payload.refreshToken !== undefined ? { refreshToken: payload.refreshToken } : {}),
     });
+    const nextEmail = rememberMe ? payload.user.email : '';
+    if (nextEmail) rememberEmail(nextEmail);
+    else forgetRememberedEmail();
+    setRememberedEmail(nextEmail);
     setUser(payload.user);
     setStatus('authenticated');
     setError(null);
   }, []);
 
   const login = useCallback(
-    async (email: string, password: string) => {
+    async (email: string, password: string, rememberMe = false) => {
       setError(null);
       try {
         const base = apiBase(baseUrl);
@@ -154,7 +180,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           method: 'POST',
           credentials: 'include',
           headers: { 'content-type': 'application/json', ...transportHeaders() },
-          body: JSON.stringify({ email, password }),
+          body: JSON.stringify({ email, password, rememberMe }),
         });
         // `readJsonResponse` maps a non-JSON answer (an HTML page from a wrong address) onto the
         // shared error contract instead of leaking V8's "Unexpected token '<'" into the UI.
@@ -162,7 +188,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!payload || typeof payload.accessToken !== 'string') {
           throw new Error('登录失败：服务器没有返回登录凭证，请确认服务器地址指向 AiMD 服务');
         }
-        await applySession(payload);
+        await applySession(payload, rememberMe);
       } catch (caught) {
         const message = describeError(caught);
         setError(message);
@@ -173,7 +199,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const register = useCallback(
-    async (email: string, password: string, displayName?: string) => {
+    async (email: string, password: string, displayName?: string, rememberMe = false) => {
       setError(null);
       try {
         const base = apiBase(baseUrl);
@@ -181,13 +207,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           method: 'POST',
           credentials: 'include',
           headers: { 'content-type': 'application/json', ...transportHeaders() },
-          body: JSON.stringify({ email, password, ...(displayName ? { displayName } : {}) }),
+          body: JSON.stringify({ email, password, rememberMe, ...(displayName ? { displayName } : {}) }),
         });
         const payload = await readJsonResponse<SessionPayload>(response, '注册失败');
         if (!payload || typeof payload.accessToken !== 'string') {
           throw new Error('注册失败：服务器没有返回登录凭证，请确认服务器地址指向 AiMD 服务');
         }
-        await applySession(payload);
+        await applySession(payload, rememberMe);
       } catch (caught) {
         const message = describeError(caught);
         setError(message);
@@ -205,6 +231,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     await clearTokens();
     syncManager.destroy();
+    forgetRememberedEmail();
+    setRememberedEmail('');
     setUser(null);
     setStatus('anonymous');
   }, []);
@@ -246,6 +274,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // storage bridge, so the new session can never accidentally reuse the old credentials.
       await clearTokens();
       syncManager.destroy();
+      forgetRememberedEmail();
+      setRememberedEmail('');
       setUser(null);
       setStatus('anonymous');
     }
@@ -257,8 +287,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [baseUrl]);
 
   const value = useMemo<AuthState>(
-    () => ({ user, status, error, login, register, logout, baseUrl, setBaseUrl: setBaseUrlNext }),
-    [user, status, error, login, register, logout, baseUrl, setBaseUrlNext],
+    () => ({
+      user,
+      status,
+      error,
+      login,
+      register,
+      logout,
+      baseUrl,
+      rememberedEmail,
+      setBaseUrl: setBaseUrlNext,
+    }),
+    [user, status, error, login, register, logout, baseUrl, rememberedEmail, setBaseUrlNext],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

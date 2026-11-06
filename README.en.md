@@ -473,6 +473,12 @@ Tokens travel two ways through one server implementation: the browser uses an ht
 token in the OS keychain (`safeStorage` / Keychain / Android Keystore). A desktop client must send
 `X-Token-Transport: bearer` before the server will return a refresh token in the response body.
 
+**Remember password** is enabled by default on the sign-in screen. It does not write the plaintext
+password anywhere: the client keeps a device-specific refresh token in secure storage instead. The
+same device signs in silently on the next launch; only a new device (or an explicit sign-out) needs
+the email and password again. Remembered tokens are valid for one sliding year and are renewed on
+every use.
+
 ---
 
 ## Security model
@@ -480,7 +486,8 @@ token in the OS keychain (`safeStorage` / Keychain / Android Keystore). A deskto
 Details and the operator checklist are in [`SECURITY.md`](./SECURITY.md). Highlights:
 
 - **Passwords**: `argon2id` via `@node-rs/argon2`; never stored or logged in plaintext.
-- **Sessions**: 15-minute access token, 30-day rotating refresh token.
+- **Sessions**: 15-minute access token and 30-day rotating refresh token; **Remember password** extends this to a one-year sliding window.
+- **Same-device sign-in**: only the refresh token is stored (in secure storage), never the plaintext password. While a rotated token's successor has not yet been used, the predecessor can safely issue one more replacement; a process killed mid-refresh (even hours ago) or two tabs refreshing at once therefore cannot be mistaken for theft and revoke the device session.
 - **Browser**: refresh token in an `httpOnly` + `SameSite=Lax` cookie, `Secure` over HTTPS; scripts cannot read it.
 - **Desktop / mobile**: refresh token in the OS keychain; the client must explicitly opt in with
   `X-Token-Transport: bearer` before the server puts it in a body.

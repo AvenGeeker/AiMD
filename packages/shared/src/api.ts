@@ -33,12 +33,15 @@ export const registerInput = z.object({
   email: z.email('邮箱格式不正确').toLowerCase(),
   password: passwordSchema,
   displayName: z.string().trim().min(1).max(60).optional(),
+  rememberMe: z.boolean().optional().default(false),
 });
 export type RegisterInput = z.infer<typeof registerInput>;
 
 export const loginInput = z.object({
   email: z.email('邮箱格式不正确').toLowerCase(),
   password: z.string().min(1),
+  /** Keep this device signed in for a year instead of the normal 30-day window. */
+  rememberMe: z.boolean().optional().default(false),
 });
 export type LoginInput = z.infer<typeof loginInput>;
 
@@ -60,6 +63,9 @@ export const authSessionDto = z.object({
   user: userDto,
   accessToken: z.string(),
   expiresIn: z.number().int().positive(),
+  /** Refresh-token lifetime in seconds; the browser uses it for the cookie Max-Age. */
+  refreshExpiresIn: z.number().int().positive(),
+  remembered: z.boolean(),
 });
 export type AuthSessionDto = z.infer<typeof authSessionDto>;
 

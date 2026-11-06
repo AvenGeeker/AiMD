@@ -32,7 +32,10 @@ const api = {
   setTokens: (tokens: { accessToken: string | null; refreshToken: string | null }) =>
     invoke<boolean>('amd:set-tokens', tokens),
   refreshSession: () =>
-    invoke<{ accessToken: string; refreshToken: string } | null>('amd:refresh-session'),
+    invoke<
+      | { ok: true; accessToken: string; refreshToken: string }
+      | { ok: false; reason: 'missing' | 'rejected' | 'transient' }
+    >('amd:refresh-session'),
   setHotkey: (target: HotkeyTarget, accelerator: string) =>
     invoke<{ ok: boolean; error?: string }>('amd:set-hotkey', target, accelerator),
   getHotkeyStates: () => invoke<HotkeyStates>('amd:get-hotkey-states'),

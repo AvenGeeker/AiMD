@@ -1,6 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, ERROR_CODES } from '@aimarkdown/shared';
-import { HttpError, probeServerHealth, probeServerUrl, readJsonResponse, request } from './api.js';
+import {
+  HttpError,
+  clearTokens,
+  getAccessToken,
+  initApi,
+  probeServerHealth,
+  probeServerUrl,
+  readJsonResponse,
+  refreshAccessToken,
+  request,
+} from './api.js';
 
 /** The SPA shell any wrong address answers with: status 200, `text/html`, `<!doctype html>`. */
 const HTML_PAGE = '<!doctype html><html><head><title>Router</title></head><body>登录</body></html>';
@@ -187,5 +197,48 @@ describe('probeServerUrl', () => {
     );
     expect((error as ApiError).message).toContain('https://notes.example.com');
     expect((error as ApiError).message).not.toContain('http://notes.example.com');
+  });
+});
+
+describe('refreshAccessToken', () => {
+  interface FakeBridge {
+    getTokens(): Promise<{ accessToken: string | null; refreshToken: string | null }>;
+    setTokens(tokens: { accessToken: string | null; refreshToken: string | null }): Promise<void>;
+    refreshSession(): Promise<
+      | { ok: true; accessToken: string; refreshToken: string }
+      | { ok: false; reason: 'missing' | 'rejected' | 'transient' }
+    >;
+  }
+
+  async function installBridge(result: Awaited<ReturnType<FakeBridge['refreshSession']>>): Promise<FakeBridge> {
+    const bridge: FakeBridge = {
+      getTokens: async () => ({ accessToken: 'access-old', refreshToken: 'refresh-old' }),
+      setTokens: vi.fn(async (tokens) => {
+        void tokens;
+      }),
+      refreshSession: async () => result,
+    };
+    (window as unknown as { aiMarkdown: unknown }).aiMarkdown = bridge;
+    await initApi({ baseUrl: 'https://notes.example.com' });
+    return bridge;
+  }
+
+  afterEach(async () => {
+    delete (window as unknown as { aiMarkdown?: unknown }).aiMarkdown;
+    await clearTokens();
+  });
+
+  it('keeps the persisted session when the shell reports a transient network failure', async () => {
+    const bridge = await installBridge({ ok: false, reason: 'transient' });
+    await expect(refreshAccessToken()).resolves.toEqual({ ok: false, reason: 'transient' });
+    expect(bridge.setTokens).not.toHaveBeenCalled();
+    expect(getAccessToken()).toBe('access-old');
+  });
+
+  it('clears the session only when the server actually rejects the refresh token', async () => {
+    const bridge = await installBridge({ ok: false, reason: 'rejected' });
+    await expect(refreshAccessToken()).resolves.toEqual({ ok: false, reason: 'rejected' });
+    expect(bridge.setTokens).toHaveBeenCalledWith({ accessToken: null, refreshToken: null });
+    expect(getAccessToken()).toBeNull();
   });
 });

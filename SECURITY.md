@@ -43,8 +43,8 @@ social engineering, and findings in third-party services you host yourself
 
 | Area | Implementation |
 | --- | --- |
-| Passwords | `argon2id` via `@node-rs/argon2`; never stored or logged in plaintext |
-| Sessions | 15-minute access token + 30-day rotating refresh token |
+| Passwords | `argon2id` via `@node-rs/argon2`; never stored or logged in plaintext. **Remember password** keeps only a refresh token in the OS secure store, never the password. |
+| Sessions | 15-minute access token + 30-day rotating refresh token; remembered devices use a one-year sliding token. A rotated token remains recoverable only while its successor is unused, so a lost response is not treated as theft; replay after the successor is consumed revokes the whole family |
 | Browser transport | refresh token in an `httpOnly` + `SameSite` cookie; scripts cannot read it |
 | Desktop transport | refresh token in the OS keychain (`safeStorage`); the client must send `X-Token-Transport: bearer` before the server returns one in a body |
 | Collaboration WS | the access token is required at connect time; cross-tenant documents are rejected |

@@ -107,6 +107,10 @@ const configSchema = z.object({
   /** Access token lifetime override, mainly so tests can force expiry. */
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().optional(),
   REFRESH_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().optional(),
+  /** Long-lived refresh token lifetime for "remember me" devices. */
+  REMEMBERED_REFRESH_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().optional(),
+  /** How long a just-rotated refresh token may be retried without revoking the token family. */
+  REFRESH_ROTATION_GRACE_SECONDS: z.coerce.number().int().min(0).max(600).default(60),
 });
 
 export type ServerConfig = z.infer<typeof configSchema>;
