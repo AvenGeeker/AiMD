@@ -54,6 +54,7 @@ social engineering, and findings in third-party services you host yourself
 | AI `baseUrl` | HTTPS + public-address only by default, to block SSRF; `AI_ALLOW_PRIVATE_BASE_URL=true` opts out |
 | Note HTML | raw HTML is escaped (`html: false`) and rendered output passes DOMPurify |
 | Attachment SVG | served with a restrictive CSP so an uploaded SVG cannot script the origin |
+| Public sharing | unlisted capability links use 32 random bytes, `cache-control: no-store` and `noindex`; only title/body/update time are exposed, attachments are scoped to the shared note, and revoking or trashing the note returns 404 |
 | Config | `JWT_SECRET` has no default — boot fails fast if it is missing or under 32 characters |
 | Secrets in repo | `scripts/check-secrets.sh` runs in CI and as a pre-commit hook |
 
@@ -65,6 +66,7 @@ social engineering, and findings in third-party services you host yourself
 - Turn `ALLOW_REGISTRATION=false` once your accounts exist.
 - Restrict `CORS_ORIGIN` if you serve the SPA from a different origin than the API.
 - Keep Postgres and the upload volume backed up (`make backup`); a CRDT store is not recoverable without them.
+- Treat public share URLs as secrets: anyone with the link can read the note without signing in. Revoke sharing before deleting sensitive content, and remember that the link is invalidated by moving the note to the trash.
 
 ## Supported versions · 受支持的版本
 

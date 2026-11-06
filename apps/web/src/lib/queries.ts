@@ -22,6 +22,7 @@ import type {
   ImportResultDto,
   NoteDto,
   NoteListDto,
+  NoteShareDto,
   NoteSort,
   NoteSummaryDto,
   SettingsDto,
@@ -53,6 +54,7 @@ export const keys = {
   aiOverview: () => ['ai', 'overview'] as const,
   aiJob: (id: string) => ['ai', 'job', id] as const,
   folderQuery: (id: string) => ['ai', 'folder-query', id] as const,
+  share: (id: string) => ['share', id] as const,
 };
 
 function toQuery(filter: NoteFilter): Record<string, string | number | boolean | undefined> {
@@ -147,6 +149,27 @@ export function useRestoreNote() {
   return useMutation({
     mutationFn: (id: string) => request<NoteSummaryDto>(`/notes/${id}/restore`, { method: 'POST' }),
     onSuccess: () => invalidateStructure(client),
+  });
+}
+
+export function useNoteShare(noteId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: keys.share(noteId ?? 'none'),
+    queryFn: () => request<NoteShareDto>(`/notes/${noteId}/share`),
+    enabled: Boolean(noteId) && enabled,
+    staleTime: 0,
+  });
+}
+
+/** Enable or revoke one note's public link. The response is authoritative and replaces the cache. */
+export function useSetNoteShare() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      request<NoteShareDto>(`/notes/${id}/share`, { method: enabled ? 'POST' : 'DELETE' }),
+    onSuccess: (share) => {
+      client.setQueryData(keys.share(share.noteId), share);
+    },
   });
 }
 

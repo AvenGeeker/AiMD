@@ -88,6 +88,8 @@ export interface DesktopBridge {
   getHotkeyState?(): Promise<HotkeyState>;
   showMainWindow(): Promise<void>;
   hideQuickCapture(): Promise<void>;
+  /** Open an http(s) address in the user's browser instead of an Electron window. */
+  openExternal?(url: string): Promise<boolean>;
   /** Mirror the top-bar state into the native application menu. */
   reportMenuState?(state: Partial<MenuStateSnapshot>): void;
   /** Declare the menu command listener installed so queued clicks can be released. */

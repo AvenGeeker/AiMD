@@ -76,6 +76,15 @@ describeDb('SPA and static asset serving', () => {
     expect(response.body).toContain('<div id="root"></div>');
   });
 
+  it('serves nested share routes with root-absolute assets and noindex', async () => {
+    const response = await server.app.inject({ method: 'GET', url: '/s/abc123' });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('text/html');
+    expect(response.headers['x-robots-tag']).toBe('noindex, nofollow');
+    expect(response.body).toContain('src="/assets/app.js"');
+    expect(response.body).not.toContain('src="./assets/');
+  });
+
   it('keeps the JSON 404 contract for unknown API routes', async () => {
     const response = await server.app.inject({ method: 'GET', url: '/api/definitely-not-real' });
     expect(response.statusCode).toBe(404);

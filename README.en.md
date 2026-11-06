@@ -49,6 +49,7 @@ That invariant runs through the whole repository — see [Architecture](#archite
 | **Folders and tags** | Unlimited folder depth, drag to move, multi-tag AND filtering; fractional-index ordering so inserting never disturbs a concurrent edit |
 | **Search** | Postgres `pg_trgm` substring matching, works for Chinese (minimum 2 characters) |
 | **Attachments** | Paste/drop image upload, authenticated download, SVG served under its own CSP |
+| **Public sharing** | Generate an unguessable read-only link per note; visitors read the latest body and images without signing in, and the link dies immediately when sharing is turned off or the note enters the trash |
 | **Import and export** | Export a note as `.md`, export the vault as a ZIP (folder hierarchy and CJK filenames preserved), import `.md` or ZIP to rebuild the tree |
 | **Trash** | Soft delete / restore / delete permanently |
 | **Responsive and mobile** | The same web build runs in the browser, Electron and the Capacitor shells; the phone shell adds a tab bar, contextual FAB and large-title lists with long-press multi-select batch actions, swipe-to-delete with undo, pull-to-refresh and immersive status/navigation bars; foldable and rotation layouts are handled |
@@ -400,7 +401,7 @@ misconfiguration fails immediately with a readable reason** instead of misbehavi
 | `ALLOW_REGISTRATION` | `true` | Set to `false` once your accounts exist |
 | `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` | empty | Create and flag an admin on first boot; password needs 8+ characters, blank skips it |
 | `UPLOAD_DIR` | `./data/uploads` | Attachment directory (mounted at `/data/uploads` in the container) |
-| `PUBLIC_URL` | empty | Public address, used to build absolute attachment links |
+| `PUBLIC_URL` | empty | Public address, used to build absolute attachment and public-share links |
 | `WEB_DIST_DIR` | empty | Point at `apps/web/dist` to have the server host the client; blank means API only |
 | `COLLAB_PUBLIC_URL` | empty | WebSocket URL injected into `index.html` at request time. Leave blank when a reverse proxy maps `/collab` |
 | `SEARCH_DRIVER` | `trgm` | Reserved; only `trgm` is implemented |
@@ -461,6 +462,8 @@ and there is exactly one contract.
 | GET | `/notes/:id/export` · `/export/vault` | Single `.md` · whole-vault ZIP |
 | POST | `/import` | Upload `.md` or ZIP and rebuild the folder hierarchy |
 | POST | `/attachments` · GET `/attachments/:id` | Image upload and authenticated download |
+| GET/POST/DELETE | `/notes/:id/share` | Read, enable or revoke one note's public share link |
+| GET | `/shares/:token` · `/shares/:token/attachments/:id` | Anonymous share body and share-scoped attachments |
 | GET | `/ai/overview` | Masked AI config, backfill backlog, current job |
 | PUT/DELETE | `/ai/config` · POST `/ai/config/test` | Save/clear AI config · test the connection |
 | POST | `/notes/:id/ai/analyze` | Generate or re-run the AI summary for one note |
@@ -500,6 +503,7 @@ Details and the operator checklist are in [`SECURITY.md`](./SECURITY.md). Highli
   `AI_ALLOW_PRIVATE_BASE_URL=true` is required for a private network.
 - **Note HTML**: raw HTML is escaped (`html: false`) and rendered output passes DOMPurify.
 - **Attachment SVG**: served under a restrictive CSP, so an uploaded SVG cannot script the origin.
+- **Public sharing**: 32-byte random capability links with `no-store` responses and a `noindex` page; only the title, body and update time are exposed, attachments are scoped to the shared note, and turning sharing off or trashing the note returns 404.
 - **Config**: `JWT_SECRET` has no default; boot fails fast when it is missing or under 32 characters.
 - **Repository**: `scripts/check-secrets.sh` scans for credentials in CI and from a pre-commit hook
   (including a full-history scan). See below.
@@ -564,6 +568,16 @@ The sidebar exposes a dedicated **Favourites** section. The desktop app also add
 - Mobile sharing uses Android `ACTION_SEND`, an iOS Share Extension (App Group + `aimarkdown://share`) and HarmonyOS `sendData`. Each mobile platform also ships a **Favourite link** home-screen card — Android AppWidget, iOS WidgetKit and HarmonyOS FormExtensionAbility — that opens the capture box directly. iOS device builds require a signing team for both the share extension and the widget.
 
 The server needs `ffmpeg`/`ffprobe` (installed in the Docker image; use `brew install ffmpeg` for local development). Saving the same URL updates the existing favourite by default.
+
+---
+
+## Public sharing
+
+- Click the share button in the note title bar on desktop, or choose **Share note** from the note-action menu on mobile.
+- Enabling sharing returns a URL such as `https://your-domain/s/<random-token>`. Anyone with the link can read the title, body, update time and inline images in a browser without signing in.
+- The page reads the current Y.Doc on every load. An already-open page does not receive live edits; reload it to see the latest version.
+- Turning sharing off, moving the note to the trash or deleting it permanently invalidates the link immediately. Enabling again creates a brand-new link; the old one never comes back.
+- A share URL is a capability. It is excluded from search indexes by default, but do not share it if the note contains sensitive content.
 
 ---
 

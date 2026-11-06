@@ -43,6 +43,7 @@ const api = {
   getHotkeyState: () =>
     invoke<{ accelerator: string; registered: boolean; error?: string }>('amd:get-hotkey-state'),
   showMainWindow: () => invoke<boolean>('amd:show-main'),
+  openExternal: (url: string) => invoke<boolean>('amd:open-external', url),
   /** Report connectivity so the tray label reflects reality. */
   reportSyncStatus: (payload: { status: string; pending: number }) => {
     ipcRenderer.send('amd:sync-status', payload);

@@ -19,6 +19,7 @@ import { registerVaultRoutes } from './routes/vault.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerAiRoutes } from './routes/ai.js';
 import { registerFavoriteRoutes } from './routes/favorites.js';
+import { registerShareRoutes } from './routes/shares.js';
 import { ensureBootstrapAdmin, type UsersDeps } from './services/users.js';
 import { DEFAULT_TTLS } from './auth/tokens.js';
 import type { NotesDeps } from './services/notes.js';
@@ -135,6 +136,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     });
   }
   registerNoteRoutes(app, notesDeps, workspaceDeps);
+  registerShareRoutes(app, {
+    notes: notesDeps,
+    config,
+    storage: ctx.storage,
+  });
   registerTreeRoutes(app, workspaceDeps);
   registerAttachmentRoutes(app, {
     sql: ctx.dbHandle.sql,

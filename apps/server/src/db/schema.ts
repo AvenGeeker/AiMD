@@ -144,6 +144,15 @@ export interface NoteTagRow {
   tag_id: string;
 }
 
+/** Public sharing capability for one note. Row existence = sharing is enabled. */
+export interface NoteShareRow {
+  note_id: string;
+  owner_id: string;
+  token: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
 export interface AttachmentRow {
   id: string;
   owner_id: string;
@@ -214,6 +223,7 @@ export const TABLES = [
   'user_settings',
   'tags',
   'note_tags',
+  'note_shares',
   'attachments',
   'refresh_tokens',
   'ai_provider_configs',
@@ -242,6 +252,7 @@ export const EXPECTED_COLUMNS: Record<TableName, readonly string[]> = {
   user_settings: ['user_id', 'settings', 'updated_at'],
   tags: ['id', 'owner_id', 'name', 'color'],
   note_tags: ['note_id', 'tag_id'],
+  note_shares: ['note_id', 'owner_id', 'token', 'created_at', 'updated_at'],
   attachments: ['id', 'owner_id', 'note_id', 'filename', 'mime', 'size', 'storage_key', 'created_at'],
   refresh_tokens: [
     'id', 'user_id', 'token_hash', 'expires_at', 'revoked_at', 'revoked_reason',

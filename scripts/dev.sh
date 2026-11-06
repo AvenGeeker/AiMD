@@ -41,7 +41,9 @@ run_api() {
   export DATABASE_URL="postgres://aimarkdown:aimarkdown_dev@127.0.0.1:${DEV_DB_PORT}/aimarkdown"
   export JWT_SECRET="${JWT_SECRET:-dev-secret-0123456789abcdef0123456789abcdef}"
   export UPLOAD_DIR="./data/dev-uploads"
-  export PUBLIC_URL="http://127.0.0.1:3000"
+  # Public links must point at the Vite-served UI in development. The API origin (:3000) has no
+  # SPA bundle, so a share URL built from it would open a JSON 404.
+  export PUBLIC_URL="http://127.0.0.1:5173"
   export CORS_ORIGIN="http://127.0.0.1:5173,http://localhost:5173"
   export WEB_DIST_DIR=""
   # Vite proxies /collab to the Hocuspocus port, so the browser can stay same-origin in dev.

@@ -87,6 +87,9 @@ import { useNoteBatch } from './hooks/useNoteBatch.js';
 import { UndoToast } from './components/UndoToast.js';
 import { FolderPickerSheet } from './components/FolderPickerSheet.js';
 import { BatchTagSheet } from './components/BatchTagSheet.js';
+import { ShareDialog } from './components/ShareDialog.js';
+import { PublicShareView } from './components/PublicShareView.js';
+import { shareTokenFromPath } from './lib/shareLink.js';
 
 /** Per-device UI preferences for the two desktop rails. */
 const SIDEBAR_VISIBLE_KEY = 'aimarkdown.sidebar-visible';
@@ -180,6 +183,7 @@ function Workspace() {
   const [openRowId, setOpenRowId] = useState<string | null>(null);
   const [movePickerOpen, setMovePickerOpen] = useState(false);
   const [batchTagOpen, setBatchTagOpen] = useState(false);
+  const [shareNoteId, setShareNoteId] = useState<string | null>(null);
   const firstFilterEffect = useRef(true);
   const creatingNoteRef = useRef(false);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -1006,6 +1010,11 @@ function Workspace() {
         onConfirm={confirmDeleteNote}
         onClose={() => setNoteConfirm(null)}
       />
+      <ShareDialog
+        open={shareNoteId !== null}
+        noteId={shareNoteId}
+        onClose={() => setShareNoteId(null)}
+      />
     </>
   );
 
@@ -1182,6 +1191,7 @@ function Workspace() {
           onOpenSettings={() => openSettings()}
           onCloseSettings={() => setSettingsOpen(false)}
           onExportNote={() => void handleExportNote()}
+          onShareNote={() => setShareNoteId(selectedNoteId)}
           onLogout={() => void logout()}
           onCreateTag={handleCreateTag}
           resolveWikilink={resolveWikilink}
@@ -1351,6 +1361,7 @@ function Workspace() {
                   }
                 }}
                 onExport={() => void handleExportNote()}
+                onShare={() => setShareNoteId(selectedNoteId)}
                 onDelete={() => handleDeleteNote(selectedNoteId)}
                 onRestore={() => handleRestoreNote(selectedNoteId)}
               />
@@ -1466,6 +1477,14 @@ function Gate() {
 }
 
 export default function App() {
+  const shareToken = shareTokenFromPath(window.location.pathname);
+  if (shareToken !== null) {
+    return (
+      <ErrorBoundary>
+        <PublicShareView token={shareToken} />
+      </ErrorBoundary>
+    );
+  }
   // The Electron quick-capture window loads the same bundle but renders only the capture UI.
   if (isQuickCaptureWindow()) {
     return (

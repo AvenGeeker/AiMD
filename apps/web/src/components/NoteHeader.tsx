@@ -1,4 +1,4 @@
-import { Download, Pin, PinOff, RotateCcw, Trash2 } from 'lucide-react';
+import { Download, Pin, PinOff, RotateCcw, Share2, Trash2 } from 'lucide-react';
 import { ActionMenu, MenuItem } from './ui/Menu.js';
 
 export interface NoteHeaderProps {
@@ -8,6 +8,7 @@ export interface NoteHeaderProps {
   inTrash: boolean;
   onTitleChange(value: string): void;
   onTogglePin(): void;
+  onShare(): void;
   onExport(): void;
   onDelete(): void;
   onRestore(): void;
@@ -35,6 +36,7 @@ export function NoteHeader({
   inTrash,
   onTitleChange,
   onTogglePin,
+  onShare,
   onExport,
   onDelete,
   onRestore,
@@ -73,6 +75,18 @@ export function NoteHeader({
       </div>
 
       <div className="titlebar-no-drag flex shrink-0 items-center gap-1">
+        {!inTrash && (
+          <button
+            type="button"
+            className="icon-button"
+            onClick={onShare}
+            title="分享笔记"
+            aria-label="分享笔记"
+            data-testid="note-header-share"
+          >
+            <Share2 size={16} />
+          </button>
+        )}
         {!inTrash && (
           <button
             type="button"

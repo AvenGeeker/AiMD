@@ -92,6 +92,16 @@ export async function mirrorNote(
       on conflict do nothing
     `;
   }
+
+  // A trashed note must never stay publicly reachable. `mirrorNote` is the single funnel that
+  // writes `notes.deleted_at`, so revoking here covers every path that can trash a note: REST
+  // delete, batch trash, and a client that writes `meta.deletedAt` straight into the CRDT (which
+  // never goes through `patchNoteMeta`). Restoring sets `deletedAt` back to null and deliberately
+  // does *not* re-publish — the owner has to share again, getting a fresh token.
+  if (projection.deletedAt) {
+    await tx`delete from note_shares where note_id = ${noteId} and owner_id = ${ownerId}`;
+  }
+
   return projection;
 }
 

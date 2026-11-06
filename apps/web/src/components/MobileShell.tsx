@@ -18,6 +18,7 @@ import {
   RotateCcw,
   Search,
   Settings2,
+  Share2,
   Sparkles,
   Tags,
   Trash2,
@@ -152,6 +153,7 @@ export interface MobileShellProps {
   onOpenSettings(): void;
   onCloseSettings(): void;
   onExportNote(): void;
+  onShareNote(): void;
   onLogout(): void;
   onCreateTag(name: string): Promise<TagDto | undefined>;
   resolveWikilink?(target: string): Promise<string | null>;
@@ -271,6 +273,7 @@ export function MobileShell(props: MobileShellProps) {
     onOpenSettings,
     onCloseSettings,
     onExportNote,
+    onShareNote,
     onLogout,
     onCreateTag,
     resolveWikilink,
@@ -917,6 +920,9 @@ export function MobileShell(props: MobileShellProps) {
             </MenuItem>
             {!inTrash && selectedNote && (
               <>
+                <MenuItem icon={<Share2 size={14} />} onClick={onShareNote} testId="mobile-note-share">
+                  分享笔记
+                </MenuItem>
                 <MenuItem
                   icon={selectedNote.pinned ? <PinOff size={14} /> : <Pin size={14} />}
                   onClick={() => onTogglePin(selectedNote)}

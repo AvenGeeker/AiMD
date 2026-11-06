@@ -84,7 +84,14 @@ export function registerNotFoundHandler(
     // Client-side routes (e.g. /notes/abc) must return the shell, not a 404 — and the shell has
     // to carry the same runtime config injection as `/`, so it cannot be a plain static send.
     if (options.spa && !isApi && request.method === 'GET' && options.webDist) {
-      return sendIndexHtml(reply, options.webDist, options.collabPublicUrl ?? '');
+      // Public share pages are capability URLs: keep them out of search indexes and make the
+      // nested route's relative bundle paths resolve from the server root.
+      if (pathOnly === '/s' || pathOnly.startsWith('/s/')) {
+        reply.header('x-robots-tag', 'noindex, nofollow');
+      }
+      return sendIndexHtml(reply, options.webDist, options.collabPublicUrl ?? '', {
+        absoluteAssets: pathOnly !== '/',
+      });
     }
     return reply
       .code(404)

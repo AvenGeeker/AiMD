@@ -38,16 +38,34 @@ function readIndexHtml(indexPath: string): string {
  * time rather than baked in at build time. The only such value today is the collaboration
  * WebSocket URL, which differs depending on whether a reverse proxy fronts `/collab`.
  */
-export function sendIndexHtml(reply: FastifyReply, webDist: string, collabPublicUrl: string): FastifyReply {
+export interface SendIndexOptions {
+  /**
+   * Nested SPA routes such as `/s/<token>` need root-absolute asset URLs. The build uses
+   * `base: './'` so Electron can load the same bundle from `file://`; serving that HTML at a
+   * nested HTTP path would otherwise resolve `./assets/x.js` to `/s/assets/x.js` and return the
+   * SPA shell instead of JavaScript.
+   */
+  absoluteAssets?: boolean;
+}
+
+export function sendIndexHtml(
+  reply: FastifyReply,
+  webDist: string,
+  collabPublicUrl: string,
+  options: SendIndexOptions = {},
+): FastifyReply {
   const html = readIndexHtml(join(webDist, 'index.html'));
   const script = collabPublicUrl
     ? `<script>window.__AIMARKDOWN_CONFIG__ = ${JSON.stringify({ collabUrl: collabPublicUrl })};</script>`
     : '';
+  const withAssets = options.absoluteAssets
+    ? html.replace(/(\b(?:src|href))="\.\//g, '$1="/')
+    : html;
   return reply
     .header('content-type', 'text/html; charset=utf-8')
     // The shell must never be cached, or a redeploy leaves clients pointing at stale asset hashes.
     .header('cache-control', 'no-cache')
-    .send(html.replace(RUNTIME_CONFIG_PLACEHOLDER, script));
+    .send(withAssets.replace(RUNTIME_CONFIG_PLACEHOLDER, script));
 }
 
 /** True when `webDist` actually contains a servable SPA. */

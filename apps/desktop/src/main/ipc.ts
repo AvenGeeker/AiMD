@@ -98,6 +98,20 @@ export function registerIpc(deps: IpcDeps): void {
     return true;
   });
 
+  ipcMain.handle('amd:open-external', async (_event, value: unknown) => {
+    const raw = asString(value).trim();
+    if (!raw) return false;
+    let url: URL;
+    try {
+      url = new URL(raw);
+    } catch {
+      return false;
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+    await shell.openExternal(url.toString());
+    return true;
+  });
+
   ipcMain.handle('amd:dismiss-capture', () => {
     hideCaptureWindow();
     return true;

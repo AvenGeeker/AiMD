@@ -75,3 +75,19 @@ export function subscribeMenuCommands(
   if (!isDesktop()) return () => undefined;
   return getBridge()?.onMenuCommand?.(callback) ?? (() => undefined);
 }
+
+/** Open an external URL in the system browser; the shell validates the scheme again. */
+export async function openExternalUrl(url: string): Promise<boolean> {
+  if (!isDesktop()) {
+    const opened = window.open(url, '_blank');
+    if (!opened) return false;
+    // Keep the public page from reaching back into the app window.
+    try {
+      opened.opener = null;
+    } catch {
+      // Cross-origin windows can refuse the assignment; opening still succeeded.
+    }
+    return true;
+  }
+  return (await bridge()?.openExternal?.(url)) ?? false;
+}

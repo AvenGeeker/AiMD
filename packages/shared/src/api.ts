@@ -265,6 +265,28 @@ export const noteBodyBatchDto = z.object({
 });
 export type NoteBodyBatchDto = z.infer<typeof noteBodyBatchDto>;
 
+/* --------------------------------- sharing -------------------------------- */
+
+export const shareTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{32,64}$/);
+
+/** Management view of one note's public-sharing state. */
+export const noteShareDto = z.object({
+  noteId: idSchema,
+  enabled: z.boolean(),
+  url: z.string().nullable(),
+  createdAt: isoDateTime.nullable(),
+});
+export type NoteShareDto = z.infer<typeof noteShareDto>;
+
+/** Everything the unauthenticated read-only share page may expose. */
+export const publicNoteShareDto = z.object({
+  title: z.string(),
+  body: z.string(),
+  createdAt: isoDateTime,
+  updatedAt: isoDateTime,
+});
+export type PublicNoteShareDto = z.infer<typeof publicNoteShareDto>;
+
 /** Batch creation is idempotent when the caller supplies a stable id. */
 export const createNotesBatchInput = z.object({
   items: z.array(createNoteInput).min(1).max(100),

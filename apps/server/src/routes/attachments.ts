@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import {
   ApiError,
   ERROR_CODES,
@@ -90,25 +90,35 @@ export function registerAttachmentRoutes(app: FastifyInstance, deps: AttachmentD
     const row = rows[0];
     if (!row) throw new ApiError(ERROR_CODES.NOT_FOUND, '附件不存在');
 
-    const data = await deps.storage.read(String(row.storage_key));
-    if (!data) throw new ApiError(ERROR_CODES.NOT_FOUND, '附件文件缺失');
-
-    const filename = String(row.filename);
-    const mime = String(row.mime);
-    const inlineImage = isImageMime(mime) && mime !== 'image/svg+xml';
-    const disposition = inlineImage
-      ? `inline; filename*=UTF-8''${encodeURIComponent(filename)}`
-      : contentDisposition(filename.replace(/\.[^.]+$/, ''), extOf(filename));
-
-    return reply
-      .header('content-type', mime)
-      .header('content-length', String(data.byteLength))
-      .header('content-disposition', disposition)
-      // Active content (SVG/HTML) must never execute in the app's own origin.
-      .header('x-content-type-options', 'nosniff')
-      .header('content-security-policy', "default-src 'none'; sandbox")
-      .send(Buffer.from(data));
+    return sendAttachment(reply, deps.storage, row);
   });
+}
+
+/** Shared response path for authenticated and share-token attachment reads. */
+export async function sendAttachment(
+  reply: FastifyReply,
+  storage: AttachmentStorage,
+  row: Record<string, unknown>,
+): Promise<FastifyReply> {
+  const data = await storage.read(String(row.storage_key));
+  if (!data) throw new ApiError(ERROR_CODES.NOT_FOUND, '附件文件缺失');
+
+  const filename = String(row.filename);
+  const mime = String(row.mime);
+  const inlineImage = isImageMime(mime) && mime !== 'image/svg+xml';
+  const disposition = inlineImage
+    ? `inline; filename*=UTF-8''${encodeURIComponent(filename)}`
+    : contentDisposition(filename.replace(/\.[^.]+$/, ''), extOf(filename));
+
+  return reply
+    .header('content-type', mime)
+    .header('content-length', String(data.byteLength))
+    .header('content-disposition', disposition)
+    // Active content (SVG/HTML) must never execute in the app's own origin.
+    .header('x-content-type-options', 'nosniff')
+    .header('content-security-policy', "default-src 'none'; sandbox")
+    .header('cache-control', 'no-store')
+    .send(Buffer.from(data));
 }
 
 function extOf(filename: string): string {

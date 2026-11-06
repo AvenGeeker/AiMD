@@ -44,6 +44,7 @@ markdown-it / KaTeX / mermaid / DOMPurify。**唯一真相是 Y.Doc**，关系�
 | **目录与标签** | 无限层级目录、拖拽移动、标签多选 AND 过滤；排序用分数索引，插入不打乱并发编辑 |
 | **搜索** | Postgres `pg_trgm` 子串匹配，中文可用（至少 2 个字符） |
 | **附件** | 图片粘贴 / 拖拽上传，鉴权下载，SVG 带独立 CSP |
+| **公开分享** | 每篇笔记可生成不可猜测的只读链接；访客无需登录即可阅读最新正文与图片，关闭分享或移入回收站后链接立即失效 |
 | **导入导出** | 单篇导出 `.md`；整库导出 ZIP（保留目录层级与中文名）；`.md` 或 ZIP 导入重建层级 |
 | **回收站** | 软删除 / 恢复 / 彻底删除 |
 | **响应式与移动端** | 同一份 Web 构建产物跑在浏览器、Electron 与 Capacitor 壳里；手机端为 Tab Bar + FAB + 大标题列表，支持长按多选批量操作、左划删除（可撤销）、下拉刷新与沉浸式状态栏/导航栏；适配折叠屏与横竖屏旋转 |
@@ -361,7 +362,7 @@ REST 写操作（移动目录、置顶、打标签）不会绕过 CRDT：服务�
 | `ALLOW_REGISTRATION` | `true` | 建好自己的账号后建议改成 `false` |
 | `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` | 空 | 首次启动时创建并标记管理员；密码至少 8 位，留空则跳过 |
 | `UPLOAD_DIR` | `./data/uploads` | 附件目录（容器内挂 `/data/uploads` 卷） |
-| `PUBLIC_URL` | 空 | 对外访问地址，用于生成附件绝对链接 |
+| `PUBLIC_URL` | 空 | 对外访问地址，用于生成附件与公开分享链接 |
 | `WEB_DIST_DIR` | 空 | 指向 `apps/web/dist` 即由服务端托管前端；留空则只提供 API |
 | `COLLAB_PUBLIC_URL` | 空 | 浏览器该连的 WS 地址，运行时注入 `index.html`。有反向代理映射 `/collab` 时留空 |
 | `SEARCH_DRIVER` | `trgm` | 预留位，目前只实现了 `trgm` |
@@ -420,6 +421,8 @@ REST 写操作（移动目录、置顶、打标签）不会绕过 CRDT：服务�
 | GET | `/notes/:id/export` · `/export/vault` | 单篇 `.md` · 整库 ZIP |
 | POST | `/import` | 上传 `.md` 或 ZIP，重建目录层级 |
 | POST | `/attachments` · GET `/attachments/:id` | 图片上传与鉴权下载 |
+| GET/POST/DELETE | `/notes/:id/share` | 读取、开启或关闭一篇笔记的公开分享 |
+| GET | `/shares/:token` · `/shares/:token/attachments/:id` | 免登录读取分享正文与受限附件 |
 | GET | `/ai/overview` | AI 配置掩码、待回填计数、当前任务 |
 | PUT/DELETE | `/ai/config` · POST `/ai/config/test` | 保存/清空 AI 配置 · 测试连接 |
 | POST | `/notes/:id/ai/analyze` | 手动生成/重跑当前笔记的 AI 总结 |
@@ -453,6 +456,7 @@ REST 写操作（移动目录、置顶、打标签）不会绕过 CRDT：服务�
 - **AI `baseUrl`**：默认只允许 HTTPS 公网地址，防 SSRF；`AI_ALLOW_PRIVATE_BASE_URL=true` 才能连内网。
 - **笔记 HTML**：原始 HTML 全部转义（`html: false`），渲染结果再过 DOMPurify。
 - **附件 SVG**：以独立 CSP 提供，上传的 SVG 无法脚本化同源。
+- **公开分享**：32 字节随机能力链接，响应 `no-store` 且页面 `noindex`；只暴露标题、正文和更新时间，附件按笔记归属收窄，关闭分享或移入回收站后统一返回 404。
 - **配置**：`JWT_SECRET` 没有默认值，缺失或短于 32 字符直接启动失败。
 - **仓库**：`scripts/check-secrets.sh` 在 CI 与 pre-commit 钩子里扫描凭据（含全历史扫描），见下文。
 
@@ -506,6 +510,16 @@ git update-index --skip-worktree apps/mobile/ios/App/App.xcodeproj/project.pbxpr
 - 手机端支持 Android `ACTION_SEND`、iOS Share Extension（App Group + `aimarkdown://share`）和 HarmonyOS `sendData`。三端还各提供一个「收藏链接」桌面卡片：Android AppWidget、iOS WidgetKit 和 HarmonyOS FormExtensionAbility，点按后直接打开收藏输入框。iOS 真机分享扩展与小组件需要开发者团队签名。
 
 服务端需要 `ffmpeg`/`ffprobe`（Docker 镜像已安装；本机开发可 `brew install ffmpeg`）。同一链接默认更新已有收藏。
+
+---
+
+## 公开分享
+
+- 桌面端点击笔记标题栏的分享按钮，手机端在「笔记操作」菜单里选择「分享笔记」。
+- 开启后会得到一个形如 `https://你的域名/s/<随机令牌>` 的链接；任何拿到链接的人都能在浏览器里只读查看标题、正文、更新时间和正文引用的图片，无需登录。
+- 分享页每次打开都读取当前 Y.Doc 内容；已经打开的页面不会实时推送后续编辑，刷新即可看到最新版本。
+- 关闭分享、把笔记移入回收站或彻底删除都会让链接立即失效；再次开启会生成全新链接，旧链接不会恢复。
+- 公开链接是能力地址，默认不进入搜索引擎索引；不要在链接会外泄的场景里分享敏感内容。
 
 ---
 
